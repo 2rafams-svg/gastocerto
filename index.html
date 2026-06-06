@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="theme-color" content="#0f0f0f"/>
+<title>Gasto Certo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+:root{
+  --bg:#0f0f0f;--surface:#1a1a1a;--surface2:#222;--border:#2a2a2a;
+  --accent:#c8f04a;--text:#f0f0f0;--text2:#888;--text3:#555;
+  --red:#ff4f4f;--orange:#ff9f43;--radius:16px;
+  --safe-top:env(safe-area-inset-top,0px);--safe-bot:env(safe-area-inset-bottom,0px);
+}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;font-size:15px;overscroll-behavior:none}
+body{display:flex;flex-direction:column;max-width:430px;margin:0 auto;position:relative}
+
+.header{padding:calc(var(--safe-top) + 18px) 20px 14px;background:var(--bg);position:sticky;top:0;z-index:100;border-bottom:1px solid var(--border)}
+.header-row{display:flex;align-items:center;justify-content:space-between}
+.app-title{font-family:'DM Serif Display',serif;font-size:22px;letter-spacing:-0.5px}
+.app-title span{color:var(--accent)}
+.month-pill{background:var(--surface);border:1px solid var(--border);border-radius:100px;padding:6px 14px;font-size:13px;font-weight:500;color:var(--text2);cursor:pointer;display:flex;align-items:center;gap:6px}
+.month-pill svg{width:14px;height:14px;stroke:var(--text2)}
+
+.tabs{display:flex;gap:4px;padding:14px 20px 0;background:var(--bg);position:sticky;top:65px;z-index:99}
+.tab{flex:1;padding:9px 0;border-radius:100px;border:none;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:500;cursor:pointer;transition:all .2s;background:var(--surface);color:var(--text2)}
+.tab.active{background:var(--accent);color:#0f0f0f}
+
+.content{flex:1;overflow-y:auto;padding:16px 20px calc(80px + var(--safe-bot));-webkit-overflow-scrolling:touch}
+
+.cat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:12px;position:relative;overflow:hidden}
+.cat-card::before{content:'';position:absolute;top:0;left:0;width:4px;height:100%;background:var(--accent);border-radius:4px 0 0 4px}
+.cat-card.over-budget::before{background:var(--red)}
+.cat-card.warning::before{background:var(--orange)}
+
+.cat-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px}
+.cat-name{font-family:'DM Serif Display',serif;font-size:18px}
+
+.cat-values{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+.val-block{background:var(--surface2);border-radius:10px;padding:10px}
+.val-label{font-size:11px;color:var(--text3);margin-bottom:3px;font-weight:500;text-transform:uppercase;letter-spacing:.5px}
+.val-num{font-size:16px;font-weight:600}
+.val-num.positive{color:var(--accent)}
+.val-num.negative{color:var(--red)}
+.val-num.budget{color:var(--text)}
+.val-num.spent{color:var(--text2)}
+
+.progress-bar{height:4px;background:var(--border);border-radius:100px;overflow:hidden;margin-bottom:10px}
+.progress-fill{height:100%;border-radius:100px;background:var(--accent);transition:width .4s ease}
+.progress-fill.warning{background:var(--orange)}
+.progress-fill.danger{background:var(--red)}
+
+.forecast{font-size:12px;color:var(--text3);font-style:italic;margin-bottom:10px}
+.forecast strong{color:var(--text2);font-style:normal}
+
+.add-expense-btn{width:100%;padding:10px;border-radius:10px;border:1px dashed var(--border);background:transparent;color:var(--text2);font-family:'DM Sans',sans-serif;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;margin-top:10px;transition:all .2s}
+.add-expense-btn:active{background:var(--surface2);border-color:var(--accent);color:var(--accent)}
+.add-expense-btn svg{width:14px;height:14px;stroke:currentColor}
+
+.expense-item{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)}
+.expense-item:last-child{border-bottom:none}
+.expense-left{flex:1}
+.expense-name{font-size:14px;font-weight:500}
+.expense-date{font-size:11px;color:var(--text3);margin-top:2px}
+.expense-right{display:flex;align-items:center;gap:10px}
+.expense-value{font-size:14px;font-weight:600}
+.expense-actions{display:flex;gap:4px}
+.exp-btn{width:26px;height:26px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);display:flex;align-items:center;justify-content:center;cursor:pointer}
+.exp-btn svg{width:12px;height:12px;stroke:var(--text2)}
+
+.hist-cat-item{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:8px}
+.hist-cat-name{font-weight:500;margin-bottom:6px}
+.hist-row{display:flex;justify-content:space-between;font-size:13px;color:var(--text2);margin-bottom:3px}
+.hist-row span:last-child{color:var(--text);font-weight:500}
+.month-block{margin-bottom:20px}
+.month-title{font-family:'DM Serif Display',serif;font-size:16px;margin-bottom:10px;color:var(--text2)}
+
+.cat-manage-item{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between}
+.cat-manage-name{font-weight:500}
+.cat-manage-budget{font-size:13px;color:var(--text2);margin-top:2px}
+.icon-btn{width:30px;height:30px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);display:flex;align-items:center;justify-content:center;cursor:pointer}
+.icon-btn svg{width:14px;height:14px;stroke:var(--text2)}
+
+.fab{position:fixed;bottom:calc(20px + var(--safe-bot));right:20px;width:56px;height:56px;border-radius:100px;border:none;background:var(--accent);color:#0f0f0f;font-size:26px;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 20px rgba(200,240,74,.3);z-index:200;transition:transform .15s}
+.fab:active{transform:scale(.92)}
+
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:300;display:flex;align-items:flex-end;justify-content:center;opacity:0;pointer-events:none;transition:opacity .25s}
+.modal-overlay.open{opacity:1;pointer-events:all}
+.modal{background:var(--surface);border-radius:24px 24px 0 0;padding:24px 20px calc(24px + var(--safe-bot));width:100%;max-width:430px;transform:translateY(100%);transition:transform .3s cubic-bezier(.4,0,.2,1);max-height:90vh;overflow-y:auto}
+.modal-overlay.open .modal{transform:translateY(0)}
+.modal-title{font-family:'DM Serif Display',serif;font-size:20px;margin-bottom:20px}
+.modal-handle{width:36px;height:4px;background:var(--border);border-radius:100px;margin:0 auto 20px}
+
+.form-group{margin-bottom:16px}
+.form-label{font-size:12px;color:var(--text2);margin-bottom:6px;display:block;font-weight:500;text-transform:uppercase;letter-spacing:.5px}
+.form-input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:15px;outline:none;transition:border-color .2s;-webkit-appearance:none}
+.form-input:focus{border-color:var(--accent)}
+.form-input::placeholder{color:var(--text3)}
+select.form-input{cursor:pointer}
+
+.btn-primary{width:100%;padding:14px;border-radius:12px;border:none;background:var(--accent);color:#0f0f0f;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:600;cursor:pointer;transition:opacity .2s}
+.btn-primary:active{opacity:.85}
+.btn-primary:disabled{opacity:.5;cursor:not-allowed}
+.btn-secondary{width:100%;padding:14px;border-radius:12px;border:1px solid var(--border);background:transparent;color:var(--text2);font-family:'DM Sans',sans-serif;font-size:15px;cursor:pointer;margin-top:8px}
+
+.close-month-btn{width:100%;padding:14px;border-radius:12px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;font-weight:500;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:16px}
+.close-month-btn svg{width:16px;height:16px;stroke:var(--accent)}
+
+.empty{text-align:center;padding:40px 20px;color:var(--text3)}
+.empty-icon{font-size:36px;margin-bottom:12px}
+.empty-text{font-size:14px}
+
+.loading{text-align:center;padding:60px 20px;color:var(--text3)}
+.spinner{width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 16px}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.toast{position:fixed;bottom:calc(90px + var(--safe-bot));left:50%;transform:translateX(-50%) translateY(20px);background:var(--surface);border:1px solid var(--border);border-radius:100px;padding:10px 20px;font-size:13px;font-weight:500;opacity:0;transition:all .3s;z-index:400;white-space:nowrap}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast.error{border-color:var(--red);color:var(--red)}
+.toast.success{border-color:var(--accent);color:var(--accent)}
+
+.month-adj-item{background:var(--surface2);border-radius:10px;padding:12px 14px;margin-bottom:10px}
+.month-adj-name{font-size:14px;font-weight:500;margin-bottom:8px}
+.month-adj-row{display:flex;align-items:center;gap:10px}
+.month-adj-row .form-input{flex:1;padding:8px 12px;font-size:14px}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-row">
+    <div class="app-title">Gasto<span>Certo</span></div>
+    <div class="month-pill" onclick="openMonthPicker()">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      <span id="current-month-label">---</span>
+    </div>
+  </div>
+</div>
+
+<div class="tabs">
+  <button class="tab active" onclick="switchTab('home',this)">Início</button>
+  <button class="tab" onclick="switchTab('categorias',this)">Categorias</button>
+  <button class="tab" onclick="switchTab('historico',this)">Histórico</button>
+</div>
+
+<div class="content" id="content">
+  <div class="loading"><div class="spinner"></div>Carregando...</div>
+</div>
+
+<button class="fab" id="fab" onclick="onFab()" style="display:none">+</button>
+<div class="toast" id="toast"></div>
+
+<div class="modal-overlay" id="modal-overlay" onclick="closeModalOverlay(event)">
+  <div class="modal" id="modal">
+    <div class="modal-handle"></div>
+    <div id="modal-content"></div>
+  </div>
+</div>
+
+<script>
+// ===================== CONFIG =====================
+const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
+
+// ===================== API =====================
+async function sbFetch(path, opts={}){
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    ...opts,
+    headers:{
+      'apikey': SUPABASE_KEY,
+      'Authorization': `Bearer ${SUPABASE_KEY}`,
+      'Content-Type': 'application/json',
+      'Prefer': opts.prefer || 'return=representation',
+      ...(opts.headers||{})
+    }
+  });
+  if(!res.ok){
+    const err = await res.text();
+    throw new Error(err);
+  }
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
+}
+
+const api = {
+  // Categories
+  getCategories: () => sbFetch('categories?order=position.asc'),
+  insertCategory: (d) => sbFetch('categories', {method:'POST', body:JSON.stringify(d)}),
+  updateCategory: (id, d) => sbFetch(`categories?id=eq.${id}`, {method:'PATCH', body:JSON.stringify(d)}),
+  deleteCategory: (id) => sbFetch(`categories?id=eq.${id}`, {method:'DELETE', prefer:'return=minimal', headers:{Prefer:'return=minimal'}}),
+
+  // Months
+  getMonths: () => sbFetch('months?order=key.desc'),
+  getMonth: (key) => sbFetch(`months?key=eq.${key}`),
+  upsertMonth: (d) => sbFetch('months', {method:'POST', body:JSON.stringify(d), headers:{Prefer:'resolution=merge-duplicates,return=representation'}}),
+  closeMonth: (key) => sbFetch(`months?key=eq.${key}`, {method:'PATCH', body:JSON.stringify({closed:true})}),
+
+  // Expenses
+  getExpenses: (monthKey) => sbFetch(`expenses?month_key=eq.${monthKey}&order=date.desc`),
+  insertExpense: (d) => sbFetch('expenses', {method:'POST', body:JSON.stringify(d)}),
+  updateExpense: (id, d) => sbFetch(`expenses?id=eq.${id}`, {method:'PATCH', body:JSON.stringify(d)}),
+  deleteExpense: (id) => sbFetch(`expenses?id=eq.${id}`, {method:'DELETE', prefer:'return=minimal', headers:{Prefer:'return=minimal'}}),
+};
+
+// ===================== STATE =====================
+let categories = [];
+let months = [];
+let currentMonthKey = '';
+let viewMonthKey = '';
+let expenses = []; // expenses for viewMonthKey
+let currentTab = 'home';
+
+function uid(){ return Math.random().toString(36).slice(2,9) }
+
+function monthKeyOf(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}` }
+function monthLabel(key){
+  if(!key) return '';
+  const [y,m] = key.split('-');
+  const ms = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  return `${ms[parseInt(m)-1]} ${y}`;
+}
+function nextMonthKey(key){
+  const [y,m] = key.split('-').map(Number);
+  const d = new Date(y, m, 1);
+  return monthKeyOf(d);
+}
+
+function totalSpent(catId){
+  return expenses.filter(e=>e.cat_id===catId).reduce((s,e)=>s+parseFloat(e.value),0);
+}
+
+// ===================== INIT =====================
+async function init(){
+  try{
+    categories = await api.getCategories();
+    months = await api.getMonths();
+    const now = monthKeyOf(new Date());
+
+    // Ensure current month exists
+    let cur = months.find(m=>m.key===now);
+    if(!cur){
+      await api.upsertMonth({key:now, closed:false});
+      months = await api.getMonths();
+      cur = months.find(m=>m.key===now);
+    }
+    currentMonthKey = now;
+    viewMonthKey = now;
+    await loadExpenses();
+    render();
+  }catch(e){
+    document.getElementById('content').innerHTML = `<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-text">Erro ao conectar com o banco.<br><small style="color:var(--text3)">${e.message}</small></div></div>`;
+  }
+}
+
+async function loadExpenses(){
+  expenses = await api.getExpenses(viewMonthKey);
+}
+
+// ===================== RENDER =====================
+function render(){
+  document.getElementById('current-month-label').textContent = monthLabel(viewMonthKey);
+  const isCurrentMonth = viewMonthKey === currentMonthKey;
+  document.getElementById('fab').style.display = (currentTab==='home'||currentTab==='categorias') && isCurrentMonth ? 'flex' : 'none';
+
+  const el = document.getElementById('content');
+  if(currentTab==='home') el.innerHTML = renderHome();
+  else if(currentTab==='categorias') el.innerHTML = renderCategorias();
+  else el.innerHTML = renderHistorico();
+}
+
+function renderHome(){
+  const isCurrentMonth = viewMonthKey === currentMonthKey;
+  const curMonthData = months.find(m=>m.key===viewMonthKey);
+  let html = '';
+
+  if(isCurrentMonth && curMonthData && !curMonthData.closed){
+    html += `<button class="close-month-btn" onclick="openCloseMonth()">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
+      Fechar Mês e Abrir Próximo
+    </button>`;
+  }
+
+  if(categories.length===0){
+    return html + `<div class="empty"><div class="empty-icon">📂</div><div class="empty-text">Nenhuma categoria ainda.<br>Vá em Categorias e adicione uma.</div></div>`;
+  }
+
+  const today = new Date();
+  const dayOfMonth = today.getDate();
+
+  categories.forEach(cat=>{
+    const catExpenses = expenses.filter(e=>e.cat_id===cat.id);
+    const spent = catExpenses.reduce((s,e)=>s+parseFloat(e.value),0);
+    const available = cat.budget - spent;
+    const pct = Math.min((spent/cat.budget)*100,100);
+    const isOver = available < 0;
+    const isWarn = !isOver && pct > 75;
+
+    let forecast = '';
+    if(isCurrentMonth && spent > 0 && dayOfMonth > 0){
+      const dailyRate = spent / dayOfMonth;
+      if(dailyRate > 0 && !isOver){
+        const daysLeft = available / dailyRate;
+        const endDate = new Date(today);
+        endDate.setDate(today.getDate() + Math.floor(daysLeft));
+        forecast = `Nesse ritmo, o saldo acaba em <strong>${endDate.toLocaleDateString('pt-BR',{day:'2-digit',month:'short'})}</strong>`;
+      } else if(isOver){
+        forecast = `Orçamento estourado em <strong>R$ ${Math.abs(available).toFixed(2).replace('.',',')}</strong>`;
+      }
+    }
+
+    let expHtml = '';
+    catExpenses.slice().sort((a,b)=>new Date(b.date)-new Date(a.date)).forEach(e=>{
+      expHtml += `<div class="expense-item">
+        <div class="expense-left">
+          <div class="expense-name">${e.name}</div>
+          <div class="expense-date">${new Date(e.date+'T12:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'})}</div>
+        </div>
+        <div class="expense-right">
+          <div class="expense-value">R$ ${parseFloat(e.value).toFixed(2).replace('.',',')}</div>
+          ${isCurrentMonth ? `<div class="expense-actions">
+            <div class="exp-btn" onclick="openEditExpense('${e.id}')"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></div>
+            <div class="exp-btn" style="border-color:#ff4f4f44" onclick="confirmDeleteExpense('${e.id}')"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" style="stroke:#ff4f4f"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg></div>
+          </div>` : ''}
+        </div>
+      </div>`;
+    });
+
+    html += `<div class="cat-card ${isOver?'over-budget':isWarn?'warning':''}">
+      <div class="cat-header"><div class="cat-name">${cat.name}</div></div>
+      <div class="cat-values">
+        <div class="val-block"><div class="val-label">Orçamento</div><div class="val-num budget">R$ ${parseFloat(cat.budget).toFixed(2).replace('.',',')}</div></div>
+        <div class="val-block"><div class="val-label">Gasto</div><div class="val-num spent">R$ ${spent.toFixed(2).replace('.',',')}</div></div>
+        <div class="val-block" style="grid-column:1/-1"><div class="val-label">Disponível</div><div class="val-num ${available>=0?'positive':'negative'}">R$ ${available.toFixed(2).replace('.',',')}</div></div>
+      </div>
+      <div class="progress-bar"><div class="progress-fill ${isOver?'danger':isWarn?'warning':''}" style="width:${pct}%"></div></div>
+      ${forecast?`<div class="forecast">${forecast}</div>`:''}
+      ${expHtml}
+      ${isCurrentMonth?`<button class="add-expense-btn" onclick="openAddExpense('${cat.id}')">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Adicionar gasto
+      </button>`:''}
+    </div>`;
+  });
+  return html;
+}
+
+function renderCategorias(){
+  if(categories.length===0) return `<div class="empty"><div class="empty-icon">📂</div><div class="empty-text">Nenhuma categoria ainda.</div></div>`;
+  return categories.map(cat=>`
+    <div class="cat-manage-item">
+      <div>
+        <div class="cat-manage-name">${cat.name}</div>
+        <div class="cat-manage-budget">Orçamento: R$ ${parseFloat(cat.budget).toFixed(2).replace('.',',')}</div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <div class="icon-btn" onclick="openEditCategory('${cat.id}')"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></div>
+        <div class="icon-btn" style="border-color:#ff4f4f44" onclick="confirmDeleteCategory('${cat.id}')"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" style="stroke:#ff4f4f"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg></div>
+      </div>
+    </div>`).join('');
+}
+
+function renderHistorico(){
+  if(months.length===0) return `<div class="empty"><div class="empty-icon">📅</div><div class="empty-text">Nenhum histórico ainda.</div></div>`;
+  // Rendered async - show loading first, fetch per month
+  setTimeout(renderHistoricoAsync, 0);
+  return `<div class="loading"><div class="spinner"></div>Carregando histórico...</div>`;
+}
+
+async function renderHistoricoAsync(){
+  const el = document.getElementById('content');
+  let html = '';
+  for(const month of months){
+    const exps = await api.getExpenses(month.key);
+    if(exps.length===0) continue;
+    html += `<div class="month-block"><div class="month-title">${monthLabel(month.key)} ${month.closed?'<span style="font-size:11px;color:var(--accent);font-family:DM Sans">✓ Fechado</span>':''}</div>`;
+    categories.forEach(cat=>{
+      const catExps = exps.filter(e=>e.cat_id===cat.id);
+      if(catExps.length===0) return;
+      const spent = catExps.reduce((s,e)=>s+parseFloat(e.value),0);
+      const avail = cat.budget - spent;
+      html += `<div class="hist-cat-item">
+        <div class="hist-cat-name">${cat.name}</div>
+        <div class="hist-row"><span>Orçamento</span><span>R$ ${parseFloat(cat.budget).toFixed(2).replace('.',',')}</span></div>
+        <div class="hist-row"><span>Gasto</span><span>R$ ${spent.toFixed(2).replace('.',',')}</span></div>
+        <div class="hist-row"><span>Saldo</span><span style="color:${avail>=0?'var(--accent)':'var(--red)'}">R$ ${avail.toFixed(2).replace('.',',')}</span></div>
+        <div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px">
+          ${catExps.map(e=>`<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2);padding:3px 0">
+            <span>${e.name} <span style="color:var(--text3)">${new Date(e.date+'T12:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'short'})}</span></span>
+            <span style="color:var(--text)">R$ ${parseFloat(e.value).toFixed(2).replace('.',',')}</span>
+          </div>`).join('')}
+        </div>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+  el.innerHTML = html || `<div class="empty"><div class="empty-icon">📅</div><div class="empty-text">Nenhum gasto registrado ainda.</div></div>`;
+}
+
+// ===================== MODAIS =====================
+function openModal(html){ document.getElementById('modal-content').innerHTML=html; document.getElementById('modal-overlay').classList.add('open') }
+function _closeModal(){ document.getElementById('modal-overlay').classList.remove('open') }
+function closeModalOverlay(e){ if(e.target===document.getElementById('modal-overlay')) _closeModal() }
+
+// ---- EXPENSE ----
+function openAddExpense(catId){
+  const today = new Date().toISOString().split('T')[0];
+  openModal(`
+    <div class="modal-title">Novo Gasto</div>
+    <div class="form-group"><label class="form-label">Categoria</label>
+      <select class="form-input" id="f-catId">${categories.map(c=>`<option value="${c.id}"${c.id===catId?' selected':''}>${c.name}</option>`).join('')}</select></div>
+    <div class="form-group"><label class="form-label">Descrição</label>
+      <input class="form-input" id="f-name" placeholder="Ex: Gasolina Shell" autocomplete="off"/></div>
+    <div class="form-group"><label class="form-label">Valor (R$)</label>
+      <input class="form-input" id="f-value" type="number" inputmode="decimal" placeholder="0,00" step="0.01" min="0"/></div>
+    <div class="form-group"><label class="form-label">Data</label>
+      <input class="form-input" id="f-date" type="date" value="${today}"/></div>
+    <button class="btn-primary" id="btn-save-exp" onclick="saveExpense(null)">Salvar</button>
+    <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
+}
+
+function openEditExpense(expId){
+  const e = expenses.find(x=>x.id===expId);
+  if(!e) return;
+  openModal(`
+    <div class="modal-title">Editar Gasto</div>
+    <div class="form-group"><label class="form-label">Categoria</label>
+      <select class="form-input" id="f-catId">${categories.map(c=>`<option value="${c.id}"${c.id===e.cat_id?' selected':''}>${c.name}</option>`).join('')}</select></div>
+    <div class="form-group"><label class="form-label">Descrição</label>
+      <input class="form-input" id="f-name" value="${e.name}" autocomplete="off"/></div>
+    <div class="form-group"><label class="form-label">Valor (R$)</label>
+      <input class="form-input" id="f-value" type="number" inputmode="decimal" value="${e.value}" step="0.01" min="0"/></div>
+    <div class="form-group"><label class="form-label">Data</label>
+      <input class="form-input" id="f-date" type="date" value="${e.date}"/></div>
+    <button class="btn-primary" id="btn-save-exp" onclick="saveExpense('${expId}')">Salvar</button>
+    <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
+}
+
+async function saveExpense(expId){
+  const catId = document.getElementById('f-catId').value;
+  const name = document.getElementById('f-name').value.trim();
+  const value = parseFloat(document.getElementById('f-value').value);
+  const date = document.getElementById('f-date').value;
+  if(!name||isNaN(value)||value<=0||!date){ showToast('Preencha todos os campos corretamente.','error'); return; }
+  const btn = document.getElementById('btn-save-exp');
+  btn.disabled=true; btn.textContent='Salvando...';
+  try{
+    if(expId){
+      await api.updateExpense(expId, {cat_id:catId, name, value, date});
+    } else {
+      await api.insertExpense({id:uid(), cat_id:catId, month_key:viewMonthKey, name, value, date});
+    }
+    expenses = await api.getExpenses(viewMonthKey);
+    _closeModal(); render(); showToast('Salvo!','success');
+  }catch(e){ showToast('Erro ao salvar.','error'); btn.disabled=false; btn.textContent='Salvar'; }
+}
+
+async function confirmDeleteExpense(expId){
+  if(!confirm('Deletar este gasto?')) return;
+  try{
+    await api.deleteExpense(expId);
+    expenses = expenses.filter(e=>e.id!==expId);
+    render(); showToast('Gasto removido.','success');
+  }catch{ showToast('Erro ao deletar.','error'); }
+}
+
+// ---- CATEGORY ----
+function openAddCategory(){
+  openModal(`
+    <div class="modal-title">Nova Categoria</div>
+    <div class="form-group"><label class="form-label">Nome</label>
+      <input class="form-input" id="f-cname" placeholder="Ex: Academia" autocomplete="off"/></div>
+    <div class="form-group"><label class="form-label">Orçamento mensal (R$)</label>
+      <input class="form-input" id="f-cbudget" type="number" inputmode="decimal" placeholder="0,00" step="0.01" min="0"/></div>
+    <button class="btn-primary" id="btn-save-cat" onclick="saveCategory(null)">Salvar</button>
+    <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
+}
+
+function openEditCategory(catId){
+  const cat = categories.find(c=>c.id===catId);
+  if(!cat) return;
+  openModal(`
+    <div class="modal-title">Editar Categoria</div>
+    <div class="form-group"><label class="form-label">Nome</label>
+      <input class="form-input" id="f-cname" value="${cat.name}" autocomplete="off"/></div>
+    <div class="form-group"><label class="form-label">Orçamento mensal (R$)</label>
+      <input class="form-input" id="f-cbudget" type="number" inputmode="decimal" value="${cat.budget}" step="0.01" min="0"/></div>
+    <button class="btn-primary" id="btn-save-cat" onclick="saveCategory('${catId}')">Salvar</button>
+    <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
+}
+
+async function saveCategory(catId){
+  const name = document.getElementById('f-cname').value.trim();
+  const budget = parseFloat(document.getElementById('f-cbudget').value);
+  if(!name||isNaN(budget)||budget<=0){ showToast('Preencha todos os campos corretamente.','error'); return; }
+  const btn = document.getElementById('btn-save-cat');
+  btn.disabled=true; btn.textContent='Salvando...';
+  try{
+    if(catId){
+      await api.updateCategory(catId, {name, budget});
+    } else {
+      await api.insertCategory({id:uid(), name, budget, position:categories.length});
+    }
+    categories = await api.getCategories();
+    _closeModal(); render(); showToast('Categoria salva!','success');
+  }catch{ showToast('Erro ao salvar.','error'); btn.disabled=false; btn.textContent='Salvar'; }
+}
+
+async function confirmDeleteCategory(catId){
+  if(!confirm('Deletar esta categoria? Os gastos associados serão mantidos no histórico.')) return;
+  try{
+    await api.deleteCategory(catId);
+    categories = categories.filter(c=>c.id!==catId);
+    render(); showToast('Categoria removida.','success');
+  }catch{ showToast('Erro ao deletar.','error'); }
+}
+
+// ---- FECHAR MÊS ----
+function openCloseMonth(){
+  const next = nextMonthKey(currentMonthKey);
+  openModal(`
+    <div class="modal-title">Fechar Mês</div>
+    <p style="font-size:13px;color:var(--text2);margin-bottom:16px">Ajuste os orçamentos para <strong style="color:var(--text)">${monthLabel(next)}</strong>:</p>
+    ${categories.map(cat=>`
+      <div class="month-adj-item">
+        <div class="month-adj-name">${cat.name}</div>
+        <div class="month-adj-row">
+          <span style="font-size:12px;color:var(--text3);white-space:nowrap">Orçamento (R$)</span>
+          <input class="form-input" id="adj-${cat.id}" type="number" inputmode="decimal" value="${cat.budget}" step="0.01" min="0"/>
+        </div>
+      </div>`).join('')}
+    <button class="btn-primary" id="btn-close-month" onclick="confirmCloseMonth('${next}')" style="margin-top:8px">Fechar e Abrir ${monthLabel(next)}</button>
+    <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
+}
+
+async function confirmCloseMonth(nextKey){
+  const btn = document.getElementById('btn-close-month');
+  btn.disabled=true; btn.textContent='Processando...';
+  try{
+    // Update budgets
+    for(const cat of categories){
+      const inp = document.getElementById(`adj-${cat.id}`);
+      if(inp){ const v=parseFloat(inp.value); if(!isNaN(v)&&v>0) await api.updateCategory(cat.id,{budget:v}); }
+    }
+    // Close current month
+    await api.closeMonth(currentMonthKey);
+    // Open next month
+    await api.upsertMonth({key:nextKey, closed:false});
+    // Reload
+    categories = await api.getCategories();
+    months = await api.getMonths();
+    currentMonthKey = nextKey;
+    viewMonthKey = nextKey;
+    expenses = await api.getExpenses(viewMonthKey);
+    _closeModal(); render(); showToast(`${monthLabel(nextKey)} aberto!`,'success');
+  }catch(e){ showToast('Erro ao fechar mês.','error'); btn.disabled=false; btn.textContent='Tentar novamente'; }
+}
+
+// ---- MÊS PICKER ----
+function openMonthPicker(){
+  openModal(`
+    <div class="modal-title">Selecionar Mês</div>
+    ${months.map(m=>`
+      <div onclick="selectMonth('${m.key}')" style="padding:14px 16px;border-radius:10px;margin-bottom:8px;background:${m.key===viewMonthKey?'var(--accent)':'var(--surface2)'};color:${m.key===viewMonthKey?'#0f0f0f':'var(--text)'};font-weight:${m.key===viewMonthKey?600:400};cursor:pointer">
+        ${monthLabel(m.key)} ${m.closed?'<span style="font-size:11px;opacity:.6">Fechado</span>':''}
+      </div>`).join('')}`);
+}
+
+async function selectMonth(key){
+  viewMonthKey = key;
+  _closeModal();
+  expenses = await api.getExpenses(viewMonthKey);
+  render();
+}
+
+// ---- FAB ----
+function onFab(){
+  if(currentTab==='categorias') openAddCategory();
+  else {
+    if(categories.length===0){ showToast('Crie uma categoria primeiro.','error'); return; }
+    openAddExpense(categories[0].id);
+  }
+}
+
+// ---- TABS ----
+async function switchTab(tab, btn){
+  currentTab = tab;
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  btn.classList.add('active');
+  viewMonthKey = currentMonthKey;
+  expenses = await api.getExpenses(viewMonthKey);
+  render();
+}
+
+// ---- TOAST ----
+function showToast(msg, type=''){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = `toast ${type} show`;
+  setTimeout(()=>t.classList.remove('show'), 2500);
+}
+
+// ===================== START =====================
+init();
+</script>
+</body>
+</html>

@@ -20,6 +20,37 @@
 html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;font-size:15px;overscroll-behavior:none}
 body{display:flex;flex-direction:column;max-width:430px;margin:0 auto;position:relative}
 
+/* ===== PIN SCREEN ===== */
+#pin-screen{
+  position:fixed;inset:0;background:var(--bg);z-index:1000;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  padding:40px 40px calc(40px + var(--safe-bot));
+}
+.pin-title{font-family:'DM Serif Display',serif;font-size:28px;margin-bottom:8px;text-align:center}
+.pin-title span{color:var(--accent)}
+.pin-subtitle{font-size:14px;color:var(--text2);margin-bottom:40px;text-align:center}
+.pin-dots{display:flex;gap:16px;margin-bottom:48px}
+.pin-dot{
+  width:18px;height:18px;border-radius:50%;border:2px solid var(--border);
+  transition:all .2s;background:transparent;
+}
+.pin-dot.filled{background:var(--accent);border-color:var(--accent)}
+.pin-dot.error{background:var(--red);border-color:var(--red)}
+.pin-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;width:100%;max-width:280px}
+.pin-key{
+  aspect-ratio:1;border-radius:50%;border:1px solid var(--border);
+  background:var(--surface);color:var(--text);font-family:'DM Sans',sans-serif;
+  font-size:22px;font-weight:500;cursor:pointer;transition:all .15s;
+  display:flex;align-items:center;justify-content:center;
+}
+.pin-key:active{background:var(--surface2);transform:scale(.93)}
+.pin-key.del{font-size:18px;color:var(--text2)}
+.pin-key.empty{border:none;background:transparent;pointer-events:none}
+.pin-error-msg{margin-top:20px;font-size:13px;color:var(--red);min-height:20px;text-align:center}
+
+/* ===== APP ===== */
+#app{display:flex;flex-direction:column;height:100%}
+
 .header{padding:calc(var(--safe-top) + 18px) 20px 14px;background:var(--bg);position:sticky;top:0;z-index:100;border-bottom:1px solid var(--border)}
 .header-row{display:flex;align-items:center;justify-content:space-between}
 .app-title{font-family:'DM Serif Display',serif;font-size:22px;letter-spacing:-0.5px}
@@ -31,16 +62,51 @@ body{display:flex;flex-direction:column;max-width:430px;margin:0 auto;position:r
 .tab{flex:1;padding:9px 0;border-radius:100px;border:none;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:500;cursor:pointer;transition:all .2s;background:var(--surface);color:var(--text2)}
 .tab.active{background:var(--accent);color:#0f0f0f}
 
-.content{flex:1;overflow-y:auto;padding:16px 20px calc(80px + var(--safe-bot));-webkit-overflow-scrolling:touch}
+.content{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch}
 
+/* ===== CAROUSEL HOME ===== */
+#home-content{display:flex;flex-direction:column;height:100%}
+.cat-carousel-wrap{flex:1;overflow:hidden;position:relative}
+.cat-carousel{
+  display:flex;height:100%;
+  transition:transform .35s cubic-bezier(.4,0,.2,1);
+  will-change:transform;
+}
+.cat-slide{
+  min-width:100%;height:100%;overflow-y:auto;
+  padding:16px 20px calc(80px + var(--safe-bot));
+  -webkit-overflow-scrolling:touch;
+}
+
+/* dots */
+.carousel-dots{
+  display:flex;justify-content:center;gap:6px;
+  padding:10px 0 6px;background:var(--bg);
+}
+.cdot{width:6px;height:6px;border-radius:50%;background:var(--border);transition:all .2s}
+.cdot.active{width:18px;border-radius:100px;background:var(--accent)}
+
+/* cat nav arrows */
+.cat-nav{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 20px;padding-bottom:8px;background:var(--bg);
+}
+.cat-nav-name{font-family:'DM Serif Display',serif;font-size:17px;flex:1;text-align:center}
+.cat-nav-btn{
+  width:34px;height:34px;border-radius:50%;border:1px solid var(--border);
+  background:var(--surface);display:flex;align-items:center;justify-content:center;
+  cursor:pointer;color:var(--text2);font-size:18px;user-select:none;
+}
+.cat-nav-btn:active{background:var(--surface2)}
+.cat-nav-btn.disabled{opacity:.25;pointer-events:none}
+
+/* ===== CAT CARD ===== */
 .cat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:12px;position:relative;overflow:hidden}
 .cat-card::before{content:'';position:absolute;top:0;left:0;width:4px;height:100%;background:var(--accent);border-radius:4px 0 0 4px}
 .cat-card.over-budget::before{background:var(--red)}
 .cat-card.warning::before{background:var(--orange)}
-
 .cat-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px}
 .cat-name{font-family:'DM Serif Display',serif;font-size:18px}
-
 .cat-values{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
 .val-block{background:var(--surface2);border-radius:10px;padding:10px}
 .val-label{font-size:11px;color:var(--text3);margin-bottom:3px;font-weight:500;text-transform:uppercase;letter-spacing:.5px}
@@ -49,19 +115,14 @@ body{display:flex;flex-direction:column;max-width:430px;margin:0 auto;position:r
 .val-num.negative{color:var(--red)}
 .val-num.budget{color:var(--text)}
 .val-num.spent{color:var(--text2)}
-
 .progress-bar{height:4px;background:var(--border);border-radius:100px;overflow:hidden;margin-bottom:10px}
 .progress-fill{height:100%;border-radius:100px;background:var(--accent);transition:width .4s ease}
 .progress-fill.warning{background:var(--orange)}
 .progress-fill.danger{background:var(--red)}
-
 .forecast{font-size:12px;color:var(--text3);font-style:italic;margin-bottom:10px}
 .forecast strong{color:var(--text2);font-style:normal}
-
 .add-expense-btn{width:100%;padding:10px;border-radius:10px;border:1px dashed var(--border);background:transparent;color:var(--text2);font-family:'DM Sans',sans-serif;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;margin-top:10px;transition:all .2s}
-.add-expense-btn:active{background:var(--surface2);border-color:var(--accent);color:var(--accent)}
 .add-expense-btn svg{width:14px;height:14px;stroke:currentColor}
-
 .expense-item{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)}
 .expense-item:last-child{border-bottom:none}
 .expense-left{flex:1}
@@ -73,6 +134,7 @@ body{display:flex;flex-direction:column;max-width:430px;margin:0 auto;position:r
 .exp-btn{width:26px;height:26px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);display:flex;align-items:center;justify-content:center;cursor:pointer}
 .exp-btn svg{width:12px;height:12px;stroke:var(--text2)}
 
+/* ===== HISTORICO ===== */
 .hist-cat-item{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:8px}
 .hist-cat-name{font-weight:500;margin-bottom:6px}
 .hist-row{display:flex;justify-content:space-between;font-size:13px;color:var(--text2);margin-bottom:3px}
@@ -80,79 +142,116 @@ body{display:flex;flex-direction:column;max-width:430px;margin:0 auto;position:r
 .month-block{margin-bottom:20px}
 .month-title{font-family:'DM Serif Display',serif;font-size:16px;margin-bottom:10px;color:var(--text2)}
 
-.cat-manage-item{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between}
+/* ===== CATEGORIAS (drag) ===== */
+.cat-list{padding:16px 20px calc(80px + var(--safe-bot))}
+.cat-manage-item{
+  background:var(--surface);border:1px solid var(--border);border-radius:12px;
+  padding:14px 16px;margin-bottom:10px;display:flex;align-items:center;
+  gap:12px;cursor:default;transition:box-shadow .2s,opacity .2s;
+  touch-action:none;user-select:none;
+}
+.cat-manage-item.dragging{opacity:.4}
+.cat-manage-item.drag-over{box-shadow:0 0 0 2px var(--accent)}
+.drag-handle{color:var(--text3);font-size:18px;cursor:grab;padding:2px 4px;flex-shrink:0}
+.drag-handle:active{cursor:grabbing}
+.cat-manage-info{flex:1}
 .cat-manage-name{font-weight:500}
 .cat-manage-budget{font-size:13px;color:var(--text2);margin-top:2px}
-.icon-btn{width:30px;height:30px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);display:flex;align-items:center;justify-content:center;cursor:pointer}
+.icon-btn{width:30px;height:30px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0}
 .icon-btn svg{width:14px;height:14px;stroke:var(--text2)}
 
+/* ===== FAB ===== */
 .fab{position:fixed;bottom:calc(20px + var(--safe-bot));right:20px;width:56px;height:56px;border-radius:100px;border:none;background:var(--accent);color:#0f0f0f;font-size:26px;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 20px rgba(200,240,74,.3);z-index:200;transition:transform .15s}
 .fab:active{transform:scale(.92)}
 
+/* ===== MODAL ===== */
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:300;display:flex;align-items:flex-end;justify-content:center;opacity:0;pointer-events:none;transition:opacity .25s}
 .modal-overlay.open{opacity:1;pointer-events:all}
 .modal{background:var(--surface);border-radius:24px 24px 0 0;padding:24px 20px calc(24px + var(--safe-bot));width:100%;max-width:430px;transform:translateY(100%);transition:transform .3s cubic-bezier(.4,0,.2,1);max-height:90vh;overflow-y:auto}
 .modal-overlay.open .modal{transform:translateY(0)}
 .modal-title{font-family:'DM Serif Display',serif;font-size:20px;margin-bottom:20px}
 .modal-handle{width:36px;height:4px;background:var(--border);border-radius:100px;margin:0 auto 20px}
-
 .form-group{margin-bottom:16px}
 .form-label{font-size:12px;color:var(--text2);margin-bottom:6px;display:block;font-weight:500;text-transform:uppercase;letter-spacing:.5px}
 .form-input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:15px;outline:none;transition:border-color .2s;-webkit-appearance:none}
 .form-input:focus{border-color:var(--accent)}
 .form-input::placeholder{color:var(--text3)}
 select.form-input{cursor:pointer}
-
 .btn-primary{width:100%;padding:14px;border-radius:12px;border:none;background:var(--accent);color:#0f0f0f;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:600;cursor:pointer;transition:opacity .2s}
 .btn-primary:active{opacity:.85}
 .btn-primary:disabled{opacity:.5;cursor:not-allowed}
 .btn-secondary{width:100%;padding:14px;border-radius:12px;border:1px solid var(--border);background:transparent;color:var(--text2);font-family:'DM Sans',sans-serif;font-size:15px;cursor:pointer;margin-top:8px}
-
 .close-month-btn{width:100%;padding:14px;border-radius:12px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;font-weight:500;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:16px}
 .close-month-btn svg{width:16px;height:16px;stroke:var(--accent)}
-
-.empty{text-align:center;padding:40px 20px;color:var(--text3)}
-.empty-icon{font-size:36px;margin-bottom:12px}
-.empty-text{font-size:14px}
-
-.loading{text-align:center;padding:60px 20px;color:var(--text3)}
-.spinner{width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 16px}
-@keyframes spin{to{transform:rotate(360deg)}}
-
-.toast{position:fixed;bottom:calc(90px + var(--safe-bot));left:50%;transform:translateX(-50%) translateY(20px);background:var(--surface);border:1px solid var(--border);border-radius:100px;padding:10px 20px;font-size:13px;font-weight:500;opacity:0;transition:all .3s;z-index:400;white-space:nowrap}
-.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
-.toast.error{border-color:var(--red);color:var(--red)}
-.toast.success{border-color:var(--accent);color:var(--accent)}
-
 .month-adj-item{background:var(--surface2);border-radius:10px;padding:12px 14px;margin-bottom:10px}
 .month-adj-name{font-size:14px;font-weight:500;margin-bottom:8px}
 .month-adj-row{display:flex;align-items:center;gap:10px}
 .month-adj-row .form-input{flex:1;padding:8px 12px;font-size:14px}
+
+/* ===== MISC ===== */
+.empty{text-align:center;padding:40px 20px;color:var(--text3)}
+.empty-icon{font-size:36px;margin-bottom:12px}
+.empty-text{font-size:14px}
+.loading{text-align:center;padding:60px 20px;color:var(--text3)}
+.spinner{width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 16px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.toast{position:fixed;bottom:calc(90px + var(--safe-bot));left:50%;transform:translateX(-50%) translateY(20px);background:var(--surface);border:1px solid var(--border);border-radius:100px;padding:10px 20px;font-size:13px;font-weight:500;opacity:0;transition:all .3s;z-index:400;white-space:nowrap;pointer-events:none}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast.error{border-color:var(--red);color:var(--red)}
+.toast.success{border-color:var(--accent);color:var(--accent)}
 </style>
 </head>
 <body>
 
-<div class="header">
-  <div class="header-row">
-    <div class="app-title">Gasto<span>Certo</span></div>
-    <div class="month-pill" onclick="openMonthPicker()">
-      <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-      <span id="current-month-label">---</span>
+<!-- PIN SCREEN -->
+<div id="pin-screen">
+  <div class="pin-title">Gasto<span>Certo</span></div>
+  <div class="pin-subtitle">Digite seu PIN para entrar</div>
+  <div class="pin-dots">
+    <div class="pin-dot" id="d0"></div>
+    <div class="pin-dot" id="d1"></div>
+    <div class="pin-dot" id="d2"></div>
+    <div class="pin-dot" id="d3"></div>
+  </div>
+  <div class="pin-grid">
+    <button class="pin-key" onclick="pinInput('1')">1</button>
+    <button class="pin-key" onclick="pinInput('2')">2</button>
+    <button class="pin-key" onclick="pinInput('3')">3</button>
+    <button class="pin-key" onclick="pinInput('4')">4</button>
+    <button class="pin-key" onclick="pinInput('5')">5</button>
+    <button class="pin-key" onclick="pinInput('6')">6</button>
+    <button class="pin-key" onclick="pinInput('7')">7</button>
+    <button class="pin-key" onclick="pinInput('8')">8</button>
+    <button class="pin-key" onclick="pinInput('9')">9</button>
+    <button class="pin-key empty"></button>
+    <button class="pin-key" onclick="pinInput('0')">0</button>
+    <button class="pin-key del" onclick="pinDel()">⌫</button>
+  </div>
+  <div class="pin-error-msg" id="pin-error"></div>
+</div>
+
+<!-- APP -->
+<div id="app" style="display:none;flex:1;flex-direction:column;height:100%">
+  <div class="header">
+    <div class="header-row">
+      <div class="app-title">Gasto<span>Certo</span></div>
+      <div class="month-pill" onclick="openMonthPicker()">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        <span id="current-month-label">---</span>
+      </div>
     </div>
   </div>
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('home',this)">Início</button>
+    <button class="tab" onclick="switchTab('categorias',this)">Categorias</button>
+    <button class="tab" onclick="switchTab('historico',this)">Histórico</button>
+  </div>
+  <div class="content" id="content" style="flex:1;overflow-y:auto">
+    <div class="loading"><div class="spinner"></div>Carregando...</div>
+  </div>
+  <button class="fab" id="fab" onclick="onFab()" style="display:none">+</button>
 </div>
 
-<div class="tabs">
-  <button class="tab active" onclick="switchTab('home',this)">Início</button>
-  <button class="tab" onclick="switchTab('categorias',this)">Categorias</button>
-  <button class="tab" onclick="switchTab('historico',this)">Histórico</button>
-</div>
-
-<div class="content" id="content">
-  <div class="loading"><div class="spinner"></div>Carregando...</div>
-</div>
-
-<button class="fab" id="fab" onclick="onFab()" style="display:none">+</button>
 <div class="toast" id="toast"></div>
 
 <div class="modal-overlay" id="modal-overlay" onclick="closeModalOverlay(event)">
@@ -166,172 +265,167 @@ select.form-input{cursor:pointer}
 // ===================== CONFIG =====================
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
+const CORRECT_PIN = () => String(new Date().getFullYear());
+
+// ===================== PIN =====================
+let pinValue = '';
+function pinInput(d){
+  if(pinValue.length>=4) return;
+  pinValue += d;
+  updatePinDots();
+  if(pinValue.length===4) setTimeout(checkPin, 120);
+}
+function pinDel(){
+  pinValue = pinValue.slice(0,-1);
+  updatePinDots();
+  document.getElementById('pin-error').textContent='';
+}
+function updatePinDots(){
+  for(let i=0;i<4;i++){
+    const d = document.getElementById('d'+i);
+    d.classList.remove('filled','error');
+    if(i<pinValue.length) d.classList.add('filled');
+  }
+}
+function checkPin(){
+  if(pinValue === CORRECT_PIN()){
+    document.getElementById('pin-screen').style.display='none';
+    document.getElementById('app').style.display='flex';
+    init();
+  } else {
+    for(let i=0;i<4;i++) document.getElementById('d'+i).classList.replace('filled','error');
+    document.getElementById('pin-error').textContent='PIN incorreto. Tente novamente.';
+    setTimeout(()=>{
+      pinValue='';
+      updatePinDots();
+      document.getElementById('pin-error').textContent='';
+    }, 900);
+  }
+}
 
 // ===================== API =====================
 async function sbFetch(path, opts={}){
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`,{
     ...opts,
     headers:{
-      'apikey': SUPABASE_KEY,
-      'Authorization': `Bearer ${SUPABASE_KEY}`,
-      'Content-Type': 'application/json',
-      'Prefer': opts.prefer || 'return=representation',
+      'apikey':SUPABASE_KEY,'Authorization':`Bearer ${SUPABASE_KEY}`,
+      'Content-Type':'application/json','Prefer':'return=representation',
       ...(opts.headers||{})
     }
   });
-  if(!res.ok){
-    const err = await res.text();
-    throw new Error(err);
-  }
-  const text = await res.text();
-  return text ? JSON.parse(text) : null;
+  if(!res.ok){ const e=await res.text(); throw new Error(e); }
+  const t=await res.text(); return t?JSON.parse(t):null;
 }
-
-const api = {
-  // Categories
-  getCategories: () => sbFetch('categories?order=position.asc'),
-  insertCategory: (d) => sbFetch('categories', {method:'POST', body:JSON.stringify(d)}),
-  updateCategory: (id, d) => sbFetch(`categories?id=eq.${id}`, {method:'PATCH', body:JSON.stringify(d)}),
-  deleteCategory: (id) => sbFetch(`categories?id=eq.${id}`, {method:'DELETE', prefer:'return=minimal', headers:{Prefer:'return=minimal'}}),
-
-  // Months
-  getMonths: () => sbFetch('months?order=key.desc'),
-  getMonth: (key) => sbFetch(`months?key=eq.${key}`),
-  upsertMonth: (d) => sbFetch('months', {method:'POST', body:JSON.stringify(d), headers:{Prefer:'resolution=merge-duplicates,return=representation'}}),
-  closeMonth: (key) => sbFetch(`months?key=eq.${key}`, {method:'PATCH', body:JSON.stringify({closed:true})}),
-
-  // Expenses
-  getExpenses: (monthKey) => sbFetch(`expenses?month_key=eq.${monthKey}&order=date.desc`),
-  insertExpense: (d) => sbFetch('expenses', {method:'POST', body:JSON.stringify(d)}),
-  updateExpense: (id, d) => sbFetch(`expenses?id=eq.${id}`, {method:'PATCH', body:JSON.stringify(d)}),
-  deleteExpense: (id) => sbFetch(`expenses?id=eq.${id}`, {method:'DELETE', prefer:'return=minimal', headers:{Prefer:'return=minimal'}}),
+const api={
+  getCategories:()=>sbFetch('categories?order=position.asc'),
+  insertCategory:(d)=>sbFetch('categories',{method:'POST',body:JSON.stringify(d)}),
+  updateCategory:(id,d)=>sbFetch(`categories?id=eq.${id}`,{method:'PATCH',body:JSON.stringify(d)}),
+  deleteCategory:(id)=>sbFetch(`categories?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
+  getMonths:()=>sbFetch('months?order=key.desc'),
+  upsertMonth:(d)=>sbFetch('months',{method:'POST',body:JSON.stringify(d),headers:{Prefer:'resolution=merge-duplicates,return=representation'}}),
+  closeMonth:(key)=>sbFetch(`months?key=eq.${key}`,{method:'PATCH',body:JSON.stringify({closed:true})}),
+  getExpenses:(mk)=>sbFetch(`expenses?month_key=eq.${mk}&order=date.desc`),
+  insertExpense:(d)=>sbFetch('expenses',{method:'POST',body:JSON.stringify(d)}),
+  updateExpense:(id,d)=>sbFetch(`expenses?id=eq.${id}`,{method:'PATCH',body:JSON.stringify(d)}),
+  deleteExpense:(id)=>sbFetch(`expenses?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
 };
 
 // ===================== STATE =====================
-let categories = [];
-let months = [];
-let currentMonthKey = '';
-let viewMonthKey = '';
-let expenses = []; // expenses for viewMonthKey
-let currentTab = 'home';
-
-function uid(){ return Math.random().toString(36).slice(2,9) }
-
-function monthKeyOf(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}` }
-function monthLabel(key){
-  if(!key) return '';
-  const [y,m] = key.split('-');
-  const ms = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
-  return `${ms[parseInt(m)-1]} ${y}`;
-}
-function nextMonthKey(key){
-  const [y,m] = key.split('-').map(Number);
-  const d = new Date(y, m, 1);
-  return monthKeyOf(d);
-}
-
-function totalSpent(catId){
-  return expenses.filter(e=>e.cat_id===catId).reduce((s,e)=>s+parseFloat(e.value),0);
-}
+let categories=[], months=[], currentMonthKey='', viewMonthKey='', expenses=[], currentTab='home', currentCatIdx=0;
+const uid=()=>Math.random().toString(36).slice(2,9);
+const monthKeyOf=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+const monthLabel=key=>{ if(!key)return''; const[y,m]=key.split('-'); return `${['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][+m-1]} ${y}`; };
+const nextMonthKey=key=>{ const[y,m]=key.split('-').map(Number); return monthKeyOf(new Date(y,m,1)); };
 
 // ===================== INIT =====================
 async function init(){
   try{
-    categories = await api.getCategories();
-    months = await api.getMonths();
-    const now = monthKeyOf(new Date());
-
-    // Ensure current month exists
-    let cur = months.find(m=>m.key===now);
-    if(!cur){
-      await api.upsertMonth({key:now, closed:false});
-      months = await api.getMonths();
-      cur = months.find(m=>m.key===now);
-    }
-    currentMonthKey = now;
-    viewMonthKey = now;
-    await loadExpenses();
+    categories=await api.getCategories();
+    months=await api.getMonths();
+    const now=monthKeyOf(new Date());
+    if(!months.find(m=>m.key===now)){ await api.upsertMonth({key:now,closed:false}); months=await api.getMonths(); }
+    currentMonthKey=now; viewMonthKey=now;
+    expenses=await api.getExpenses(viewMonthKey);
     render();
   }catch(e){
-    document.getElementById('content').innerHTML = `<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-text">Erro ao conectar com o banco.<br><small style="color:var(--text3)">${e.message}</small></div></div>`;
+    document.getElementById('content').innerHTML=`<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-text">Erro ao conectar.<br><small>${e.message}</small></div></div>`;
   }
-}
-
-async function loadExpenses(){
-  expenses = await api.getExpenses(viewMonthKey);
 }
 
 // ===================== RENDER =====================
 function render(){
-  document.getElementById('current-month-label').textContent = monthLabel(viewMonthKey);
-  const isCurrentMonth = viewMonthKey === currentMonthKey;
-  document.getElementById('fab').style.display = (currentTab==='home'||currentTab==='categorias') && isCurrentMonth ? 'flex' : 'none';
-
-  const el = document.getElementById('content');
-  if(currentTab==='home') el.innerHTML = renderHome();
-  else if(currentTab==='categorias') el.innerHTML = renderCategorias();
-  else el.innerHTML = renderHistorico();
+  document.getElementById('current-month-label').textContent=monthLabel(viewMonthKey);
+  const isNow=viewMonthKey===currentMonthKey;
+  document.getElementById('fab').style.display=(currentTab==='home'||currentTab==='categorias')&&isNow?'flex':'none';
+  const el=document.getElementById('content');
+  if(currentTab==='home') renderHome(el);
+  else if(currentTab==='categorias') renderCategorias(el);
+  else renderHistorico(el);
 }
 
-function renderHome(){
-  const isCurrentMonth = viewMonthKey === currentMonthKey;
-  const curMonthData = months.find(m=>m.key===viewMonthKey);
-  let html = '';
-
-  if(isCurrentMonth && curMonthData && !curMonthData.closed){
-    html += `<button class="close-month-btn" onclick="openCloseMonth()">
-      <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
-      Fechar Mês e Abrir Próximo
-    </button>`;
-  }
-
+// ===== HOME (carousel) =====
+function renderHome(el){
+  const isNow=viewMonthKey===currentMonthKey;
+  const mdata=months.find(m=>m.key===viewMonthKey);
   if(categories.length===0){
-    return html + `<div class="empty"><div class="empty-icon">📂</div><div class="empty-text">Nenhuma categoria ainda.<br>Vá em Categorias e adicione uma.</div></div>`;
+    el.innerHTML=`<div style="padding:16px 20px">${isNow&&mdata&&!mdata.closed?closeMonthBtnHtml():''}<div class="empty"><div class="empty-icon">📂</div><div class="empty-text">Nenhuma categoria ainda.</div></div></div>`;
+    return;
   }
+  if(currentCatIdx>=categories.length) currentCatIdx=0;
 
-  const today = new Date();
-  const dayOfMonth = today.getDate();
+  // Build slides
+  const slidesHtml = categories.map((cat,i)=>buildSlide(cat,isNow)).join('');
+  const dotsHtml = categories.map((_,i)=>`<div class="cdot${i===currentCatIdx?' active':''}" onclick="goToSlide(${i})"></div>`).join('');
 
-  categories.forEach(cat=>{
-    const catExpenses = expenses.filter(e=>e.cat_id===cat.id);
-    const spent = catExpenses.reduce((s,e)=>s+parseFloat(e.value),0);
-    const available = cat.budget - spent;
-    const pct = Math.min((spent/cat.budget)*100,100);
-    const isOver = available < 0;
-    const isWarn = !isOver && pct > 75;
+  el.innerHTML=`<div id="home-content" style="display:flex;flex-direction:column;height:100%">
+    ${isNow&&mdata&&!mdata.closed?`<div style="padding:12px 20px 0">${closeMonthBtnHtml()}</div>`:''}
+    <div class="cat-nav">
+      <div class="cat-nav-btn${currentCatIdx===0?' disabled':''}" onclick="goToSlide(${currentCatIdx-1})">‹</div>
+      <div class="cat-nav-name">${categories[currentCatIdx].name}</div>
+      <div class="cat-nav-btn${currentCatIdx===categories.length-1?' disabled':''}" onclick="goToSlide(${currentCatIdx+1})">›</div>
+    </div>
+    <div class="carousel-dots">${dotsHtml}</div>
+    <div class="cat-carousel-wrap" id="carousel-wrap">
+      <div class="cat-carousel" id="cat-carousel" style="transform:translateX(-${currentCatIdx*100}%)">
+        ${slidesHtml}
+      </div>
+    </div>
+  </div>`;
 
-    let forecast = '';
-    if(isCurrentMonth && spent > 0 && dayOfMonth > 0){
-      const dailyRate = spent / dayOfMonth;
-      if(dailyRate > 0 && !isOver){
-        const daysLeft = available / dailyRate;
-        const endDate = new Date(today);
-        endDate.setDate(today.getDate() + Math.floor(daysLeft));
-        forecast = `Nesse ritmo, o saldo acaba em <strong>${endDate.toLocaleDateString('pt-BR',{day:'2-digit',month:'short'})}</strong>`;
-      } else if(isOver){
-        forecast = `Orçamento estourado em <strong>R$ ${Math.abs(available).toFixed(2).replace('.',',')}</strong>`;
-      }
-    }
+  setupSwipe();
+}
 
-    let expHtml = '';
-    catExpenses.slice().sort((a,b)=>new Date(b.date)-new Date(a.date)).forEach(e=>{
-      expHtml += `<div class="expense-item">
-        <div class="expense-left">
-          <div class="expense-name">${e.name}</div>
-          <div class="expense-date">${new Date(e.date+'T12:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'})}</div>
-        </div>
-        <div class="expense-right">
-          <div class="expense-value">R$ ${parseFloat(e.value).toFixed(2).replace('.',',')}</div>
-          ${isCurrentMonth ? `<div class="expense-actions">
-            <div class="exp-btn" onclick="openEditExpense('${e.id}')"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></div>
-            <div class="exp-btn" style="border-color:#ff4f4f44" onclick="confirmDeleteExpense('${e.id}')"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" style="stroke:#ff4f4f"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg></div>
-          </div>` : ''}
-        </div>
-      </div>`;
-    });
+function buildSlide(cat, isNow){
+  const catExps=expenses.filter(e=>e.cat_id===cat.id);
+  const spent=catExps.reduce((s,e)=>s+parseFloat(e.value),0);
+  const available=cat.budget-spent;
+  const pct=Math.min((spent/cat.budget)*100,100);
+  const isOver=available<0, isWarn=!isOver&&pct>75;
+  const today=new Date(), dom=today.getDate();
+  let forecast='';
+  if(isNow&&spent>0&&dom>0){
+    const dr=spent/dom;
+    if(dr>0&&!isOver){
+      const end=new Date(today); end.setDate(dom+Math.floor(available/dr));
+      forecast=`Nesse ritmo, o saldo acaba em <strong>${end.toLocaleDateString('pt-BR',{day:'2-digit',month:'short'})}</strong>`;
+    } else if(isOver) forecast=`Orçamento estourado em <strong>R$ ${Math.abs(available).toFixed(2).replace('.',',')}</strong>`;
+  }
+  const expHtml=catExps.map(e=>`<div class="expense-item">
+    <div class="expense-left">
+      <div class="expense-name">${e.name}</div>
+      <div class="expense-date">${new Date(e.date+'T12:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'})}</div>
+    </div>
+    <div class="expense-right">
+      <div class="expense-value">R$ ${parseFloat(e.value).toFixed(2).replace('.',',')}</div>
+      ${isNow?`<div class="expense-actions">
+        <div class="exp-btn" onclick="openEditExpense('${e.id}')"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></div>
+        <div class="exp-btn" style="border-color:#ff4f4f44" onclick="confirmDeleteExpense('${e.id}')"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" style="stroke:#ff4f4f"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg></div>
+      </div>`:''}
+    </div>
+  </div>`).join('');
 
-    html += `<div class="cat-card ${isOver?'over-budget':isWarn?'warning':''}">
-      <div class="cat-header"><div class="cat-name">${cat.name}</div></div>
+  return `<div class="cat-slide">
+    <div class="cat-card ${isOver?'over-budget':isWarn?'warning':''}">
       <div class="cat-values">
         <div class="val-block"><div class="val-label">Orçamento</div><div class="val-num budget">R$ ${parseFloat(cat.budget).toFixed(2).replace('.',',')}</div></div>
         <div class="val-block"><div class="val-label">Gasto</div><div class="val-num spent">R$ ${spent.toFixed(2).replace('.',',')}</div></div>
@@ -340,77 +434,183 @@ function renderHome(){
       <div class="progress-bar"><div class="progress-fill ${isOver?'danger':isWarn?'warning':''}" style="width:${pct}%"></div></div>
       ${forecast?`<div class="forecast">${forecast}</div>`:''}
       ${expHtml}
-      ${isCurrentMonth?`<button class="add-expense-btn" onclick="openAddExpense('${cat.id}')">
+      ${isNow?`<button class="add-expense-btn" onclick="openAddExpense('${cat.id}')">
         <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         Adicionar gasto
       </button>`:''}
-    </div>`;
-  });
-  return html;
+    </div>
+  </div>`;
 }
 
-function renderCategorias(){
-  if(categories.length===0) return `<div class="empty"><div class="empty-icon">📂</div><div class="empty-text">Nenhuma categoria ainda.</div></div>`;
-  return categories.map(cat=>`
-    <div class="cat-manage-item">
-      <div>
+function closeMonthBtnHtml(){
+  return `<button class="close-month-btn" onclick="openCloseMonth()">
+    <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
+    Fechar Mês e Abrir Próximo
+  </button>`;
+}
+
+function goToSlide(i){
+  if(i<0||i>=categories.length) return;
+  currentCatIdx=i;
+  const carousel=document.getElementById('cat-carousel');
+  if(carousel) carousel.style.transform=`translateX(-${i*100}%)`;
+  document.querySelectorAll('.cdot').forEach((d,j)=>d.classList.toggle('active',j===i));
+  const nameEl=document.querySelector('.cat-nav-name');
+  if(nameEl) nameEl.textContent=categories[i].name;
+  document.querySelectorAll('.cat-nav-btn').forEach((btn,j)=>{
+    btn.classList.toggle('disabled', j===0?i===0:i===categories.length-1);
+    btn.onclick=j===0?()=>goToSlide(i-1):()=>goToSlide(i+1);
+  });
+}
+
+// Swipe
+function setupSwipe(){
+  const wrap=document.getElementById('carousel-wrap');
+  if(!wrap) return;
+  let startX=0,startY=0,dragging=false,locked=false;
+  wrap.addEventListener('touchstart',e=>{startX=e.touches[0].clientX;startY=e.touches[0].clientY;dragging=true;locked=false},{passive:true});
+  wrap.addEventListener('touchmove',e=>{
+    if(!dragging) return;
+    const dx=e.touches[0].clientX-startX, dy=e.touches[0].clientY-startY;
+    if(!locked){ if(Math.abs(dx)>Math.abs(dy)){locked='h';} else {locked='v';dragging=false;} }
+    if(locked==='h') e.preventDefault();
+  },{passive:false});
+  wrap.addEventListener('touchend',e=>{
+    if(!dragging) return; dragging=false;
+    const dx=e.changedTouches[0].clientX-startX;
+    if(Math.abs(dx)>40){ if(dx<0) goToSlide(currentCatIdx+1); else goToSlide(currentCatIdx-1); }
+  });
+}
+
+// ===== CATEGORIAS (drag & drop) =====
+function renderCategorias(el){
+  if(categories.length===0){
+    el.innerHTML=`<div class="cat-list"><div class="empty"><div class="empty-icon">📂</div><div class="empty-text">Nenhuma categoria ainda.</div></div></div>`;
+    return;
+  }
+  el.innerHTML=`<div class="cat-list" id="cat-list">
+    ${categories.map(cat=>`
+    <div class="cat-manage-item" draggable="true" data-id="${cat.id}" id="cmi-${cat.id}">
+      <div class="drag-handle" title="Arrastar">⠿</div>
+      <div class="cat-manage-info">
         <div class="cat-manage-name">${cat.name}</div>
-        <div class="cat-manage-budget">Orçamento: R$ ${parseFloat(cat.budget).toFixed(2).replace('.',',')}</div>
+        <div class="cat-manage-budget">R$ ${parseFloat(cat.budget).toFixed(2).replace('.',',')}/mês</div>
       </div>
       <div style="display:flex;gap:8px">
         <div class="icon-btn" onclick="openEditCategory('${cat.id}')"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></div>
         <div class="icon-btn" style="border-color:#ff4f4f44" onclick="confirmDeleteCategory('${cat.id}')"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" style="stroke:#ff4f4f"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg></div>
       </div>
-    </div>`).join('');
+    </div>`).join('')}
+  </div>`;
+  setupDragDrop();
 }
 
-function renderHistorico(){
-  if(months.length===0) return `<div class="empty"><div class="empty-icon">📅</div><div class="empty-text">Nenhum histórico ainda.</div></div>`;
-  // Rendered async - show loading first, fetch per month
-  setTimeout(renderHistoricoAsync, 0);
-  return `<div class="loading"><div class="spinner"></div>Carregando histórico...</div>`;
+function setupDragDrop(){
+  const list=document.getElementById('cat-list');
+  if(!list) return;
+  let dragSrc=null;
+
+  // Desktop drag
+  list.querySelectorAll('.cat-manage-item').forEach(item=>{
+    item.addEventListener('dragstart',e=>{
+      dragSrc=item; item.classList.add('dragging');
+      e.dataTransfer.effectAllowed='move';
+    });
+    item.addEventListener('dragend',()=>{ item.classList.remove('dragging'); list.querySelectorAll('.cat-manage-item').forEach(i=>i.classList.remove('drag-over')); });
+    item.addEventListener('dragover',e=>{ e.preventDefault(); if(item!==dragSrc){ list.querySelectorAll('.cat-manage-item').forEach(i=>i.classList.remove('drag-over')); item.classList.add('drag-over'); } });
+    item.addEventListener('drop',e=>{ e.preventDefault(); if(dragSrc&&item!==dragSrc){ reorderCats(dragSrc.dataset.id, item.dataset.id); } });
+  });
+
+  // Touch drag
+  let touchItem=null, clone=null, touchOffY=0;
+  list.querySelectorAll('.drag-handle').forEach(handle=>{
+    handle.addEventListener('touchstart',e=>{
+      touchItem=handle.closest('.cat-manage-item');
+      const r=touchItem.getBoundingClientRect();
+      touchOffY=e.touches[0].clientY-r.top;
+      clone=touchItem.cloneNode(true);
+      clone.style.cssText=`position:fixed;left:${r.left}px;width:${r.width}px;top:${r.top}px;z-index:999;opacity:.85;pointer-events:none;background:var(--surface);border:1px solid var(--accent);border-radius:12px;`;
+      document.body.appendChild(clone);
+      touchItem.classList.add('dragging');
+    },{passive:true});
+    handle.addEventListener('touchmove',e=>{
+      if(!clone) return;
+      e.preventDefault();
+      const y=e.touches[0].clientY-touchOffY;
+      clone.style.top=y+'px';
+      const els=[...list.querySelectorAll('.cat-manage-item:not(.dragging)')];
+      list.querySelectorAll('.cat-manage-item').forEach(i=>i.classList.remove('drag-over'));
+      const over=els.find(i=>{ const r=i.getBoundingClientRect(); return e.touches[0].clientY>r.top&&e.touches[0].clientY<r.bottom; });
+      if(over) over.classList.add('drag-over');
+    },{passive:false});
+    handle.addEventListener('touchend',e=>{
+      if(!clone) return;
+      clone.remove(); clone=null;
+      if(touchItem) touchItem.classList.remove('dragging');
+      const over=list.querySelector('.cat-manage-item.drag-over');
+      if(over&&touchItem&&over!==touchItem) reorderCats(touchItem.dataset.id, over.dataset.id);
+      list.querySelectorAll('.cat-manage-item').forEach(i=>i.classList.remove('drag-over'));
+      touchItem=null;
+    });
+  });
 }
 
-async function renderHistoricoAsync(){
-  const el = document.getElementById('content');
-  let html = '';
+async function reorderCats(srcId, targetId){
+  const srcIdx=categories.findIndex(c=>c.id===srcId);
+  const tgtIdx=categories.findIndex(c=>c.id===targetId);
+  if(srcIdx<0||tgtIdx<0) return;
+  const moved=categories.splice(srcIdx,1)[0];
+  categories.splice(tgtIdx,0,moved);
+  // Update positions
+  try{
+    await Promise.all(categories.map((c,i)=>api.updateCategory(c.id,{position:i})));
+    showToast('Ordem salva!','success');
+  }catch{ showToast('Erro ao salvar ordem.','error'); }
+  renderCategorias(document.getElementById('content'));
+}
+
+// ===== HISTORICO =====
+function renderHistorico(el){
+  el.innerHTML=`<div style="padding:16px 20px calc(80px + var(--safe-bot))"><div class="loading"><div class="spinner"></div>Carregando...</div></div>`;
+  renderHistoricoAsync(el);
+}
+async function renderHistoricoAsync(el){
+  let html='';
   for(const month of months){
-    const exps = await api.getExpenses(month.key);
-    if(exps.length===0) continue;
-    html += `<div class="month-block"><div class="month-title">${monthLabel(month.key)} ${month.closed?'<span style="font-size:11px;color:var(--accent);font-family:DM Sans">✓ Fechado</span>':''}</div>`;
+    const exps=await api.getExpenses(month.key);
+    if(!exps||exps.length===0) continue;
+    html+=`<div class="month-block"><div class="month-title">${monthLabel(month.key)} ${month.closed?'<span style="font-size:11px;color:var(--accent);font-family:DM Sans">✓ Fechado</span>':''}</div>`;
     categories.forEach(cat=>{
-      const catExps = exps.filter(e=>e.cat_id===cat.id);
-      if(catExps.length===0) return;
-      const spent = catExps.reduce((s,e)=>s+parseFloat(e.value),0);
-      const avail = cat.budget - spent;
-      html += `<div class="hist-cat-item">
+      const ce=exps.filter(e=>e.cat_id===cat.id);
+      if(!ce.length) return;
+      const spent=ce.reduce((s,e)=>s+parseFloat(e.value),0);
+      const avail=cat.budget-spent;
+      html+=`<div class="hist-cat-item">
         <div class="hist-cat-name">${cat.name}</div>
         <div class="hist-row"><span>Orçamento</span><span>R$ ${parseFloat(cat.budget).toFixed(2).replace('.',',')}</span></div>
         <div class="hist-row"><span>Gasto</span><span>R$ ${spent.toFixed(2).replace('.',',')}</span></div>
         <div class="hist-row"><span>Saldo</span><span style="color:${avail>=0?'var(--accent)':'var(--red)'}">R$ ${avail.toFixed(2).replace('.',',')}</span></div>
         <div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px">
-          ${catExps.map(e=>`<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2);padding:3px 0">
+          ${ce.map(e=>`<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2);padding:3px 0">
             <span>${e.name} <span style="color:var(--text3)">${new Date(e.date+'T12:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'short'})}</span></span>
             <span style="color:var(--text)">R$ ${parseFloat(e.value).toFixed(2).replace('.',',')}</span>
           </div>`).join('')}
         </div>
       </div>`;
     });
-    html += `</div>`;
+    html+=`</div>`;
   }
-  el.innerHTML = html || `<div class="empty"><div class="empty-icon">📅</div><div class="empty-text">Nenhum gasto registrado ainda.</div></div>`;
+  el.innerHTML=`<div style="padding:16px 20px calc(80px + var(--safe-bot))">${html||'<div class="empty"><div class="empty-icon">📅</div><div class="empty-text">Nenhum gasto registrado ainda.</div></div>'}</div>`;
 }
 
 // ===================== MODAIS =====================
-function openModal(html){ document.getElementById('modal-content').innerHTML=html; document.getElementById('modal-overlay').classList.add('open') }
-function _closeModal(){ document.getElementById('modal-overlay').classList.remove('open') }
-function closeModalOverlay(e){ if(e.target===document.getElementById('modal-overlay')) _closeModal() }
+function openModal(html){ document.getElementById('modal-content').innerHTML=html; document.getElementById('modal-overlay').classList.add('open'); }
+function _closeModal(){ document.getElementById('modal-overlay').classList.remove('open'); }
+function closeModalOverlay(e){ if(e.target===document.getElementById('modal-overlay')) _closeModal(); }
 
-// ---- EXPENSE ----
 function openAddExpense(catId){
-  const today = new Date().toISOString().split('T')[0];
-  openModal(`
-    <div class="modal-title">Novo Gasto</div>
+  const today=new Date().toISOString().split('T')[0];
+  openModal(`<div class="modal-title">Novo Gasto</div>
     <div class="form-group"><label class="form-label">Categoria</label>
       <select class="form-input" id="f-catId">${categories.map(c=>`<option value="${c.id}"${c.id===catId?' selected':''}>${c.name}</option>`).join('')}</select></div>
     <div class="form-group"><label class="form-label">Descrição</label>
@@ -424,10 +624,8 @@ function openAddExpense(catId){
 }
 
 function openEditExpense(expId){
-  const e = expenses.find(x=>x.id===expId);
-  if(!e) return;
-  openModal(`
-    <div class="modal-title">Editar Gasto</div>
+  const e=expenses.find(x=>x.id===expId); if(!e) return;
+  openModal(`<div class="modal-title">Editar Gasto</div>
     <div class="form-group"><label class="form-label">Categoria</label>
       <select class="form-input" id="f-catId">${categories.map(c=>`<option value="${c.id}"${c.id===e.cat_id?' selected':''}>${c.name}</option>`).join('')}</select></div>
     <div class="form-group"><label class="form-label">Descrição</label>
@@ -441,37 +639,28 @@ function openEditExpense(expId){
 }
 
 async function saveExpense(expId){
-  const catId = document.getElementById('f-catId').value;
-  const name = document.getElementById('f-name').value.trim();
-  const value = parseFloat(document.getElementById('f-value').value);
-  const date = document.getElementById('f-date').value;
-  if(!name||isNaN(value)||value<=0||!date){ showToast('Preencha todos os campos corretamente.','error'); return; }
-  const btn = document.getElementById('btn-save-exp');
-  btn.disabled=true; btn.textContent='Salvando...';
+  const catId=document.getElementById('f-catId').value;
+  const name=document.getElementById('f-name').value.trim();
+  const value=parseFloat(document.getElementById('f-value').value);
+  const date=document.getElementById('f-date').value;
+  if(!name||isNaN(value)||value<=0||!date){ showToast('Preencha todos os campos.','error'); return; }
+  const btn=document.getElementById('btn-save-exp'); btn.disabled=true; btn.textContent='Salvando...';
   try{
-    if(expId){
-      await api.updateExpense(expId, {cat_id:catId, name, value, date});
-    } else {
-      await api.insertExpense({id:uid(), cat_id:catId, month_key:viewMonthKey, name, value, date});
-    }
-    expenses = await api.getExpenses(viewMonthKey);
+    if(expId) await api.updateExpense(expId,{cat_id:catId,name,value,date});
+    else await api.insertExpense({id:uid(),cat_id:catId,month_key:viewMonthKey,name,value,date});
+    expenses=await api.getExpenses(viewMonthKey);
     _closeModal(); render(); showToast('Salvo!','success');
-  }catch(e){ showToast('Erro ao salvar.','error'); btn.disabled=false; btn.textContent='Salvar'; }
+  }catch{ showToast('Erro ao salvar.','error'); btn.disabled=false; btn.textContent='Salvar'; }
 }
 
 async function confirmDeleteExpense(expId){
   if(!confirm('Deletar este gasto?')) return;
-  try{
-    await api.deleteExpense(expId);
-    expenses = expenses.filter(e=>e.id!==expId);
-    render(); showToast('Gasto removido.','success');
-  }catch{ showToast('Erro ao deletar.','error'); }
+  try{ await api.deleteExpense(expId); expenses=expenses.filter(e=>e.id!==expId); render(); showToast('Removido.','success'); }
+  catch{ showToast('Erro ao deletar.','error'); }
 }
 
-// ---- CATEGORY ----
 function openAddCategory(){
-  openModal(`
-    <div class="modal-title">Nova Categoria</div>
+  openModal(`<div class="modal-title">Nova Categoria</div>
     <div class="form-group"><label class="form-label">Nome</label>
       <input class="form-input" id="f-cname" placeholder="Ex: Academia" autocomplete="off"/></div>
     <div class="form-group"><label class="form-label">Orçamento mensal (R$)</label>
@@ -481,10 +670,8 @@ function openAddCategory(){
 }
 
 function openEditCategory(catId){
-  const cat = categories.find(c=>c.id===catId);
-  if(!cat) return;
-  openModal(`
-    <div class="modal-title">Editar Categoria</div>
+  const cat=categories.find(c=>c.id===catId); if(!cat) return;
+  openModal(`<div class="modal-title">Editar Categoria</div>
     <div class="form-group"><label class="form-label">Nome</label>
       <input class="form-input" id="f-cname" value="${cat.name}" autocomplete="off"/></div>
     <div class="form-group"><label class="form-label">Orçamento mensal (R$)</label>
@@ -494,118 +681,83 @@ function openEditCategory(catId){
 }
 
 async function saveCategory(catId){
-  const name = document.getElementById('f-cname').value.trim();
-  const budget = parseFloat(document.getElementById('f-cbudget').value);
-  if(!name||isNaN(budget)||budget<=0){ showToast('Preencha todos os campos corretamente.','error'); return; }
-  const btn = document.getElementById('btn-save-cat');
-  btn.disabled=true; btn.textContent='Salvando...';
+  const name=document.getElementById('f-cname').value.trim();
+  const budget=parseFloat(document.getElementById('f-cbudget').value);
+  if(!name||isNaN(budget)||budget<=0){ showToast('Preencha todos os campos.','error'); return; }
+  const btn=document.getElementById('btn-save-cat'); btn.disabled=true; btn.textContent='Salvando...';
   try{
-    if(catId){
-      await api.updateCategory(catId, {name, budget});
-    } else {
-      await api.insertCategory({id:uid(), name, budget, position:categories.length});
-    }
-    categories = await api.getCategories();
+    if(catId) await api.updateCategory(catId,{name,budget});
+    else await api.insertCategory({id:uid(),name,budget,position:categories.length});
+    categories=await api.getCategories();
     _closeModal(); render(); showToast('Categoria salva!','success');
   }catch{ showToast('Erro ao salvar.','error'); btn.disabled=false; btn.textContent='Salvar'; }
 }
 
 async function confirmDeleteCategory(catId){
-  if(!confirm('Deletar esta categoria? Os gastos associados serão mantidos no histórico.')) return;
-  try{
-    await api.deleteCategory(catId);
-    categories = categories.filter(c=>c.id!==catId);
-    render(); showToast('Categoria removida.','success');
-  }catch{ showToast('Erro ao deletar.','error'); }
+  if(!confirm('Deletar esta categoria?')) return;
+  try{ await api.deleteCategory(catId); categories=categories.filter(c=>c.id!==catId); render(); showToast('Removida.','success'); }
+  catch{ showToast('Erro ao deletar.','error'); }
 }
 
-// ---- FECHAR MÊS ----
 function openCloseMonth(){
-  const next = nextMonthKey(currentMonthKey);
-  openModal(`
-    <div class="modal-title">Fechar Mês</div>
+  const next=nextMonthKey(currentMonthKey);
+  openModal(`<div class="modal-title">Fechar Mês</div>
     <p style="font-size:13px;color:var(--text2);margin-bottom:16px">Ajuste os orçamentos para <strong style="color:var(--text)">${monthLabel(next)}</strong>:</p>
-    ${categories.map(cat=>`
-      <div class="month-adj-item">
-        <div class="month-adj-name">${cat.name}</div>
-        <div class="month-adj-row">
-          <span style="font-size:12px;color:var(--text3);white-space:nowrap">Orçamento (R$)</span>
-          <input class="form-input" id="adj-${cat.id}" type="number" inputmode="decimal" value="${cat.budget}" step="0.01" min="0"/>
-        </div>
-      </div>`).join('')}
+    ${categories.map(cat=>`<div class="month-adj-item">
+      <div class="month-adj-name">${cat.name}</div>
+      <div class="month-adj-row"><span style="font-size:12px;color:var(--text3);white-space:nowrap">Orçamento (R$)</span>
+        <input class="form-input" id="adj-${cat.id}" type="number" inputmode="decimal" value="${cat.budget}" step="0.01" min="0"/></div>
+    </div>`).join('')}
     <button class="btn-primary" id="btn-close-month" onclick="confirmCloseMonth('${next}')" style="margin-top:8px">Fechar e Abrir ${monthLabel(next)}</button>
     <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
 }
 
 async function confirmCloseMonth(nextKey){
-  const btn = document.getElementById('btn-close-month');
-  btn.disabled=true; btn.textContent='Processando...';
+  const btn=document.getElementById('btn-close-month'); btn.disabled=true; btn.textContent='Processando...';
   try{
-    // Update budgets
-    for(const cat of categories){
-      const inp = document.getElementById(`adj-${cat.id}`);
-      if(inp){ const v=parseFloat(inp.value); if(!isNaN(v)&&v>0) await api.updateCategory(cat.id,{budget:v}); }
-    }
-    // Close current month
+    for(const cat of categories){ const inp=document.getElementById(`adj-${cat.id}`); if(inp){const v=parseFloat(inp.value);if(!isNaN(v)&&v>0) await api.updateCategory(cat.id,{budget:v});} }
     await api.closeMonth(currentMonthKey);
-    // Open next month
-    await api.upsertMonth({key:nextKey, closed:false});
-    // Reload
-    categories = await api.getCategories();
-    months = await api.getMonths();
-    currentMonthKey = nextKey;
-    viewMonthKey = nextKey;
-    expenses = await api.getExpenses(viewMonthKey);
+    await api.upsertMonth({key:nextKey,closed:false});
+    categories=await api.getCategories(); months=await api.getMonths();
+    currentMonthKey=nextKey; viewMonthKey=nextKey; currentCatIdx=0;
+    expenses=await api.getExpenses(viewMonthKey);
     _closeModal(); render(); showToast(`${monthLabel(nextKey)} aberto!`,'success');
-  }catch(e){ showToast('Erro ao fechar mês.','error'); btn.disabled=false; btn.textContent='Tentar novamente'; }
+  }catch{ showToast('Erro ao fechar mês.','error'); btn.disabled=false; btn.textContent='Tentar novamente'; }
 }
 
-// ---- MÊS PICKER ----
 function openMonthPicker(){
-  openModal(`
-    <div class="modal-title">Selecionar Mês</div>
-    ${months.map(m=>`
-      <div onclick="selectMonth('${m.key}')" style="padding:14px 16px;border-radius:10px;margin-bottom:8px;background:${m.key===viewMonthKey?'var(--accent)':'var(--surface2)'};color:${m.key===viewMonthKey?'#0f0f0f':'var(--text)'};font-weight:${m.key===viewMonthKey?600:400};cursor:pointer">
-        ${monthLabel(m.key)} ${m.closed?'<span style="font-size:11px;opacity:.6">Fechado</span>':''}
-      </div>`).join('')}`);
+  openModal(`<div class="modal-title">Selecionar Mês</div>
+    ${months.map(m=>`<div onclick="selectMonth('${m.key}')" style="padding:14px 16px;border-radius:10px;margin-bottom:8px;background:${m.key===viewMonthKey?'var(--accent)':'var(--surface2)'};color:${m.key===viewMonthKey?'#0f0f0f':'var(--text)'};font-weight:${m.key===viewMonthKey?600:400};cursor:pointer">
+      ${monthLabel(m.key)} ${m.closed?'<span style="font-size:11px;opacity:.6">Fechado</span>':''}
+    </div>`).join('')}`);
 }
 
 async function selectMonth(key){
-  viewMonthKey = key;
+  viewMonthKey=key; currentCatIdx=0;
   _closeModal();
-  expenses = await api.getExpenses(viewMonthKey);
+  expenses=await api.getExpenses(viewMonthKey);
   render();
 }
 
-// ---- FAB ----
 function onFab(){
   if(currentTab==='categorias') openAddCategory();
-  else {
-    if(categories.length===0){ showToast('Crie uma categoria primeiro.','error'); return; }
-    openAddExpense(categories[0].id);
-  }
+  else{ if(!categories.length){ showToast('Crie uma categoria primeiro.','error'); return; } openAddExpense(categories[currentCatIdx]?.id||categories[0].id); }
 }
 
-// ---- TABS ----
-async function switchTab(tab, btn){
-  currentTab = tab;
+async function switchTab(tab,btn){
+  currentTab=tab; currentCatIdx=0;
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   btn.classList.add('active');
-  viewMonthKey = currentMonthKey;
-  expenses = await api.getExpenses(viewMonthKey);
+  viewMonthKey=currentMonthKey;
+  expenses=await api.getExpenses(viewMonthKey);
   render();
 }
 
-// ---- TOAST ----
-function showToast(msg, type=''){
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.className = `toast ${type} show`;
-  setTimeout(()=>t.classList.remove('show'), 2500);
+function showToast(msg,type=''){
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.className=`toast ${type} show`;
+  setTimeout(()=>t.classList.remove('show'),2500);
 }
-
-// ===================== START =====================
-init();
 </script>
 </body>
 </html>

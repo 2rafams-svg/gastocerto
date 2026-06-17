@@ -247,6 +247,29 @@ select.form-input{cursor:pointer}
 .toast.success{border-color:var(--accent);color:var(--accent)}
 .sync-dot{width:6px;height:6px;border-radius:50%;background:var(--orange);display:inline-block;margin-left:6px;animation:pulse 1s infinite alternate}
 @keyframes pulse{from{opacity:.3}to{opacity:1}}
+
+/* ===== AUTOCOMPLETE ===== */
+.ac-wrap{position:relative}
+.ac-list{position:absolute;left:0;right:0;top:calc(100% + 4px);background:var(--surface2);border:1px solid var(--border);border-radius:10px;z-index:5;max-height:208px;overflow-y:auto;display:none;box-shadow:0 6px 24px rgba(0,0,0,.4)}
+.ac-list.open{display:block}
+.ac-item{padding:11px 14px;font-size:14px;border-bottom:1px solid var(--border);cursor:pointer}
+.ac-item:last-child{border-bottom:none}
+.ac-item:active{background:var(--surface)}
+
+/* ===== MINI LINK (override do mês) ===== */
+.mini-link{background:none;border:none;color:var(--accent);font-family:'DM Sans',sans-serif;font-size:12px;font-weight:500;cursor:pointer;padding:2px 0;margin-bottom:8px;display:inline-flex;align-items:center;gap:5px}
+.mini-link.adjusted{color:var(--orange)}
+.mini-link svg{width:13px;height:13px;stroke:currentColor}
+
+/* ===== SUMMARY BTN + CONSOLIDADO ===== */
+.summary-btn{width:100%;margin-top:10px;padding:9px;border-radius:10px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:500;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px}
+.summary-btn:active{background:var(--surface)}
+.cons-section{font-size:11px;color:var(--text2);font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+.cons-row{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)}
+.cons-row:last-child{border-bottom:none}
+.cons-rank{width:24px;height:24px;border-radius:50%;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:var(--accent);flex-shrink:0}
+.modal-note{font-size:13px;color:var(--text2);margin-bottom:16px;line-height:1.45}
+.modal-note strong{color:var(--text)}
 </style>
 </head>
 <body>
@@ -400,9 +423,11 @@ const api={
   closeMonth:(key)=>sbFetch(`months?key=eq.${key}`,{method:'PATCH',body:JSON.stringify({closed:true})}),
   getExpenses:(mk)=>sbFetch(`expenses?month_key=eq.${mk}&order=date.desc`),
   getAllExpenses:()=>sbFetch('expenses?order=date.desc'),
+  getExpenseNames:()=>sbFetch('expenses?select=name&order=date.desc'),
   insertExpense:(d)=>sbFetch('expenses',{method:'POST',body:JSON.stringify(d)}),
   updateExpense:(id,d)=>sbFetch(`expenses?id=eq.${id}`,{method:'PATCH',body:JSON.stringify(d)}),
   deleteExpense:(id)=>sbFetch(`expenses?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
+  setMonthBudgets:(key,budgets)=>sbFetch(`months?key=eq.${key}`,{method:'PATCH',body:JSON.stringify({budgets})}),
 };
 
 // ===================== STATE =====================
@@ -411,11 +436,27 @@ const uid=()=>Math.random().toString(36).slice(2,9);
 const monthKeyOf=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
 const monthLabel=key=>{ if(!key)return''; const[y,m]=key.split('-'); return `${['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][+m-1]} ${y}`; };
 const nextMonthKey=key=>{ const[y,m]=key.split('-').map(Number); return monthKeyOf(new Date(y,m,1)); };
+const prevMonthKey=key=>{ const[y,m]=key.split('-').map(Number); return monthKeyOf(new Date(y,m-2,1)); };
 const brl=v=>`R$ ${parseFloat(v).toFixed(2).replace('.',',')}`;
+const escapeHtml=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+// Orçamento efetivo: override do mês (months.budgets) ou o padrão da categoria
+function effBudget(cat, monthKey){
+  const m=months.find(x=>x.key===monthKey);
+  const ov=m&&m.budgets?m.budgets[cat.id]:null;
+  return (ov!=null&&!isNaN(parseFloat(ov)))?parseFloat(ov):parseFloat(cat.budget);
+}
+function hasOverride(cat, monthKey){
+  const m=months.find(x=>x.key===monthKey);
+  return !!(m&&m.budgets&&m.budgets[cat.id]!=null);
+}
+
+// Autocomplete de descrições
+let expenseNames=[], acResults=[];
 
 // ===================== CACHE LOCAL (render otimista) =====================
 function saveCache(){
-  try{ localStorage.setItem(CACHE_KEY, JSON.stringify({categories,months,expenses,currentMonthKey,ts:Date.now()})); }catch{}
+  try{ localStorage.setItem(CACHE_KEY, JSON.stringify({categories,months,expenses,currentMonthKey,expenseNames,ts:Date.now()})); }catch{}
 }
 function loadCache(){
   try{
@@ -424,6 +465,7 @@ function loadCache(){
     const c=JSON.parse(raw);
     if(!c.categories||!c.months) return false;
     categories=c.categories; months=c.months; expenses=c.expenses||[];
+    expenseNames=c.expenseNames||[];
     currentMonthKey=c.currentMonthKey; viewMonthKey=c.currentMonthKey;
     return true;
   }catch{ return false; }
@@ -449,6 +491,13 @@ async function init(){
     saveCache();
     document.getElementById('sync-dot')?.remove();
     render();
+    // Background: carregar nomes para autocomplete
+    api.getExpenseNames().then(rows=>{
+      const freq={};
+      (rows||[]).forEach(r=>{const n=(r.name||'').trim(); if(n) freq[n]=(freq[n]||0)+1;});
+      expenseNames=Object.keys(freq).sort((a,b)=>freq[b]-freq[a]);
+      saveCache();
+    }).catch(()=>{});
   }catch(e){
     document.getElementById('sync-dot')?.remove();
     if(!hadCache){
@@ -488,7 +537,7 @@ function renderHome(el){
   if(currentCatIdx>=categories.length) currentCatIdx=0;
 
   // Resumo geral do mês
-  const totalBudget=categories.reduce((s,c)=>s+parseFloat(c.budget),0);
+  const totalBudget=categories.reduce((s,c)=>s+effBudget(c,viewMonthKey),0);
   const totalSpent=expenses.reduce((s,e)=>s+parseFloat(e.value),0);
   const totalAvail=totalBudget-totalSpent;
   const totalPct=totalBudget>0?Math.min((totalSpent/totalBudget)*100,100):0;
@@ -499,6 +548,7 @@ function renderHome(el){
       <div class="summary-block"><div class="summary-label">Disponível</div><div class="summary-num ${totalAvail>=0?'positive':'negative'}">${brl(totalAvail)}</div></div>
     </div>
     <div class="progress-bar" style="margin-bottom:0"><div class="progress-fill ${totalAvail<0?'danger':totalPct>75?'warning':''}" style="width:${totalPct}%"></div></div>
+    <button class="summary-btn" onclick="openConsolidado()">Ver consolidado do mês ›</button>
   </div>`;
 
   const slidesHtml = categories.map((cat,i)=>buildSlide(cat,isNow)).join('');
@@ -526,8 +576,10 @@ function renderHome(el){
 function buildSlide(cat, isNow){
   const catExps=expenses.filter(e=>e.cat_id===cat.id);
   const spent=catExps.reduce((s,e)=>s+parseFloat(e.value),0);
-  const available=cat.budget-spent;
-  const pct=Math.min((spent/cat.budget)*100,100);
+  const budget=effBudget(cat,viewMonthKey);
+  const overridden=hasOverride(cat,viewMonthKey);
+  const available=budget-spent;
+  const pct=budget>0?Math.min((spent/budget)*100,100):0;
   const isOver=available<0, isWarn=!isOver&&pct>75;
   const today=new Date(), dom=today.getDate();
   let forecast='';
@@ -552,15 +604,21 @@ function buildSlide(cat, isNow){
     </div>
   </div>`).join('');
 
+  const overrideLink=isNow?`<button class="mini-link${overridden?' adjusted':''}" onclick="openMonthOverride('${cat.id}')">
+    <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+    ${overridden?`Orçamento ajustado este mês · editar`:`Ajustar orçamento só deste mês`}
+  </button>`:'';
+
   return `<div class="cat-slide">
     <div class="cat-card ${isOver?'over-budget':isWarn?'warning':''}">
       <div class="cat-values">
-        <div class="val-block"><div class="val-label">Orçamento</div><div class="val-num budget">${brl(cat.budget)}</div></div>
+        <div class="val-block"><div class="val-label">Orçamento${overridden?' *':''}</div><div class="val-num budget">${brl(budget)}</div></div>
         <div class="val-block"><div class="val-label">Gasto</div><div class="val-num spent">${brl(spent)}</div></div>
         <div class="val-block" style="grid-column:1/-1"><div class="val-label">Disponível</div><div class="val-num ${available>=0?'positive':'negative'}">${brl(available)}</div></div>
       </div>
       <div class="progress-bar"><div class="progress-fill ${isOver?'danger':isWarn?'warning':''}" style="width:${pct}%"></div></div>
       ${forecast?`<div class="forecast">${forecast}</div>`:''}
+      ${overrideLink}
       ${expHtml}
       ${isNow?`<button class="add-expense-btn" onclick="openAddExpense('${cat.id}')">
         <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -713,20 +771,21 @@ async function renderHistoricoAsync(el){
   const byMonth={};
   allExps.forEach(e=>{ (byMonth[e.month_key]=byMonth[e.month_key]||[]).push(e); });
 
-  const totalBudget=categories.reduce((s,c)=>s+parseFloat(c.budget),0);
+  const budgetOf=mk=>categories.reduce((s,c)=>s+effBudget(c,mk),0);
 
   // Gráfico: gasto total por mês (ordem cronológica, máx 6 meses)
   const chartMonths=months.filter(m=>byMonth[m.key]).slice(0,6).reverse();
   let chartHtml='';
   if(chartMonths.length>1){
     const totals=chartMonths.map(m=>byMonth[m.key].reduce((s,e)=>s+parseFloat(e.value),0));
-    const max=Math.max(...totals, totalBudget, 1);
+    const max=Math.max(...totals, ...chartMonths.map(m=>budgetOf(m.key)), 1);
     chartHtml=`<div class="chart-card">
       <div class="chart-title">Gasto total por mês</div>
       <div class="chart-bars">
         ${chartMonths.map((m,i)=>{
           const h=Math.max((totals[i]/max)*100,4);
-          const over=totalBudget>0&&totals[i]>totalBudget;
+          const mb=budgetOf(m.key);
+          const over=mb>0&&totals[i]>mb;
           return `<div class="chart-col">
             <div class="chart-val">${totals[i]>=1000?(totals[i]/1000).toFixed(1).replace('.',',')+'k':Math.round(totals[i])}</div>
             <div class="chart-bar${over?' over':''}" style="height:${h}%"></div>
@@ -742,7 +801,7 @@ async function renderHistoricoAsync(el){
     const exps=byMonth[month.key];
     if(!exps||exps.length===0) continue;
     const monthSpent=exps.reduce((s,e)=>s+parseFloat(e.value),0);
-    const monthDiff=totalBudget-monthSpent;
+    const monthDiff=budgetOf(month.key)-monthSpent;
     html+=`<div class="month-block">
       <div class="month-title">${monthLabel(month.key)}
         ${month.closed?'<span style="font-size:11px;color:var(--accent);font-family:DM Sans">✓ Fechado</span>':''}
@@ -752,10 +811,11 @@ async function renderHistoricoAsync(el){
       const ce=exps.filter(e=>e.cat_id===cat.id);
       if(!ce.length) return;
       const spent=ce.reduce((s,e)=>s+parseFloat(e.value),0);
-      const avail=cat.budget-spent;
+      const cb=effBudget(cat,month.key);
+      const avail=cb-spent;
       html+=`<div class="hist-cat-item">
         <div class="hist-cat-name"><span>${cat.name}</span>${badgeHtml(avail)}</div>
-        <div class="hist-row"><span>Orçamento</span><span>${brl(cat.budget)}</span></div>
+        <div class="hist-row"><span>Orçamento</span><span>${brl(cb)}</span></div>
         <div class="hist-row"><span>Gasto</span><span>${brl(spent)}</span></div>
         <div class="hist-row"><span>Saldo</span><span style="color:${avail>=0?'var(--accent)':'var(--red)'}">${brl(avail)}</span></div>
         <div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px">
@@ -782,7 +842,10 @@ function openAddExpense(catId){
     <div class="form-group"><label class="form-label">Categoria</label>
       <select class="form-input" id="f-catId">${categories.map(c=>`<option value="${c.id}"${c.id===catId?' selected':''}>${c.name}</option>`).join('')}</select></div>
     <div class="form-group"><label class="form-label">Descrição</label>
-      <input class="form-input" id="f-name" placeholder="Ex: Gasolina Shell" autocomplete="off"/></div>
+      <div class="ac-wrap">
+        <input class="form-input" id="f-name" placeholder="Ex: Gasolina Shell" autocomplete="off" oninput="acFilter(this.value)" onfocus="acFilter(this.value)" onblur="acBlur()"/>
+        <div class="ac-list" id="ac-list"></div>
+      </div></div>
     <div class="form-group"><label class="form-label">Valor (R$)</label>
       <input class="form-input" id="f-value" type="number" inputmode="decimal" placeholder="0,00" step="0.01" min="0"/></div>
     <div class="form-group"><label class="form-label">Data</label>
@@ -797,7 +860,10 @@ function openEditExpense(expId){
     <div class="form-group"><label class="form-label">Categoria</label>
       <select class="form-input" id="f-catId">${categories.map(c=>`<option value="${c.id}"${c.id===e.cat_id?' selected':''}>${c.name}</option>`).join('')}</select></div>
     <div class="form-group"><label class="form-label">Descrição</label>
-      <input class="form-input" id="f-name" value="${e.name}" autocomplete="off"/></div>
+      <div class="ac-wrap">
+        <input class="form-input" id="f-name" value="${escapeHtml(e.name)}" autocomplete="off" oninput="acFilter(this.value)" onfocus="acFilter(this.value)" onblur="acBlur()"/>
+        <div class="ac-list" id="ac-list"></div>
+      </div></div>
     <div class="form-group"><label class="form-label">Valor (R$)</label>
       <input class="form-input" id="f-value" type="number" inputmode="decimal" value="${e.value}" step="0.01" min="0"/></div>
     <div class="form-group"><label class="form-label">Data</label>
@@ -816,6 +882,7 @@ async function saveExpense(expId){
   try{
     if(expId) await api.updateExpense(expId,{cat_id:catId,name,value,date});
     else await api.insertExpense({id:uid(),cat_id:catId,month_key:viewMonthKey,name,value,date});
+    if(name && !expenseNames.includes(name)) expenseNames.unshift(name);
     expenses=await api.getExpenses(viewMonthKey);
     saveCache();
     vib(15);
@@ -927,6 +994,126 @@ async function switchTab(tab,btn){
   viewMonthKey=currentMonthKey;
   expenses=await api.getExpenses(viewMonthKey);
   render();
+}
+
+// ===================== AUTOCOMPLETE =====================
+function acFilter(q){
+  const list=document.getElementById('ac-list'); if(!list) return;
+  q=(q||'').trim().toLowerCase();
+  if(!q){ acClose(); return; }
+  const starts=[], incl=[];
+  for(const n of expenseNames){
+    const ln=n.toLowerCase();
+    if(ln===q) continue;
+    if(ln.startsWith(q)) starts.push(n);
+    else if(ln.includes(q)) incl.push(n);
+  }
+  acResults=[...starts,...incl].slice(0,6);
+  if(!acResults.length){ acClose(); return; }
+  list.innerHTML=acResults.map((n,i)=>`<div class="ac-item" onpointerdown="acPick(${i})">${escapeHtml(n)}</div>`).join('');
+  list.classList.add('open');
+}
+function acPick(i){
+  const n=acResults[i]; if(n==null) return;
+  const inp=document.getElementById('f-name'); if(inp) inp.value=n;
+  acClose();
+}
+function acClose(){ const l=document.getElementById('ac-list'); if(l){ l.innerHTML=''; l.classList.remove('open'); } }
+function acBlur(){ setTimeout(acClose,150); } // delay para o pointerdown registrar
+
+// ===================== CONSOLIDADO DO MÊS =====================
+async function openConsolidado(){
+  const k0=viewMonthKey, k1=prevMonthKey(k0), k2=prevMonthKey(k1);
+  openModal(`<div class="modal-title">Consolidado · ${monthLabel(k0)}</div><div class="loading"><div class="spinner"></div>Calculando...</div>`);
+  let e0=[],e1=[],e2=[];
+  try{ [e0,e1,e2]=await Promise.all([api.getExpenses(k0),api.getExpenses(k1),api.getExpenses(k2)]); }
+  catch{ document.getElementById('modal-content').innerHTML=`<div class="modal-title">Consolidado</div><div class="empty"><div class="empty-icon">⚠️</div><div class="empty-text">Erro ao calcular.</div></div><button class="btn-secondary" onclick="_closeModal()">Fechar</button>`; return; }
+
+  const sum=arr=>arr.reduce((s,x)=>s+parseFloat(x.value),0);
+  const T0=sum(e0),T1=sum(e1),T2=sum(e2);
+  const catName=id=>{const c=categories.find(x=>x.id===id);return c?c.name:'—';};
+  const deltaBadge=(curr,prev)=>{
+    if(prev<=0) return curr>0?`<span class="badge over">novo</span>`:`<span class="badge ok">—</span>`;
+    const pct=((curr-prev)/prev)*100;
+    if(Math.abs(pct)<0.5) return `<span class="badge ok">≈ igual</span>`;
+    return pct>0?`<span class="badge over">▲ ${Math.abs(pct).toFixed(0)}%</span>`:`<span class="badge saved">▼ ${Math.abs(pct).toFixed(0)}%</span>`;
+  };
+
+  const top=[...e0].sort((a,b)=>parseFloat(b.value)-parseFloat(a.value)).slice(0,5);
+  const byCat={};
+  e0.forEach(e=>{byCat[e.cat_id]=(byCat[e.cat_id]||0)+parseFloat(e.value);});
+  const catRank=Object.entries(byCat).sort((a,b)=>b[1]-a[1]).slice(0,3);
+  const maxCat=catRank.length?catRank[0][1]:1;
+
+  const rows=[[k0,T0,T1,'mês atual'],[k1,T1,T2,'mês anterior'],[k2,T2,0,'2 meses atrás']];
+  let html=`<div class="modal-title">Consolidado · ${monthLabel(k0)}</div>`;
+
+  html+=`<div class="cons-section">Comparação mensal</div>`;
+  html+=rows.map(([k,cur,prev,tag])=>`<div class="cons-row">
+    <div><div style="font-weight:500">${monthLabel(k)}</div><div style="font-size:12px;color:var(--text3)">${tag}</div></div>
+    <div style="text-align:right"><div style="font-weight:600">${brl(cur)}</div><div style="margin-top:3px">${deltaBadge(cur,prev)}</div></div>
+  </div>`).join('');
+
+  html+=`<div class="cons-section" style="margin-top:22px">Maiores gastos do mês</div>`;
+  html+= top.length? top.map((e,i)=>`<div class="cons-row">
+    <div style="display:flex;align-items:center;gap:10px"><div class="cons-rank">${i+1}</div>
+      <div><div style="font-weight:500">${escapeHtml(e.name)}</div><div style="font-size:12px;color:var(--text3)">${escapeHtml(catName(e.cat_id))} · ${new Date(e.date+'T12:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'short'})}</div></div>
+    </div>
+    <div style="font-weight:600">${brl(e.value)}</div>
+  </div>`).join('') : `<div style="color:var(--text3);font-size:13px;padding:8px 0">Nenhum gasto neste mês.</div>`;
+
+  if(catRank.length){
+    html+=`<div class="cons-section" style="margin-top:22px">Onde foi o dinheiro</div>`;
+    html+=catRank.map(([id,val])=>`<div style="margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:5px"><span>${escapeHtml(catName(id))}</span><span style="font-weight:600">${brl(val)} · ${T0>0?((val/T0)*100).toFixed(0):0}%</span></div>
+      <div class="progress-bar"><div class="progress-fill" style="width:${(val/maxCat)*100}%"></div></div>
+    </div>`).join('');
+  }
+
+  html+=`<button class="btn-secondary" style="margin-top:22px" onclick="_closeModal()">Fechar</button>`;
+  document.getElementById('modal-content').innerHTML=html;
+}
+
+// ===================== ORÇAMENTO DO MÊS (override) =====================
+function openMonthOverride(catId){
+  const cat=categories.find(c=>c.id===catId); if(!cat) return;
+  const eff=effBudget(cat,currentMonthKey);
+  const ov=hasOverride(cat,currentMonthKey);
+  openModal(`<div class="modal-title">Orçamento de ${escapeHtml(cat.name)}</div>
+    <p class="modal-note">Vale só para <strong>${monthLabel(currentMonthKey)}</strong>. O orçamento padrão (<strong>${brl(cat.budget)}/mês</strong>) continua o mesmo nos próximos meses.</p>
+    <div class="form-group"><label class="form-label">Orçamento deste mês (R$)</label>
+      <input class="form-input" id="f-ovbudget" type="number" inputmode="decimal" value="${eff}" step="0.01" min="0"/></div>
+    <button class="btn-primary" id="btn-ov" onclick="saveMonthOverride('${catId}')">Salvar ajuste do mês</button>
+    ${ov?`<button class="btn-secondary" onclick="revertMonthOverride('${catId}')">Voltar ao padrão (${brl(cat.budget)})</button>`:''}
+    <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
+}
+
+async function saveMonthOverride(catId){
+  const v=parseFloat(document.getElementById('f-ovbudget').value);
+  if(isNaN(v)||v<=0){ showToast('Informe um valor válido.','error'); return; }
+  const m=months.find(x=>x.key===currentMonthKey); if(!m) return;
+  const budgets={...(m.budgets||{}), [catId]:v};
+  const btn=document.getElementById('btn-ov'); btn.disabled=true; btn.textContent='Salvando...';
+  try{
+    await api.setMonthBudgets(currentMonthKey, budgets);
+    m.budgets=budgets;
+    saveCache(); vib(15);
+    _closeModal(); render(); showToast('Orçamento do mês ajustado!','success');
+  }catch(e){
+    btn.disabled=false; btn.textContent='Salvar ajuste do mês';
+    showToast('Erro — confira se a coluna "budgets" existe no Supabase.','error');
+  }
+}
+
+async function revertMonthOverride(catId){
+  const m=months.find(x=>x.key===currentMonthKey); if(!m||!m.budgets) return;
+  const budgets={...m.budgets}; delete budgets[catId];
+  try{
+    await api.setMonthBudgets(currentMonthKey, budgets);
+    m.budgets=budgets;
+    saveCache(); vib(10);
+    _closeModal(); render(); showToast('Voltou ao orçamento padrão.','success');
+  }catch{ showToast('Erro ao reverter.','error'); }
 }
 
 function showToast(msg,type=''){

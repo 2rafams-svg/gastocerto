@@ -512,11 +512,10 @@ async function respondToShare(shareId,accept){
   try{
     await api.updateCategoryShare(shareId,{status:accept?'accepted':'declined',shared_with_user_id:accept?currentUser.id:null});
     pendingShares=pendingShares.filter(s=>s.id!==shareId);
-    if(accept&&share){
-      await api.insertCategory({id:uid(),name:share.category_name,budget:0,position:categories.length});
+    if(accept){
       categories=await api.getCategories();
       saveCache();
-      showToast(`"${share.category_name}" adicionada! Ajuste o orçamento.`,'success');
+      showToast(`"${share?.category_name||'Categoria'}" agora visível no seu app!`,'success');
     }else{
       showToast('Convite recusado.','');
     }
@@ -613,13 +612,19 @@ function buildSlide(cat, isNow){
     </div>
   </div>`).join('');
 
-  const overrideLink=isNow?`<button class="mini-link${overridden?' adjusted':''}" onclick="openMonthOverride('${cat.id}')">
+  const isOwned=cat.user_id===currentUser.id;
+  const sharedWith=!isOwned;
+
+  const overrideLink=isNow&&isOwned?`<button class="mini-link${overridden?' adjusted':''}" onclick="openMonthOverride('${cat.id}')">
     <i class="fa-solid fa-pen" aria-hidden="true"></i>
     ${overridden?`Orçamento ajustado este mês · editar`:`Ajustar orçamento só deste mês`}
   </button>`:'';
 
+  const sharedBadge=sharedWith?`<div style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--accent);background:#c8f04a18;border:1px solid #c8f04a44;border-radius:100px;padding:3px 10px;margin-bottom:10px"><i class="fa-solid fa-share-nodes" aria-hidden="true"></i> Compartilhada com você</div>`:'';
+
   return `<div class="cat-slide">
     <div class="cat-card ${isOver?'over-budget':isWarn?'warning':''}">
+      ${sharedBadge}
       <div class="cat-values">
         <div class="val-block"><div class="val-label">Orçamento${overridden?' *':''}</div><div class="val-num budget">${brl(budget)}</div></div>
         <div class="val-block"><div class="val-label">Gasto</div><div class="val-num spent">${brl(spent)}</div></div>
@@ -633,14 +638,14 @@ function buildSlide(cat, isNow){
         <i class="fa-solid fa-plus" aria-hidden="true"></i>
         Adicionar gasto
       </button>
-      <button class="share-user-btn" onclick="openShareCategory('${cat.id}')">
+      ${isOwned?`<button class="share-user-btn" onclick="openShareCategory('${cat.id}')">
         <i class="fa-solid fa-user-plus" aria-hidden="true"></i>
         Compartilhar categoria
       </button>
       <button class="export-category-btn" onclick="shareCategory('${cat.id}')">
         <i class="fa-solid fa-share-from-square" aria-hidden="true"></i>
         Exportar como imagem
-      </button>
+      </button>`:''}
     </div>
   </div>`;
 }
@@ -880,7 +885,11 @@ async function renderHistoricoAsync(el){
 async function renderSplit(el){
   el.innerHTML=`<div class="split-wrap"><div class="loading"><div class="spinner"></div>Carregando divisões...</div></div>`;
   try{splitGroups=await api.getSplitGroups();}
-  catch{el.innerHTML=`<div class="split-wrap"><div class="empty"><div class="empty-icon"><i class="fa-solid fa-triangle-exclamation"></i></div><div class="empty-text">Não foi possível carregar as divisões.</div></div></div>`;return;}
+  catch(err){
+    const msg=String(err?.message||'Erro desconhecido').slice(0,120);
+    el.innerHTML=`<div class="split-wrap"><div class="empty"><div class="empty-icon"><i class="fa-solid fa-triangle-exclamation"></i></div><div class="empty-text">Não foi possível carregar as divisões.</div><div style="font-size:11px;color:var(--text3);margin-top:8px;padding:0 12px">${escapeHtml(msg)}</div></div></div>`;
+    return;
+  }
   const create=isPro()?`<button class="btn-primary" onclick="openCreateSplitGroup()" style="margin-bottom:14px">Novo grupo</button>`:`${lockedCard('Criar divisões de gastos','Usuários do plano gratuito podem consultar convites, mas a criação é Pro.')}`;
   el.innerHTML=`<div class="split-wrap">${create}${splitGroups.map(g=>`<div class="split-group" onclick="openSplitGroup('${g.id}')"><div class="split-group-title">${escapeHtml(g.name)}</div><div class="split-group-meta">${g.created_by===currentUser.id?'Criado por você':'Você foi convidado'} · ver detalhes ›</div></div>`).join('')||'<div class="empty"><div class="empty-icon"><i class="fa-solid fa-user-group"></i></div><div class="empty-text">Nenhuma divisão ainda.</div></div>'}</div>`;
 }

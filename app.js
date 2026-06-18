@@ -76,7 +76,7 @@ function enterApp(){
 async function logout(){
   const token=session?.access_token;
   if(token) fetch(`${SUPABASE_URL}/auth/v1/logout`,{method:'POST',headers:{apikey:SUPABASE_KEY,Authorization:`Bearer ${token}`}}).catch(()=>{});
-  persistSession(null); categories=[]; months=[]; expenses=[]; expenseNames=[]; acceptedShares=[]; sharedOutMap={};
+  persistSession(null); categories=[]; months=[]; expenses=[]; expenseNames=[]; acceptedShares=[]; sharedOutMap={}; pendingSplitInvites=[]; acceptedGroupIds=new Set();
   document.getElementById('app').style.display='none';
   document.getElementById('auth-screen').style.display='flex';
   _closeModal(); setAuthMode('login');
@@ -182,6 +182,9 @@ const api={
   insertSplitGroup:(name)=>sbFetch('split_groups',{method:'POST',body:JSON.stringify({name,created_by:currentUser.id})}),
   getSplitMembers:(groupId)=>sbFetch(`split_members?group_id=eq.${groupId}`),
   insertSplitMembers:(rows)=>sbFetch('split_members',{method:'POST',body:JSON.stringify(rows)}),
+  updateSplitMember:(id,data)=>sbFetch(`split_members?id=eq.${id}`,{method:'PATCH',body:JSON.stringify(data)}),
+  getPendingSplitInvites:()=>sbFetch(`split_members?email=ilike.${encodeURIComponent(currentUser.email)}&status=eq.pending&select=id,group_id,split_groups(name)`),
+  getAcceptedSplitMemberships:()=>sbFetch(`split_members?email=ilike.${encodeURIComponent(currentUser.email)}&status=eq.accepted&select=group_id`),
   getSplitExpenses:(groupId)=>sbFetch(`split_expenses?group_id=eq.${groupId}&order=id.desc`),
   insertSplitExpense:(row)=>sbFetch('split_expenses',{method:'POST',body:JSON.stringify(row)}),
   getSplitShares:(expenseIds)=>expenseIds.length?sbFetch(`split_shares?expense_id=in.(${expenseIds.join(',')})`):Promise.resolve([]),
@@ -203,7 +206,7 @@ const api={
 // ===================== STATE =====================
 let categories=[], months=[], currentMonthKey='', viewMonthKey='', expenses=[], currentTab='home', currentCatIdx=0;
 let subscription=null, userPlan='free';
-let splitGroups=[], pendingShares=[], acceptedShares=[], sharedOutMap={};
+let splitGroups=[], pendingShares=[], acceptedShares=[], sharedOutMap={}, pendingSplitInvites=[], acceptedGroupIds=new Set();
 function resolveUserPlan(sub, now=new Date()){
   if(!sub) return 'free';
   if(sub.billing_cycle==='lifetime') return 'pro';
@@ -373,6 +376,9 @@ async function init(){
     if(adminGrants?.length>0) userPlan='pro';
     acceptedShares=accShares||[];
     sharedOutMap=Object.fromEntries((myShares||[]).filter(s=>s.shared_with_user_id).map(s=>[s.shared_with_user_id,s.shared_with_email]));
+    const [splitInvites, splitMemberships] = await Promise.all([api.getPendingSplitInvites().catch(()=>[]), api.getAcceptedSplitMemberships().catch(()=>[])]);
+    pendingSplitInvites=splitInvites||[];
+    acceptedGroupIds=new Set((splitMemberships||[]).map(m=>m.group_id));
     const trialDays=sub?.subscription_status==='trialing'?Math.max(0,Math.ceil((new Date(sub.trial_ends_at)-new Date())/86400000)):0;
     const isAdminPro=adminGrants?.length>0;
     document.getElementById('account-btn').textContent=isPro()?(isAdminPro?'Pro ★':(trialDays?`Pro · ${trialDays}d`:'Pro')):'Grátis';
@@ -533,11 +539,33 @@ async function respondToShare(shareId,accept){
   }catch{showToast('Erro ao responder ao convite.','error');}
 }
 
+async function respondToSplitInvite(memberId, accept){
+  const inv=pendingSplitInvites.find(i=>i.id===memberId);
+  try{
+    if(accept){
+      await api.updateSplitMember(memberId,{status:'accepted',user_id:currentUser.id});
+      acceptedGroupIds.add(inv?.group_id);
+      showToast(`Você entrou no grupo "${inv?.split_groups?.name||'Divisão'}"!`,'success');
+    }else{
+      await api.updateSplitMember(memberId,{status:'declined'});
+      showToast('Convite recusado.','');
+    }
+    pendingSplitInvites=pendingSplitInvites.filter(i=>i.id!==memberId);
+    render();
+  }catch{showToast('Erro ao responder ao convite.','error');}
+}
+
 async function loadPendingShares(){
   try{
-    const shares=await api.getPendingShares();
+    const [shares, splitInvites, splitMemberships]=await Promise.all([
+      api.getPendingShares().catch(()=>[]),
+      api.getPendingSplitInvites().catch(()=>[]),
+      api.getAcceptedSplitMemberships().catch(()=>[]),
+    ]);
     pendingShares=shares||[];
-    if(pendingShares.length>0&&currentTab==='home') render();
+    pendingSplitInvites=splitInvites||[];
+    acceptedGroupIds=new Set((splitMemberships||[]).map(m=>m.group_id));
+    if((pendingShares.length>0||pendingSplitInvites.length>0)&&currentTab==='home') render();
   }catch{}
 }
 
@@ -560,8 +588,10 @@ function renderHome(el){
 
   const pendingSharesHtml=pendingShares.length>0?`<div style="padding:8px 20px 0;display:flex;flex-direction:column;gap:8px">${pendingShares.map(s=>`<div class="share-notification"><div style="font-weight:600;font-size:13px;margin-bottom:3px"><i class="fa-solid fa-share-nodes" style="margin-right:6px;color:var(--accent)" aria-hidden="true"></i>Convite de categoria</div><div style="font-size:12px;color:var(--text2);margin-bottom:10px">Você recebeu acesso à categoria <strong>${escapeHtml(s.category_name||'desconhecida')}</strong></div><div style="display:flex;gap:8px"><button onclick="respondToShare('${s.id}',true)" style="flex:1;padding:8px;border-radius:8px;border:none;background:var(--accent);color:#0f0f0f;font:700 12px 'DM Sans',sans-serif;cursor:pointer">Aceitar</button><button onclick="respondToShare('${s.id}',false)" style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text2);font:500 12px 'DM Sans',sans-serif;cursor:pointer">Recusar</button></div></div>`).join('')}</div>`:'';
 
+  const pendingSplitHtml=pendingSplitInvites.length>0?`<div style="padding:8px 20px 0;display:flex;flex-direction:column;gap:8px">${pendingSplitInvites.map(inv=>`<div class="share-notification"><div style="font-weight:600;font-size:13px;margin-bottom:3px"><i class="fa-solid fa-user-group" style="margin-right:6px;color:var(--accent)" aria-hidden="true"></i>Convite de divisão</div><div style="font-size:12px;color:var(--text2);margin-bottom:10px">Você foi convidado para o grupo <strong>${escapeHtml(inv.split_groups?.name||'Divisão')}</strong></div><div style="display:flex;gap:8px"><button onclick="respondToSplitInvite('${inv.id}',true)" style="flex:1;padding:8px;border-radius:8px;border:none;background:var(--accent);color:#0f0f0f;font:700 12px 'DM Sans',sans-serif;cursor:pointer">Aceitar</button><button onclick="respondToSplitInvite('${inv.id}',false)" style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text2);font:500 12px 'DM Sans',sans-serif;cursor:pointer">Recusar</button></div></div>`).join('')}</div>`:'';
+
   if(categories.length===0){
-    el.innerHTML=`<div style="padding:16px 20px">${pendingSharesHtml}<div class="empty"><div class="empty-icon"><i class="fa-regular fa-folder-open"></i></div><div class="empty-text">Nenhuma categoria ainda.<br><small style="color:var(--text3)">Vá em Categorias para criar a primeira.</small></div></div></div>`;
+    el.innerHTML=`<div style="padding:16px 20px">${pendingSharesHtml}${pendingSplitHtml}<div class="empty"><div class="empty-icon"><i class="fa-regular fa-folder-open"></i></div><div class="empty-text">Nenhuma categoria ainda.<br><small style="color:var(--text3)">Vá em Categorias para criar a primeira.</small></div></div></div>`;
     return;
   }
   if(currentCatIdx>=categories.length) currentCatIdx=0;
@@ -574,6 +604,7 @@ function renderHome(el){
 
   el.innerHTML=`<div id="home-content" style="display:flex;flex-direction:column;height:100%">
     ${pendingSharesHtml}
+    ${pendingSplitHtml}
     ${trialBannerHtml}
     <div class="cat-nav" style="padding-top:10px">
       <div class="cat-nav-btn${currentCatIdx===0?' disabled':''}" onclick="goToSlide(${currentCatIdx-1})">‹</div>
@@ -904,8 +935,11 @@ async function renderSplit(el){
     el.innerHTML=`<div class="split-wrap"><div class="empty"><div class="empty-icon"><i class="fa-solid fa-triangle-exclamation"></i></div><div class="empty-text">Não foi possível carregar as divisões.</div><div style="font-size:11px;color:var(--text3);margin-top:8px;padding:0 12px">${escapeHtml(msg)}</div></div></div>`;
     return;
   }
+  const visibleGroups=splitGroups.filter(g=>g.created_by===currentUser.id||acceptedGroupIds.has(g.id));
   const create=isPro()?`<button class="btn-primary" onclick="openCreateSplitGroup()" style="margin-bottom:14px">Novo grupo</button>`:`${lockedCard('Criar divisões de gastos','Usuários do plano gratuito podem consultar convites, mas a criação é Pro.')}`;
-  el.innerHTML=`<div class="split-wrap">${create}${splitGroups.map(g=>`<div class="split-group" onclick="openSplitGroup('${g.id}')"><div class="split-group-title">${escapeHtml(g.name)}</div><div class="split-group-meta">${g.created_by===currentUser.id?'Criado por você':'Você foi convidado'} · ver detalhes ›</div></div>`).join('')||'<div class="empty"><div class="empty-icon"><i class="fa-solid fa-user-group"></i></div><div class="empty-text">Nenhuma divisão ainda.</div></div>'}</div>`;
+  const pendingCount=pendingSplitInvites.length;
+  const pendingBadge=pendingCount>0?`<div style="background:#c8f04a18;border:1px solid #c8f04a44;border-radius:10px;padding:12px 14px;margin-bottom:12px;font-size:13px;color:var(--accent)"><i class="fa-solid fa-bell" style="margin-right:8px" aria-hidden="true"></i>Você tem <strong>${pendingCount}</strong> convite${pendingCount>1?'s':''} pendente${pendingCount>1?'s':''} — veja na aba <strong>Início</strong></div>`:'';
+  el.innerHTML=`<div class="split-wrap">${create}${pendingBadge}${visibleGroups.map(g=>`<div class="split-group" onclick="openSplitGroup('${g.id}')"><div class="split-group-title">${escapeHtml(g.name)}</div><div class="split-group-meta">${g.created_by===currentUser.id?'Criado por você':'Você foi convidado'} · ver detalhes ›</div></div>`).join('')||'<div class="empty"><div class="empty-icon"><i class="fa-solid fa-user-group"></i></div><div class="empty-text">Nenhuma divisão ainda.</div></div>'}</div>`;
 }
 function openCreateSplitGroup(){
   if(!isPro()){openPaywall('Criar divisões de gastos');return;}
@@ -921,8 +955,9 @@ async function saveSplitGroup(){
     const rows=await api.insertSplitGroup(name);
     const group=Array.isArray(rows)?rows[0]:rows;
     if(!group?.id) throw new Error('Grupo não retornado');
-    const memberEmails=[currentUser.email.toLowerCase(),...emails.filter(e=>e!==currentUser.email.toLowerCase())];
-    await api.insertSplitMembers(memberEmails.map(email=>({group_id:group.id,email,user_id:email===currentUser.email.toLowerCase()?currentUser.id:null,display_name:email===currentUser.email.toLowerCase()?'Você':null})));
+    const meEmail=currentUser.email.toLowerCase();
+    const memberRows=[{group_id:group.id,email:meEmail,user_id:currentUser.id,display_name:'Você',status:'accepted'},...emails.filter(e=>e!==meEmail).map(email=>({group_id:group.id,email,user_id:null,display_name:null,status:'pending'}))];
+    await api.insertSplitMembers(memberRows);
     _closeModal();showToast('Grupo criado!','success');renderSplit(document.getElementById('content'));
   }catch(e){
     const msg=String(e?.message||'');
@@ -936,10 +971,20 @@ async function openSplitGroup(groupId){
   try{
     const [members,exps]=await Promise.all([api.getSplitMembers(groupId),api.getSplitExpenses(groupId)]),shares=await api.getSplitShares(exps.map(e=>e.id));
     const memberById=Object.fromEntries(members.map(m=>[m.id,m]));
-    const canManage=isPro()&&group.created_by===currentUser.id;
-    let html=`<div class="modal-title">${escapeHtml(group.name)}</div>${canManage?`<button class="btn-primary" onclick="openAddSplitExpense('${groupId}')" style="margin-bottom:14px">Adicionar despesa</button>`:''}`;
-    html+=exps.map(e=>`<div class="split-expense"><div class="split-expense-head"><span>${escapeHtml(e.description)}</span><span>${brl(e.total_amount)}</span></div><div class="split-group-meta">Pago por ${escapeHtml(e.paid_by_email)}</div>${shares.filter(s=>s.expense_id===e.id).map(s=>{const m=memberById[s.member_id]||{};return `<div class="split-share"><span>${escapeHtml(m.display_name||m.email||'Participante')} · ${brl(s.amount)}</span>${s.is_settled?'<span class="settled"><i class="fa-solid fa-check"></i> Pago</span>':canManage?`<button class="settle-btn" onclick="settleShare('${s.id}','${groupId}')">Marcar pago</button>`:'<span>Pendente</span>'}</div>`}).join('')}</div>`).join('')||'<div class="empty"><div class="empty-text">Nenhuma despesa neste grupo.</div></div>';
-    html+=`<button class="btn-secondary" onclick="_closeModal()">Fechar</button>`;document.getElementById('modal-content').innerHTML=html;
+    const isCreator=group.created_by===currentUser.id;
+    const myMember=members.find(m=>m.user_id===currentUser.id||(m.email&&m.email.toLowerCase()===currentUser.email.toLowerCase()));
+    const isAcceptedMember=myMember?.status==='accepted';
+    const canAdd=isPro()&&(isCreator||isAcceptedMember);
+    const canSettle=isCreator||isAcceptedMember;
+    const acceptedMembers=members.filter(m=>m.status==='accepted');
+    const pendingMembers=members.filter(m=>m.status==='pending');
+    let html=`<div class="modal-title">${escapeHtml(group.name)}</div>`;
+    html+=`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">${acceptedMembers.map(m=>`<span style="font-size:11px;background:var(--surface2);border-radius:100px;padding:3px 10px;color:var(--text2)">${escapeHtml(m.display_name||m.email)}</span>`).join('')}${pendingMembers.map(m=>`<span style="font-size:11px;background:var(--surface2);border-radius:100px;padding:3px 10px;color:var(--text3)">⏳ ${escapeHtml(m.email)}</span>`).join('')}</div>`;
+    if(canAdd) html+=`<button class="btn-primary" onclick="openAddSplitExpense('${groupId}')" style="margin-bottom:10px">Adicionar despesa</button>`;
+    if(isCreator) html+=`<button class="btn-secondary" onclick="openAddSplitMember('${groupId}')" style="margin-bottom:14px">Convidar membro</button>`;
+    html+=exps.map(e=>`<div class="split-expense"><div class="split-expense-head"><span>${escapeHtml(e.description)}</span><span>${brl(e.total_amount)}</span></div><div class="split-group-meta">Pago por ${escapeHtml(e.paid_by_email)}</div>${shares.filter(s=>s.expense_id===e.id).map(s=>{const m=memberById[s.member_id]||{};return `<div class="split-share"><span>${escapeHtml(m.display_name||m.email||'Participante')} · ${brl(s.amount)}</span>${s.is_settled?'<span class="settled"><i class="fa-solid fa-check"></i> Pago</span>':canSettle?`<button class="settle-btn" onclick="settleShare('${s.id}','${groupId}')">Marcar pago</button>`:'<span style="color:var(--text3);font-size:12px">Pendente</span>'}</div>`}).join('')}</div>`).join('')||'<div style="padding:16px 0;text-align:center;color:var(--text3);font-size:13px">Nenhuma despesa neste grupo.</div>';
+    html+=`<button class="btn-secondary" style="margin-top:16px" onclick="_closeModal()">Fechar</button>`;
+    document.getElementById('modal-content').innerHTML=html;
   }catch{document.getElementById('modal-content').innerHTML=`<div class="modal-title">${escapeHtml(group.name)}</div><p class="modal-note">Erro ao carregar o grupo.</p><button class="btn-secondary" onclick="_closeModal()">Fechar</button>`;}
 }
 async function openAddSplitExpense(groupId){
@@ -972,6 +1017,29 @@ async function saveSplitExpense(groupId){
   }catch{showToast('Erro ao dividir despesa.','error');btn.disabled=false;btn.textContent='Dividir igualmente';}
 }
 async function settleShare(shareId,groupId){try{await api.settleSplitShare(shareId,true);showToast('Pagamento confirmado!','success');openSplitGroup(groupId);}catch{showToast('Erro ao confirmar pagamento.','error');}}
+
+function openAddSplitMember(groupId){
+  openModal(`<div class="modal-title">Convidar membro</div>
+    <div class="form-group"><label class="form-label">E-mail do convidado</label>
+      <input class="form-input" id="f-split-invite" type="email" placeholder="amigo@email.com" autocomplete="off"/></div>
+    <button class="btn-primary" id="btn-split-invite" onclick="saveAddSplitMember('${groupId}')">Enviar convite</button>
+    <button class="btn-secondary" onclick="openSplitGroup('${groupId}')">Cancelar</button>`);
+}
+
+async function saveAddSplitMember(groupId){
+  const email=(document.getElementById('f-split-invite').value||'').trim().toLowerCase();
+  if(!email||!/^\S+@\S+\.\S+$/.test(email)){showToast('Informe um e-mail válido.','error');return;}
+  if(email===currentUser.email.toLowerCase()){showToast('Você já está no grupo.','error');return;}
+  const btn=document.getElementById('btn-split-invite');btn.disabled=true;btn.textContent='Enviando...';
+  try{
+    await api.insertSplitMembers([{group_id:groupId,email,user_id:null,display_name:null,status:'pending'}]);
+    showToast('Convite enviado!','success');
+    openSplitGroup(groupId);
+  }catch(e){
+    showToast('Erro: '+String(e?.message||'').slice(0,60),'error');
+    btn.disabled=false;btn.textContent='Enviar convite';
+  }
+}
 
 // ===================== MODAIS =====================
 function openModal(html){ document.getElementById('modal-content').innerHTML=html; document.getElementById('modal-overlay').classList.add('open'); }

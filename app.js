@@ -92,7 +92,7 @@ document.getElementById('auth-form').addEventListener('submit',async e=>{
       :await authRequest('token?grant_type=password',{email,password});
     if(!data.access_token) throw new Error('Confira seu e-mail para confirmar a conta antes de entrar.');
     persistSession(data); enterApp();
-    if(authMode==='signup') setTimeout(()=>showWelcomeTrial(),300);
+    if(authMode==='signup') setTimeout(()=>{ showWelcomeTrial(); localStorage.removeItem(TUTORIAL_KEY); },300);
   }catch(err){ error.textContent=authMessage(err.message); }
   finally{ button.disabled=false; }
 });
@@ -263,6 +263,7 @@ function openAccountModal(){
   openModal(`<div class="modal-title">Sua conta</div>
     <p class="modal-note">Conectado como <strong>${email}</strong><br>Plano: <strong>${isPro()?'Pro':'Gratuito'}</strong></p>
     <button class="btn-primary" onclick="openPaywall('Planos e assinatura')">Ver planos</button>
+    <button class="btn-secondary" onclick="_closeModal();showTutorial(true)"><i class="fa-solid fa-circle-question" aria-hidden="true"></i> Ver tutorial</button>
     ${isAdmin?`<button class="btn-secondary" style="border-color:var(--accent);color:var(--accent)" onclick="openAdminPanel()"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> Painel Admin</button>`:''}
     <button class="btn-secondary" onclick="logout()">Sair da conta</button>`);
 }
@@ -292,7 +293,28 @@ async function grantPro(){
     await api.insertAdminGrant(email,plan);
     showToast(`Pro concedido para ${email}!`,'success');
     document.getElementById('f-admin-email').value='';
-  }catch{showToast('Erro. Verifique se a tabela admin_grants existe no Supabase.','error');}
+  }catch(err){
+    const msg=String(err?.message||'');
+    if(/relation.*does not exist|42P01/i.test(msg)||msg.includes('admin_grants')){
+      openModal(`<div class="modal-title">Tabela não encontrada</div>
+        <p class="modal-note">A tabela <code>admin_grants</code> ainda não existe no Supabase. Rode o SQL abaixo no SQL Editor do painel:</p>
+        <pre style="background:var(--surface2);border-radius:10px;padding:14px;font-size:11px;overflow-x:auto;line-height:1.6;white-space:pre-wrap;color:var(--accent)">CREATE TABLE admin_grants (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  email text NOT NULL,
+  plan text NOT NULL DEFAULT 'monthly',
+  granted_by uuid REFERENCES auth.users(id),
+  created_at timestamptz DEFAULT now()
+);
+ALTER TABLE admin_grants ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "admin_insert" ON admin_grants FOR INSERT WITH CHECK (auth.jwt()->>'email' = '2rafab@gmail.com');
+CREATE POLICY "admin_all" ON admin_grants FOR ALL USING (auth.jwt()->>'email' = '2rafab@gmail.com');
+CREATE POLICY "user_read_own" ON admin_grants FOR SELECT USING (email = auth.jwt()->>'email');</pre>
+        <button class="btn-primary" onclick="openAdminPanel()">Tentar novamente</button>
+        <button class="btn-secondary" onclick="_closeModal()">Fechar</button>`);
+    }else{
+      showToast('Erro: '+msg.slice(0,80),'error');
+    }
+  }
   btn.disabled=false;btn.textContent='Conceder Pro';
 }
 async function openAdminList(){
@@ -355,6 +377,7 @@ async function init(){
     saveCache();
     document.getElementById('sync-dot')?.remove();
     render();
+    setTimeout(()=>showTutorial(),600);
     api.getExpenseNames().then(rows=>{
       const freq={};
       (rows||[]).forEach(r=>{const n=(r.name||'').trim(); if(n) freq[n]=(freq[n]||0)+1;});
@@ -485,10 +508,18 @@ async function removeShare(shareId,catId){
 }
 
 async function respondToShare(shareId,accept){
+  const share=pendingShares.find(s=>s.id===shareId);
   try{
     await api.updateCategoryShare(shareId,{status:accept?'accepted':'declined',shared_with_user_id:accept?currentUser.id:null});
     pendingShares=pendingShares.filter(s=>s.id!==shareId);
-    showToast(accept?'Categoria aceita!':'Convite recusado.',accept?'success':'');
+    if(accept&&share){
+      await api.insertCategory({id:uid(),name:share.category_name,budget:0,position:categories.length});
+      categories=await api.getCategories();
+      saveCache();
+      showToast(`"${share.category_name}" adicionada! Ajuste o orçamento.`,'success');
+    }else{
+      showToast('Convite recusado.','');
+    }
     render();
   }catch{showToast('Erro ao responder ao convite.','error');}
 }
@@ -517,16 +548,17 @@ function render(){
 function renderHome(el){
   const isNow=viewMonthKey===currentMonthKey;
   const mdata=months.find(m=>m.key===viewMonthKey);
+
+  const pendingSharesHtml=pendingShares.length>0?`<div style="padding:8px 20px 0;display:flex;flex-direction:column;gap:8px">${pendingShares.map(s=>`<div class="share-notification"><div style="font-weight:600;font-size:13px;margin-bottom:3px"><i class="fa-solid fa-share-nodes" style="margin-right:6px;color:var(--accent)" aria-hidden="true"></i>Convite de categoria</div><div style="font-size:12px;color:var(--text2);margin-bottom:10px">Você recebeu acesso à categoria <strong>${escapeHtml(s.category_name||'desconhecida')}</strong></div><div style="display:flex;gap:8px"><button onclick="respondToShare('${s.id}',true)" style="flex:1;padding:8px;border-radius:8px;border:none;background:var(--accent);color:#0f0f0f;font:700 12px 'DM Sans',sans-serif;cursor:pointer">Aceitar</button><button onclick="respondToShare('${s.id}',false)" style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text2);font:500 12px 'DM Sans',sans-serif;cursor:pointer">Recusar</button></div></div>`).join('')}</div>`:'';
+
   if(categories.length===0){
-    el.innerHTML=`<div style="padding:16px 20px"><div class="empty"><div class="empty-icon"><i class="fa-regular fa-folder-open"></i></div><div class="empty-text">Nenhuma categoria ainda.</div></div></div>`;
+    el.innerHTML=`<div style="padding:16px 20px">${pendingSharesHtml}<div class="empty"><div class="empty-icon"><i class="fa-regular fa-folder-open"></i></div><div class="empty-text">Nenhuma categoria ainda.<br><small style="color:var(--text3)">Vá em Categorias para criar a primeira.</small></div></div></div>`;
     return;
   }
   if(currentCatIdx>=categories.length) currentCatIdx=0;
 
   const days=trialDaysRemaining();
   const trialBannerHtml=days>0&&days<=3?`<div style="padding:8px 20px 0"><div class="trial-banner" style="margin:0"><span>Seu acesso completo termina em <strong>${days} ${days===1?'dia':'dias'}</strong>.</span><button onclick="openPaywall('Continue com seus relatórios')">Ver Pro</button></div></div>`:'';
-
-  const pendingSharesHtml=pendingShares.length>0?`<div style="padding:8px 20px 0;display:flex;flex-direction:column;gap:8px">${pendingShares.map(s=>`<div class="share-notification"><div style="font-weight:600;font-size:13px;margin-bottom:3px"><i class="fa-solid fa-share-nodes" style="margin-right:6px;color:var(--accent)" aria-hidden="true"></i>Convite de categoria</div><div style="font-size:12px;color:var(--text2);margin-bottom:10px">Você recebeu acesso à categoria <strong>${escapeHtml(s.category_name||'desconhecida')}</strong></div><div style="display:flex;gap:8px"><button onclick="respondToShare('${s.id}',true)" style="flex:1;padding:8px;border-radius:8px;border:none;background:var(--accent);color:#0f0f0f;font:700 12px 'DM Sans',sans-serif;cursor:pointer">Aceitar</button><button onclick="respondToShare('${s.id}',false)" style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text2);font:500 12px 'DM Sans',sans-serif;cursor:pointer">Recusar</button></div></div>`).join('')}</div>`:'';
 
   const slidesHtml = categories.map((cat,i)=>buildSlide(cat,isNow)).join('');
   const dotsHtml = categories.map((_,i)=>`<div class="cdot${i===currentCatIdx?' active':''}" onclick="goToSlide(${i})"></div>`).join('');
@@ -869,7 +901,11 @@ async function saveSplitGroup(){
     const memberEmails=[currentUser.email.toLowerCase(),...emails.filter(e=>e!==currentUser.email.toLowerCase())];
     await api.insertSplitMembers(memberEmails.map(email=>({group_id:group.id,email,user_id:email===currentUser.email.toLowerCase()?currentUser.id:null,display_name:email===currentUser.email.toLowerCase()?'Você':null})));
     _closeModal();showToast('Grupo criado!','success');renderSplit(document.getElementById('content'));
-  }catch(e){showToast('Erro ao criar grupo.','error');btn.disabled=false;btn.textContent='Criar grupo';}
+  }catch(e){
+    const msg=String(e?.message||'');
+    showToast('Erro: '+msg.slice(0,60),'error');
+    btn.disabled=false;btn.textContent='Criar grupo';
+  }
 }
 async function openSplitGroup(groupId){
   const group=splitGroups.find(g=>g.id===groupId);if(!group)return;
@@ -985,7 +1021,15 @@ async function saveExpense(expId){
     saveCache();
     vib(15);
     _closeModal(); render(); showToast('Salvo!','success');
-  }catch{ showToast('Erro ao salvar.','error'); btn.disabled=false; btn.textContent='Salvar'; }
+  }catch(err){
+    const msg=String(err?.message||'');
+    if(/recurring/i.test(msg)){
+      showToast('Rode o SQL: ALTER TABLE expenses ADD COLUMN recurring boolean DEFAULT false','error');
+    }else{
+      showToast('Erro ao salvar.','error');
+    }
+    btn.disabled=false; btn.textContent='Salvar';
+  }
 }
 
 async function confirmDeleteExpense(expId){
@@ -1222,6 +1266,114 @@ function showToast(msg,type=''){
   const t=document.getElementById('toast');
   t.textContent=msg; t.className=`toast ${type} show`;
   setTimeout(()=>t.classList.remove('show'),2500);
+}
+
+// ===================== TUTORIAL =====================
+const TUTORIAL_KEY = 'gc-tutorial-v1';
+const TUTORIAL_STEPS = [
+  {
+    title: 'Bem-vindo ao GastoCerto!',
+    body: 'Em poucos passos você vai conhecer tudo. Vamos lá?',
+    target: null,
+  },
+  {
+    title: 'Início — seus gastos do mês',
+    body: 'Aqui ficam suas categorias em carrossel. Deslize para navegar entre elas e veja quanto gastou em cada uma.',
+    target: ()=>document.querySelector('.tab.active'),
+  },
+  {
+    title: 'Categorias',
+    body: 'Crie categorias como "Alimentação", "Academia" ou "Aluguel". Cada uma tem um orçamento mensal. Arraste para reordenar.',
+    target: ()=>document.querySelectorAll('.tab')[1],
+    action: ()=>{ const t=document.querySelectorAll('.tab')[1]; if(t) t.click(); },
+  },
+  {
+    title: 'Histórico',
+    body: 'Veja gráficos, badges e comparativos dos últimos meses. Disponível no plano Pro.',
+    target: ()=>document.querySelectorAll('.tab')[2],
+    action: ()=>{ const t=document.querySelectorAll('.tab')[2]; if(t) t.click(); },
+  },
+  {
+    title: 'Grupos de divisão',
+    body: 'Divida despesas com amigos ou família. Crie um grupo, adicione participantes e registre o que cada um deve.',
+    target: ()=>document.querySelectorAll('.tab')[3],
+    action: ()=>{ const t=document.querySelectorAll('.tab')[3]; if(t) t.click(); },
+  },
+  {
+    title: 'Botão de ação rápida',
+    body: 'O botão verde no canto adiciona gastos ou categorias dependendo da aba que você está.',
+    target: ()=>document.getElementById('fab'),
+    action: ()=>{ const t=document.querySelectorAll('.tab')[0]; if(t) t.click(); },
+  },
+  {
+    title: 'Tudo pronto!',
+    body: 'Crie sua primeira categoria para começar a registrar seus gastos. Qualquer dúvida, acesse sua conta pelo botão no topo.',
+    target: null,
+  },
+];
+
+let tutStep=0, tutEl=null;
+
+function showTutorial(force=false){
+  if(!force&&localStorage.getItem(TUTORIAL_KEY)) return;
+  tutStep=0;
+  renderTutStep();
+}
+
+function renderTutStep(){
+  document.getElementById('tut-overlay')?.remove();
+  const step=TUTORIAL_STEPS[tutStep];
+  if(!step) return endTutorial();
+
+  if(step.action) step.action();
+
+  const overlay=document.createElement('div');
+  overlay.id='tut-overlay';
+  overlay.className='tut-overlay';
+
+  const backdrop=document.createElement('div');
+  backdrop.className='tut-backdrop';
+  backdrop.onclick=()=>{};
+  overlay.appendChild(backdrop);
+
+  const target=step.target?.();
+  if(target){
+    const r=target.getBoundingClientRect();
+    const spot=document.createElement('div');
+    spot.className='tut-spotlight';
+    spot.style.cssText=`top:${r.top-6}px;left:${r.left-6}px;width:${r.width+12}px;height:${r.height+12}px`;
+    overlay.appendChild(spot);
+  }
+
+  const isLast=tutStep===TUTORIAL_STEPS.length-1;
+  const card=document.createElement('div');
+  card.className='tut-card';
+  const cardTop=target?Math.min(target.getBoundingClientRect().bottom+18, window.innerHeight-220):window.innerHeight/2-100;
+  card.style.top=`${cardTop}px`;
+
+  const dotsHtml=TUTORIAL_STEPS.map((_,i)=>`<div class="tut-dot${i===tutStep?' active':''}"></div>`).join('');
+  card.innerHTML=`
+    <div class="tut-step">Passo ${tutStep+1} de ${TUTORIAL_STEPS.length}</div>
+    <div class="tut-title">${step.title}</div>
+    <div class="tut-body">${step.body}</div>
+    <div class="tut-actions">
+      <div class="tut-dots">${dotsHtml}</div>
+      ${tutStep>0?`<button class="tut-skip" onclick="endTutorial()">Pular</button>`:''}
+      <button class="tut-next" onclick="${isLast?'endTutorial()':'nextTutStep()'}">${isLast?'Começar!':'Próximo'}</button>
+    </div>`;
+  overlay.appendChild(card);
+  document.body.appendChild(overlay);
+}
+
+function nextTutStep(){
+  tutStep++;
+  renderTutStep();
+}
+
+function endTutorial(){
+  localStorage.setItem(TUTORIAL_KEY,'1');
+  document.getElementById('tut-overlay')?.remove();
+  const t=document.querySelectorAll('.tab')[0]; if(t) t.click();
 }
 
 document.addEventListener('touchstart', function(e){

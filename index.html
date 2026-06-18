@@ -549,7 +549,7 @@ const api={
   updateCategory:(id,d)=>sbFetch(`categories?id=eq.${id}`,{method:'PATCH',body:JSON.stringify(d)}),
   deleteCategory:(id)=>sbFetch(`categories?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
   getMonths:()=>sbFetch('months?order=key.desc'),
-  upsertMonth:(d)=>sbFetch('months?on_conflict=user_id,key',{method:'POST',body:JSON.stringify({...d,user_id:currentUser.id}),headers:{Prefer:'resolution=merge-duplicates,return=representation'}}),
+  insertMonth:(d)=>sbFetch('months',{method:'POST',body:JSON.stringify({...d,user_id:currentUser.id})}),
   closeMonth:(key)=>sbFetch(`months?key=eq.${key}`,{method:'PATCH',body:JSON.stringify({closed:true})}),
   getExpenses:(mk)=>sbFetch(`expenses?month_key=eq.${mk}&order=date.desc`),
   getAllExpenses:()=>sbFetch('expenses?order=date.desc'),
@@ -665,7 +665,7 @@ async function init(){
     const trialDays=sub?.subscription_status==='trialing'?Math.max(0,Math.ceil((new Date(sub.trial_ends_at)-new Date())/86400000)):0;
     document.getElementById('account-btn').textContent=isPro()?(trialDays?`Pro · ${trialDays}d`:'Pro'):'Grátis';
     const now=monthKeyOf(new Date());
-    if(!months.find(m=>m.key===now)){ await api.upsertMonth({key:now,closed:false}); months=await api.getMonths(); }
+    if(!months.find(m=>m.key===now)){ await api.insertMonth({key:now,closed:false}); months=await api.getMonths(); }
     currentMonthKey=now;
     if(!hadCache || !months.find(m=>m.key===viewMonthKey)) viewMonthKey=now;
     expenses=await api.getExpenses(viewMonthKey);
@@ -1231,7 +1231,7 @@ async function confirmCloseMonth(nextKey){
   try{
     for(const cat of categories){ const inp=document.getElementById(`adj-${cat.id}`); if(inp){const v=parseFloat(inp.value);if(!isNaN(v)&&v>0) await api.updateCategory(cat.id,{budget:v});} }
     await api.closeMonth(currentMonthKey);
-    await api.upsertMonth({key:nextKey,closed:false});
+    if(!months.find(m=>m.key===nextKey)) await api.insertMonth({key:nextKey,closed:false});
     categories=await api.getCategories(); months=await api.getMonths();
     currentMonthKey=nextKey; viewMonthKey=nextKey; currentCatIdx=0;
     expenses=await api.getExpenses(viewMonthKey);

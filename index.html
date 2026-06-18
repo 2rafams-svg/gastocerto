@@ -574,20 +574,24 @@ const api={
   updateExpense:(id,d)=>sbFetch(`expenses?id=eq.${id}`,{method:'PATCH',body:JSON.stringify(d)}),
   deleteExpense:(id)=>sbFetch(`expenses?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
   setMonthBudgets:(key,budgets)=>sbFetch(`months?key=eq.${key}`,{method:'PATCH',body:JSON.stringify({budgets})}),
-  getSplitGroups:()=>sbFetch('split_groups?order=created_at.desc'),
+  getSplitGroups:()=>sbFetch('split_groups?order=id.desc'),
   insertSplitGroup:(name)=>sbFetch('split_groups',{method:'POST',body:JSON.stringify({name,created_by:currentUser.id})}),
-  getSplitMembers:(groupId)=>sbFetch(`split_members?group_id=eq.${groupId}&order=created_at.asc`),
+  getSplitMembers:(groupId)=>sbFetch(`split_members?group_id=eq.${groupId}`),
   insertSplitMembers:(rows)=>sbFetch('split_members',{method:'POST',body:JSON.stringify(rows)}),
-  getSplitExpenses:(groupId)=>sbFetch(`split_expenses?group_id=eq.${groupId}&order=created_at.desc`),
+  getSplitExpenses:(groupId)=>sbFetch(`split_expenses?group_id=eq.${groupId}&order=id.desc`),
   insertSplitExpense:(row)=>sbFetch('split_expenses',{method:'POST',body:JSON.stringify(row)}),
   getSplitShares:(expenseIds)=>expenseIds.length?sbFetch(`split_shares?expense_id=in.(${expenseIds.join(',')})`):Promise.resolve([]),
   insertSplitShares:(rows)=>sbFetch('split_shares',{method:'POST',body:JSON.stringify(rows)}),
   settleSplitShare:(id,settled)=>sbFetch(`split_shares?id=eq.${id}`,{method:'PATCH',body:JSON.stringify({is_settled:settled,settled_at:settled?new Date().toISOString():null})}),
-  getCategoryShares:(catId)=>sbFetch(`category_shares?category_id=eq.${catId}&order=created_at.desc`),
-  getPendingShares:()=>sbFetch(`category_shares?shared_with_email=eq.${encodeURIComponent(currentUser.email)}&status=eq.pending`),
+  getCategoryShares:(catId)=>sbFetch(`category_shares?category_id=eq.${catId}&order=id.desc`),
+  getPendingShares:()=>sbFetch(`category_shares?shared_with_email=ilike.${encodeURIComponent(currentUser.email)}&status=eq.pending`),
   insertCategoryShare:(data)=>sbFetch('category_shares',{method:'POST',body:JSON.stringify({...data,shared_by_user_id:currentUser.id})}),
   updateCategoryShare:(id,data)=>sbFetch(`category_shares?id=eq.${id}`,{method:'PATCH',body:JSON.stringify(data)}),
   deleteCategoryShare:(id)=>sbFetch(`category_shares?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
+  getAdminGrant:()=>sbFetch(`admin_grants?email=ilike.${encodeURIComponent(currentUser.email)}&limit=1`),
+  insertAdminGrant:(email,plan)=>sbFetch('admin_grants',{method:'POST',body:JSON.stringify({email:email.toLowerCase(),plan,granted_by:currentUser.id})}),
+  deleteAdminGrant:(id)=>sbFetch(`admin_grants?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
+  listAdminGrants:()=>sbFetch('admin_grants?order=id.desc'),
 };
 
 // ===================== STATE =====================
@@ -653,11 +657,65 @@ function showWelcomeTrial(){
 
 function openAccountModal(){
   const email=escapeHtml(currentUser?.email||'');
+  const isAdmin=currentUser?.email==='2rafab@gmail.com';
   openModal(`<div class="modal-title">Sua conta</div>
     <p class="modal-note">Conectado como <strong>${email}</strong><br>Plano: <strong>${isPro()?'Pro':'Gratuito'}</strong></p>
     <button class="btn-primary" onclick="openPaywall('Planos e assinatura')">Ver planos</button>
+    ${isAdmin?`<button class="btn-secondary" style="border-color:var(--accent);color:var(--accent)" onclick="openAdminPanel()"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> Painel Admin</button>`:''}
     <button class="btn-secondary" onclick="logout()">Sair da conta</button>`);
 }
+
+// ===================== ADMIN PANEL =====================
+function openAdminPanel(){
+  if(currentUser?.email!=='2rafab@gmail.com') return;
+  openModal(`<div class="modal-title"><i class="fa-solid fa-shield-halved" style="color:var(--accent)" aria-hidden="true"></i> Painel Admin</div>
+    <p class="modal-note">Conceder acesso Pro a um usuário pelo e-mail (sem billing).</p>
+    <div class="form-group"><label class="form-label">E-mail do usuário</label>
+      <input class="form-input" id="f-admin-email" type="email" placeholder="usuario@email.com"/></div>
+    <div class="form-group"><label class="form-label">Tipo de plano</label>
+      <select class="form-input" id="f-admin-plan">
+        <option value="monthly">Mensal</option>
+        <option value="lifetime">Vitalício</option>
+      </select></div>
+    <button class="btn-primary" id="btn-admin-grant" onclick="grantPro()">Conceder Pro</button>
+    <button class="btn-secondary" onclick="openAdminList()">Ver concessões ativas</button>
+    <button class="btn-secondary" onclick="_closeModal()">Fechar</button>`);
+}
+async function grantPro(){
+  const email=(document.getElementById('f-admin-email').value||'').trim().toLowerCase();
+  const plan=document.getElementById('f-admin-plan').value;
+  if(!email||!/^\S+@\S+\.\S+$/.test(email)){showToast('E-mail inválido.','error');return;}
+  const btn=document.getElementById('btn-admin-grant');btn.disabled=true;btn.textContent='Concedendo...';
+  try{
+    await api.insertAdminGrant(email,plan);
+    showToast(`Pro concedido para ${email}!`,'success');
+    document.getElementById('f-admin-email').value='';
+  }catch{showToast('Erro. Verifique se a tabela admin_grants existe no Supabase.','error');}
+  btn.disabled=false;btn.textContent='Conceder Pro';
+}
+async function openAdminList(){
+  openModal(`<div class="modal-title">Concessões Pro ativas</div><div class="loading"><div class="spinner"></div></div>`);
+  try{
+    const grants=await api.listAdminGrants();
+    const planLabel={monthly:'Mensal',lifetime:'Vitalício'};
+    let html=`<div class="modal-title">Concessões Pro ativas</div>`;
+    if(!grants||!grants.length) html+=`<p class="modal-note">Nenhuma concessão ainda.</p>`;
+    else html+=grants.map(g=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--border)">
+      <div><div style="font-size:14px;font-weight:500">${escapeHtml(g.email)}</div>
+      <div style="font-size:12px;color:var(--text3)">${planLabel[g.plan]||g.plan}</div></div>
+      <div class="icon-btn" style="border-color:#ff4f4f44;color:var(--red)" onclick="revokeGrant('${g.id}')"><i class="fa-solid fa-trash" aria-hidden="true"></i></div>
+    </div>`).join('');
+    html+=`<button class="btn-primary" style="margin-top:16px" onclick="openAdminPanel()">Nova concessão</button>
+      <button class="btn-secondary" onclick="_closeModal()">Fechar</button>`;
+    document.getElementById('modal-content').innerHTML=html;
+  }catch{document.getElementById('modal-content').innerHTML=`<div class="modal-title">Concessões</div><p class="modal-note">Erro ao carregar.</p><button class="btn-secondary" onclick="_closeModal()">Fechar</button>`;}
+}
+async function revokeGrant(id){
+  if(!confirm('Revogar este acesso Pro?'))return;
+  try{await api.deleteAdminGrant(id);showToast('Acesso revogado.','success');openAdminList();}
+  catch{showToast('Erro ao revogar.','error');}
+}
+
 function loadCache(){
   try{
     const raw=localStorage.getItem(`${CACHE_PREFIX}:${currentUser.id}`);
@@ -681,13 +739,17 @@ async function init(){
   }
   // 2) Busca dados frescos em paralelo
   try{
-    const [cats, mons, sub] = await Promise.all([api.getCategories(), api.getMonths(), api.getSubscription()]);
+    const [cats, mons, sub, adminGrants] = await Promise.all([api.getCategories(), api.getMonths(), api.getSubscription(), api.getAdminGrant().catch(()=>[])]);
     categories=cats; months=mons; subscription=sub; userPlan=resolveUserPlan(sub);
+    if(userPlan==='free'&&adminGrants?.length>0) userPlan='pro';
     const trialDays=sub?.subscription_status==='trialing'?Math.max(0,Math.ceil((new Date(sub.trial_ends_at)-new Date())/86400000)):0;
     document.getElementById('account-btn').textContent=isPro()?(trialDays?`Pro · ${trialDays}d`:'Pro'):'Grátis';
     const now=monthKeyOf(new Date());
     if(!months.find(m=>m.key===now)){ await api.insertMonth({key:now,closed:false}); months=await api.getMonths(); }
     currentMonthKey=now;
+    const prevKey=prevMonthKey(now);
+    const prevMon=months.find(m=>m.key===prevKey);
+    if(prevMon&&!prevMon.closed) api.closeMonth(prevKey).then(()=>{if(prevMon)prevMon.closed=true;}).catch(()=>{});
     if(!hadCache || !months.find(m=>m.key===viewMonthKey)) viewMonthKey=now;
     expenses=await api.getExpenses(viewMonthKey);
     saveCache();
@@ -700,7 +762,8 @@ async function init(){
       expenseNames=Object.keys(freq).sort((a,b)=>freq[b]-freq[a]);
       saveCache();
     }).catch(()=>{});
-    // Background: verificar convites de categoria pendentes
+    // Background: recorrentes + convites pendentes
+    autoCreateRecurring();
     loadPendingShares();
   }catch(e){
     document.getElementById('sync-dot')?.remove();
@@ -740,6 +803,24 @@ async function shareCategory(catId){
   const safe=cat.name.toLowerCase().replace(/[^a-z0-9]+/gi,'-'),file=new File([blob],`gastocerto-${safe}.png`,{type:'image/png'});
   try{if(navigator.share&&navigator.canShare?.({files:[file]})){await navigator.share({title:`${cat.name} · GastoCerto`,files:[file]});return;}}catch(err){if(err.name==='AbortError')return;}
   const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=file.name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);showToast('Imagem salva!','success');
+}
+
+// ===================== RECORRENTES =====================
+async function autoCreateRecurring(){
+  try{
+    const prevKey=prevMonthKey(currentMonthKey);
+    const [prevExps,curExps]=await Promise.all([api.getExpenses(prevKey),api.getExpenses(currentMonthKey)]);
+    const recurringPrev=prevExps.filter(e=>e.recurring);
+    if(!recurringPrev.length) return;
+    let created=false;
+    for(const exp of recurringPrev){
+      const already=curExps.some(e=>e.recurring&&e.cat_id===exp.cat_id&&e.name===exp.name);
+      if(already) continue;
+      await api.insertExpense({id:uid(),cat_id:exp.cat_id,month_key:currentMonthKey,name:exp.name,value:exp.value,date:`${currentMonthKey}-01`,recurring:true});
+      created=true;
+    }
+    if(created){expenses=await api.getExpenses(viewMonthKey);saveCache();render();showToast('Lançamentos recorrentes adicionados.','success');}
+  }catch{}
 }
 
 // ===================== COMPARTILHAMENTO ENTRE USUÁRIOS =====================
@@ -826,7 +907,7 @@ async function loadPendingShares(){
 function render(){
   document.getElementById('current-month-label').textContent=monthLabel(viewMonthKey);
   const isNow=viewMonthKey===currentMonthKey;
-  document.getElementById('fab').style.display=(currentTab==='home'||currentTab==='categorias')&&isNow?'flex':'none';
+  document.getElementById('fab').style.display=(currentTab==='home'||currentTab==='categorias')?'flex':'none';
   const el=document.getElementById('content');
   if(currentTab==='home') renderHome(el);
   else if(currentTab==='categorias') renderCategorias(el);
@@ -839,7 +920,7 @@ function renderHome(el){
   const isNow=viewMonthKey===currentMonthKey;
   const mdata=months.find(m=>m.key===viewMonthKey);
   if(categories.length===0){
-    el.innerHTML=`<div style="padding:16px 20px">${isNow&&mdata&&!mdata.closed?closeMonthBtnHtml():''}<div class="empty"><div class="empty-icon"><i class="fa-regular fa-folder-open"></i></div><div class="empty-text">Nenhuma categoria ainda.</div></div></div>`;
+    el.innerHTML=`<div style="padding:16px 20px"><div class="empty"><div class="empty-icon"><i class="fa-regular fa-folder-open"></i></div><div class="empty-text">Nenhuma categoria ainda.</div></div></div>`;
     return;
   }
   if(currentCatIdx>=categories.length) currentCatIdx=0;
@@ -853,7 +934,6 @@ function renderHome(el){
   const dotsHtml = categories.map((_,i)=>`<div class="cdot${i===currentCatIdx?' active':''}" onclick="goToSlide(${i})"></div>`).join('');
 
   el.innerHTML=`<div id="home-content" style="display:flex;flex-direction:column;height:100%">
-    ${isNow&&mdata&&!mdata.closed?`<div style="padding:12px 20px 0">${closeMonthBtnHtml()}</div>`:''}
     ${pendingSharesHtml}
     ${trialBannerHtml}
     <div class="cat-nav" style="padding-top:10px">
@@ -891,15 +971,15 @@ function buildSlide(cat, isNow){
   }
   const expHtml=catExps.map(e=>`<div class="expense-item">
     <div class="expense-left">
-      <div class="expense-name">${e.name}</div>
+      <div class="expense-name">${e.recurring?`<i class="fa-solid fa-arrows-rotate" style="font-size:10px;color:var(--accent);margin-right:5px" title="Recorrente" aria-hidden="true"></i>`:''}${escapeHtml(e.name)}</div>
       <div class="expense-date">${new Date(e.date+'T12:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'})}</div>
     </div>
     <div class="expense-right">
       <div class="expense-value">${brl(e.value)}</div>
-      ${isNow?`<div class="expense-actions">
+      <div class="expense-actions">
         <div class="exp-btn" onclick="openEditExpense('${e.id}')"><i class="fa-solid fa-pen" aria-label="Editar"></i></div>
         <div class="exp-btn" style="border-color:#ff4f4f44;color:var(--red)" onclick="confirmDeleteExpense('${e.id}')"><i class="fa-solid fa-trash" aria-label="Excluir"></i></div>
-      </div>`:''}
+      </div>
     </div>
   </div>`).join('');
 
@@ -919,10 +999,10 @@ function buildSlide(cat, isNow){
       ${forecast?`<div class="forecast">${forecast}</div>`:''}
       ${overrideLink}
       ${expHtml}
-      ${isNow?`<button class="add-expense-btn" onclick="openAddExpense('${cat.id}')">
+      <button class="add-expense-btn" onclick="openAddExpense('${cat.id}')">
         <i class="fa-solid fa-plus" aria-hidden="true"></i>
         Adicionar gasto
-      </button>`:''}
+      </button>
       <button class="share-user-btn" onclick="openShareCategory('${cat.id}')">
         <i class="fa-solid fa-user-plus" aria-hidden="true"></i>
         Compartilhar categoria
@@ -1263,6 +1343,10 @@ function openAddExpense(catId){
       <input class="form-input" id="f-value" type="number" inputmode="decimal" placeholder="0,00" step="0.01" min="0"/></div>
     <div class="form-group"><label class="form-label">Data</label>
       <input class="form-input" id="f-date" type="date" value="${today}"/></div>
+    <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--surface2);border-radius:10px;margin-bottom:4px">
+      <input type="checkbox" id="f-recurring" style="width:18px;height:18px;accent-color:var(--accent);flex-shrink:0"/>
+      <label for="f-recurring" style="font-size:14px;cursor:pointer;flex:1">Recorrente <span style="color:var(--text2);font-size:12px">(repetir todo mês)</span></label>
+    </div>
     <button class="btn-primary" id="btn-save-exp" onclick="saveExpense(null)">Salvar</button>
     <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
 }
@@ -1281,6 +1365,10 @@ function openEditExpense(expId){
       <input class="form-input" id="f-value" type="number" inputmode="decimal" value="${e.value}" step="0.01" min="0"/></div>
     <div class="form-group"><label class="form-label">Data</label>
       <input class="form-input" id="f-date" type="date" value="${e.date}"/></div>
+    <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--surface2);border-radius:10px;margin-bottom:4px">
+      <input type="checkbox" id="f-recurring" ${e.recurring?'checked':''} style="width:18px;height:18px;accent-color:var(--accent);flex-shrink:0"/>
+      <label for="f-recurring" style="font-size:14px;cursor:pointer;flex:1">Recorrente <span style="color:var(--text2);font-size:12px">(repetir todo mês)</span></label>
+    </div>
     <button class="btn-primary" id="btn-save-exp" onclick="saveExpense('${expId}')">Salvar</button>
     <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
 }
@@ -1290,12 +1378,13 @@ async function saveExpense(expId){
   const name=document.getElementById('f-name').value.trim();
   const value=parseFloat(document.getElementById('f-value').value);
   const date=document.getElementById('f-date').value;
+  const recurring=document.getElementById('f-recurring')?.checked||false;
   if(!name||isNaN(value)||value<=0||!date){ showToast('Preencha todos os campos.','error'); return; }
   if(!expId&&!isPro()&&expenses.filter(e=>e.date===date).length>=CONFIG.FREE_DAILY_LAUNCHES){ openPaywall('Limite diário de lançamentos atingido'); return; }
   const btn=document.getElementById('btn-save-exp'); btn.disabled=true; btn.textContent='Salvando...';
   try{
-    if(expId) await api.updateExpense(expId,{cat_id:catId,name,value,date});
-    else await api.insertExpense({id:uid(),cat_id:catId,month_key:viewMonthKey,name,value,date});
+    if(expId) await api.updateExpense(expId,{cat_id:catId,name,value,date,recurring});
+    else await api.insertExpense({id:uid(),cat_id:catId,month_key:viewMonthKey,name,value,date,recurring});
     if(name && !expenseNames.includes(name)) expenseNames.unshift(name);
     expenses=await api.getExpenses(viewMonthKey);
     saveCache();

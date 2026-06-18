@@ -14,6 +14,7 @@
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+[hidden]{display:none!important}
 :root{
   --bg:#0f0f0f;--surface:#1a1a1a;--surface2:#222;--border:#2a2a2a;
   --accent:#c8f04a;--text:#f0f0f0;--text2:#888;--text3:#555;
@@ -27,6 +28,22 @@ html, body {
   touch-action: pan-y;
 }
 button{touch-action:manipulation}
+
+/* ===== AUTH ===== */
+#auth-screen{position:fixed;inset:0;z-index:1100;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:28px 22px}
+.auth-card{width:100%;max-width:390px;background:var(--surface);border:1px solid var(--border);border-radius:24px;padding:26px 22px}
+.auth-brand{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.auth-title{font-family:'DM Serif Display',serif;font-size:28px}.auth-title span{color:var(--accent)}
+.auth-copy{color:var(--text2);font-size:13px;line-height:1.5;margin-bottom:22px}
+.auth-tabs{display:flex;background:var(--surface2);border-radius:12px;padding:4px;margin-bottom:18px}
+.auth-tab{flex:1;border:0;border-radius:9px;padding:9px;background:transparent;color:var(--text2);font:500 13px 'DM Sans',sans-serif}
+.auth-tab.active{background:var(--accent);color:#0f0f0f}
+.auth-field{display:block;margin-bottom:12px}.auth-label{display:block;color:var(--text2);font-size:12px;margin-bottom:6px}
+.auth-input{width:100%;border:1px solid var(--border);border-radius:11px;background:var(--bg);color:var(--text);padding:12px;font:14px 'DM Sans',sans-serif;outline:none}
+.auth-input:focus{border-color:var(--accent)}
+.auth-submit{width:100%;border:0;border-radius:11px;background:var(--accent);color:#0f0f0f;padding:12px;font:600 14px 'DM Sans',sans-serif;margin-top:4px}
+.auth-submit:disabled{opacity:.55}.auth-error{min-height:18px;color:var(--red);font-size:12px;margin-top:10px;text-align:center}
+.account-btn{border:1px solid var(--border);background:var(--surface);color:var(--text2);border-radius:100px;padding:6px 10px;font:500 11px 'DM Sans',sans-serif;cursor:pointer}
 
 /* ===== LOGO ===== */
 .logo-mark{flex-shrink:0}
@@ -149,6 +166,7 @@ button{touch-action:manipulation}
 .forecast strong{color:var(--text2);font-style:normal}
 .add-expense-btn{width:100%;padding:10px;border-radius:10px;border:1px dashed var(--border);background:transparent;color:var(--text2);font-family:'DM Sans',sans-serif;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;margin-top:10px;transition:all .2s}
 .add-expense-btn svg{width:14px;height:14px;stroke:currentColor}
+.share-category-btn{width:100%;padding:10px;border-radius:10px;border:1px solid #c8f04a44;background:#c8f04a0b;color:var(--accent);font:600 13px 'DM Sans',sans-serif;cursor:pointer;margin-top:10px}
 .expense-item{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)}
 .expense-item:last-child{border-bottom:none}
 .expense-left{flex:1}
@@ -270,12 +288,17 @@ select.form-input{cursor:pointer}
 .cons-rank{width:24px;height:24px;border-radius:50%;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:var(--accent);flex-shrink:0}
 .modal-note{font-size:13px;color:var(--text2);margin-bottom:16px;line-height:1.45}
 .modal-note strong{color:var(--text)}
+.trial-banner,.locked-card{margin:12px 20px;padding:14px;border-radius:14px;border:1px solid #c8f04a44;background:#c8f04a0d;font-size:13px;line-height:1.45}
+.trial-banner{display:flex;justify-content:space-between;align-items:center;gap:12px}.trial-banner button,.locked-card button{border:0;border-radius:9px;background:var(--accent);color:#0f0f0f;padding:8px 11px;font-weight:600;white-space:nowrap}
+.locked-card{text-align:center;margin:12px 0}.locked-icon{font-size:24px;margin-bottom:6px}.locked-title{font-weight:600;margin-bottom:4px}.locked-copy{color:var(--text2);margin-bottom:12px}
+.plan-card{border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:12px}.plan-card.featured{border-color:var(--accent);background:#c8f04a0b}.plan-name{font-weight:600}.plan-price{font-size:12px;color:var(--text2);margin-top:3px}.plan-tag{font-size:10px;color:#0f0f0f;background:var(--accent);border-radius:100px;padding:4px 7px;font-weight:700}
+.split-wrap{padding:16px 20px calc(80px + var(--safe-bot))}.split-group{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:10px;cursor:pointer}.split-group-title{font-weight:600}.split-group-meta{font-size:12px;color:var(--text2);margin-top:4px}.split-expense{background:var(--surface2);border-radius:11px;padding:12px;margin-bottom:8px}.split-expense-head{display:flex;justify-content:space-between;gap:12px;font-weight:600}.split-share{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--border);font-size:12px}.settle-btn{border:1px solid #c8f04a55;background:transparent;color:var(--accent);border-radius:8px;padding:5px 8px;font-size:11px}.settled{color:var(--accent)}
 </style>
 </head>
 <body>
 
 <!-- PIN SCREEN -->
-<div id="pin-screen">
+<div id="pin-screen" style="display:none">
   <svg class="pin-logo" width="72" height="72" viewBox="0 0 120 120">
     <rect width="120" height="120" rx="28" fill="#1a1a1a"/>
     <circle cx="60" cy="60" r="34" fill="none" stroke="#c8f04a" stroke-width="7"/>
@@ -306,6 +329,28 @@ select.form-input{cursor:pointer}
   <div class="pin-error-msg" id="pin-error"></div>
 </div>
 
+<!-- AUTH -->
+<div id="auth-screen">
+  <div class="auth-card">
+    <div class="auth-brand">
+      <svg class="logo-mark" width="34" height="34" viewBox="0 0 120 120"><circle cx="60" cy="60" r="44" fill="none" stroke="#c8f04a" stroke-width="10"/><path d="M42 62 L55 75 L80 46" fill="none" stroke="#c8f04a" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <div class="auth-title">Gasto<span>Certo</span></div>
+    </div>
+    <div class="auth-copy" id="auth-copy">Entre para acessar seus gastos com segurança.</div>
+    <div class="auth-tabs">
+      <button class="auth-tab active" id="auth-login-tab" onclick="setAuthMode('login')">Entrar</button>
+      <button class="auth-tab" id="auth-signup-tab" onclick="setAuthMode('signup')">Criar conta</button>
+    </div>
+    <form id="auth-form">
+      <label class="auth-field" id="auth-name-field" hidden><span class="auth-label">Nome (opcional)</span><input class="auth-input" id="auth-name" autocomplete="name" maxlength="80"/></label>
+      <label class="auth-field"><span class="auth-label">E-mail</span><input class="auth-input" id="auth-email" type="email" autocomplete="email" required/></label>
+      <label class="auth-field"><span class="auth-label">Senha</span><input class="auth-input" id="auth-password" type="password" autocomplete="current-password" minlength="6" required/></label>
+      <button class="auth-submit" id="auth-submit" type="submit">Entrar</button>
+      <div class="auth-error" id="auth-error"></div>
+    </form>
+  </div>
+</div>
+
 <!-- APP -->
 <div id="app" style="display:none;flex:1;flex-direction:column;height:100%">
   <div class="header">
@@ -321,12 +366,14 @@ select.form-input{cursor:pointer}
         <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
         <span id="current-month-label">---</span>
       </div>
+      <button class="account-btn" onclick="openAccountModal()" aria-label="Conta" id="account-btn">Conta</button>
     </div>
   </div>
   <div class="tabs">
     <button class="tab active" onclick="switchTab('home',this)">Início</button>
     <button class="tab" onclick="switchTab('categorias',this)">Categorias</button>
     <button class="tab" onclick="switchTab('historico',this)">Histórico</button>
+    <button class="tab" onclick="switchTab('divisao',this)">Divisão</button>
   </div>
   <div class="content" id="content" style="flex:1;overflow-y:auto">
     <div class="loading"><div class="spinner"></div>Carregando...</div>
@@ -348,7 +395,88 @@ select.form-input{cursor:pointer}
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
 const CORRECT_PIN = () => String(new Date().getFullYear());
-const CACHE_KEY = 'gc-cache-v1';
+const SESSION_KEY = 'gc-auth-session-v2';
+const CACHE_PREFIX = 'gc-cache-v2';
+const CONFIG={
+  APP_NAME:'GastoCerto',TRIAL_DAYS:14,FREE_DAILY_LAUNCHES:3,FREE_MAX_CATEGORIES:2,
+  PLANS:{monthly:{price:null,label:'Mensal'},annual:{price:null,label:'Anual'},lifetime:{price:null,label:'Vitalício'}}
+};
+let authMode='login', session=null, currentUser=null, refreshTimer=null;
+
+function setAuthMode(mode){
+  authMode=mode;
+  const signup=mode==='signup';
+  document.getElementById('auth-login-tab').classList.toggle('active',!signup);
+  document.getElementById('auth-signup-tab').classList.toggle('active',signup);
+  document.getElementById('auth-name-field').hidden=!signup;
+  document.getElementById('auth-password').autocomplete=signup?'new-password':'current-password';
+  document.getElementById('auth-submit').textContent=signup?'Começar 14 dias grátis':'Entrar';
+  document.getElementById('auth-copy').textContent=signup?'Crie sua conta e use todos os recursos Pro por 14 dias.':'Entre para acessar seus gastos com segurança.';
+  document.getElementById('auth-error').textContent='';
+}
+function authMessage(error){
+  const msg=String(error||'');
+  if(/invalid login/i.test(msg)) return 'E-mail ou senha incorretos.';
+  if(/already registered|already been registered/i.test(msg)) return 'Este e-mail já possui uma conta.';
+  if(/password/i.test(msg)) return 'Use uma senha com pelo menos 6 caracteres.';
+  return msg||'Não foi possível autenticar. Tente novamente.';
+}
+async function authRequest(path, body){
+  const res=await fetch(`${SUPABASE_URL}/auth/v1/${path}`,{method:'POST',headers:{apikey:SUPABASE_KEY,'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const data=await res.json().catch(()=>({}));
+  if(!res.ok) throw new Error(data.msg||data.message||data.error_description||'Falha de autenticação');
+  return data;
+}
+function persistSession(value){
+  session=value; currentUser=value?.user||null;
+  if(value) localStorage.setItem(SESSION_KEY,JSON.stringify(value)); else localStorage.removeItem(SESSION_KEY);
+  clearTimeout(refreshTimer);
+  if(value?.expires_at){
+    const delay=Math.max(10000,value.expires_at*1000-Date.now()-60000);
+    refreshTimer=setTimeout(refreshSession,delay);
+  }
+}
+async function refreshSession(){
+  if(!session?.refresh_token) return logout();
+  try{ const data=await authRequest('token?grant_type=refresh_token',{refresh_token:session.refresh_token}); persistSession(data); }
+  catch{ logout(); }
+}
+async function bootstrapAuth(){
+  try{
+    const saved=JSON.parse(localStorage.getItem(SESSION_KEY)||'null');
+    if(saved?.refresh_token){ persistSession(saved); await refreshSession(); }
+  }catch{ persistSession(null); }
+  if(session?.access_token) enterApp();
+}
+function enterApp(){
+  document.getElementById('auth-screen').style.display='none';
+  document.getElementById('app').style.display='flex';
+  document.getElementById('account-btn').textContent=currentUser?.email?.split('@')[0]||'Conta';
+  init();
+}
+async function logout(){
+  const token=session?.access_token;
+  if(token) fetch(`${SUPABASE_URL}/auth/v1/logout`,{method:'POST',headers:{apikey:SUPABASE_KEY,Authorization:`Bearer ${token}`}}).catch(()=>{});
+  persistSession(null); categories=[]; months=[]; expenses=[]; expenseNames=[];
+  document.getElementById('app').style.display='none';
+  document.getElementById('auth-screen').style.display='flex';
+  _closeModal(); setAuthMode('login');
+}
+document.getElementById('auth-form').addEventListener('submit',async e=>{
+  e.preventDefault();
+  const button=document.getElementById('auth-submit'), error=document.getElementById('auth-error');
+  const email=document.getElementById('auth-email').value.trim(), password=document.getElementById('auth-password').value;
+  button.disabled=true; error.textContent='';
+  try{
+    const data=authMode==='signup'
+      ?await authRequest('signup',{email,password,data:{display_name:document.getElementById('auth-name').value.trim()}})
+      :await authRequest('token?grant_type=password',{email,password});
+    if(!data.access_token) throw new Error('Confira seu e-mail para confirmar a conta antes de entrar.');
+    persistSession(data); enterApp();
+    if(authMode==='signup') setTimeout(()=>showWelcomeTrial(),300);
+  }catch(err){ error.textContent=authMessage(err.message); }
+  finally{ button.disabled=false; }
+});
 
 // ===================== HAPTIC =====================
 function vib(ms=8){ if(navigator.vibrate) navigator.vibrate(ms); }
@@ -402,10 +530,11 @@ function checkPin(){
 
 // ===================== API =====================
 async function sbFetch(path, opts={}){
+  if(!session?.access_token) throw new Error('Sessão expirada');
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`,{
     ...opts,
     headers:{
-      'apikey':SUPABASE_KEY,'Authorization':`Bearer ${SUPABASE_KEY}`,
+      'apikey':SUPABASE_KEY,'Authorization':`Bearer ${session.access_token}`,
       'Content-Type':'application/json','Prefer':'return=representation',
       ...(opts.headers||{})
     }
@@ -414,24 +543,59 @@ async function sbFetch(path, opts={}){
   const t=await res.text(); return t?JSON.parse(t):null;
 }
 const api={
+  getSubscription:()=>sbFetch('subscriptions?select=*&limit=1').then(rows=>rows?.[0]||null),
   getCategories:()=>sbFetch('categories?order=position.asc'),
-  insertCategory:(d)=>sbFetch('categories',{method:'POST',body:JSON.stringify(d)}),
+  insertCategory:(d)=>sbFetch('categories',{method:'POST',body:JSON.stringify({...d,user_id:currentUser.id})}),
   updateCategory:(id,d)=>sbFetch(`categories?id=eq.${id}`,{method:'PATCH',body:JSON.stringify(d)}),
   deleteCategory:(id)=>sbFetch(`categories?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
   getMonths:()=>sbFetch('months?order=key.desc'),
-  upsertMonth:(d)=>sbFetch('months',{method:'POST',body:JSON.stringify(d),headers:{Prefer:'resolution=merge-duplicates,return=representation'}}),
+  upsertMonth:(d)=>sbFetch('months?on_conflict=user_id,key',{method:'POST',body:JSON.stringify({...d,user_id:currentUser.id}),headers:{Prefer:'resolution=merge-duplicates,return=representation'}}),
   closeMonth:(key)=>sbFetch(`months?key=eq.${key}`,{method:'PATCH',body:JSON.stringify({closed:true})}),
   getExpenses:(mk)=>sbFetch(`expenses?month_key=eq.${mk}&order=date.desc`),
   getAllExpenses:()=>sbFetch('expenses?order=date.desc'),
   getExpenseNames:()=>sbFetch('expenses?select=name&order=date.desc'),
-  insertExpense:(d)=>sbFetch('expenses',{method:'POST',body:JSON.stringify(d)}),
+  insertExpense:(d)=>sbFetch('expenses',{method:'POST',body:JSON.stringify({...d,user_id:currentUser.id})}),
   updateExpense:(id,d)=>sbFetch(`expenses?id=eq.${id}`,{method:'PATCH',body:JSON.stringify(d)}),
   deleteExpense:(id)=>sbFetch(`expenses?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
   setMonthBudgets:(key,budgets)=>sbFetch(`months?key=eq.${key}`,{method:'PATCH',body:JSON.stringify({budgets})}),
+  getSplitGroups:()=>sbFetch('split_groups?order=created_at.desc'),
+  insertSplitGroup:(name)=>sbFetch('split_groups',{method:'POST',body:JSON.stringify({name,created_by:currentUser.id})}),
+  getSplitMembers:(groupId)=>sbFetch(`split_members?group_id=eq.${groupId}&order=created_at.asc`),
+  insertSplitMembers:(rows)=>sbFetch('split_members',{method:'POST',body:JSON.stringify(rows)}),
+  getSplitExpenses:(groupId)=>sbFetch(`split_expenses?group_id=eq.${groupId}&order=created_at.desc`),
+  insertSplitExpense:(row)=>sbFetch('split_expenses',{method:'POST',body:JSON.stringify(row)}),
+  getSplitShares:(expenseIds)=>expenseIds.length?sbFetch(`split_shares?expense_id=in.(${expenseIds.join(',')})`):Promise.resolve([]),
+  insertSplitShares:(rows)=>sbFetch('split_shares',{method:'POST',body:JSON.stringify(rows)}),
+  settleSplitShare:(id,settled)=>sbFetch(`split_shares?id=eq.${id}`,{method:'PATCH',body:JSON.stringify({is_settled:settled,settled_at:settled?new Date().toISOString():null})}),
 };
 
 // ===================== STATE =====================
 let categories=[], months=[], currentMonthKey='', viewMonthKey='', expenses=[], currentTab='home', currentCatIdx=0;
+let subscription=null, userPlan='free';
+let splitGroups=[];
+function resolveUserPlan(sub, now=new Date()){
+  if(!sub) return 'free';
+  if(sub.billing_cycle==='lifetime') return 'pro';
+  if(sub.subscription_status==='trialing'&&new Date(sub.trial_ends_at)>now) return 'pro';
+  if(sub.subscription_status==='active'&&sub.current_period_end&&new Date(sub.current_period_end)>now) return 'pro';
+  return 'free';
+}
+function isPro(){ return userPlan==='pro'; }
+function trialDaysRemaining(){
+  if(subscription?.subscription_status!=='trialing') return 0;
+  return Math.max(0,Math.ceil((new Date(subscription.trial_ends_at)-new Date())/86400000));
+}
+function openPaywall(context='este recurso'){
+  const price=p=>p.price==null?'Preço em breve':brl(p.price);
+  openModal(`<div class="modal-title">Desbloqueie o GastoCerto Pro</div>
+    <p class="modal-note">${escapeHtml(context)} faz parte do Pro. Seus dados permanecem salvos mesmo no plano gratuito.</p>
+    ${Object.entries(CONFIG.PLANS).map(([key,p])=>`<div class="plan-card ${key==='annual'?'featured':''}"><div><div class="plan-name">${escapeHtml(p.label)}</div><div class="plan-price">${price(p)}</div></div>${key==='annual'?'<span class="plan-tag">MELHOR OPÇÃO</span>':''}</div>`).join('')}
+    <p class="modal-note">A cobrança ainda não está habilitada. Os valores e o Pix Automático serão conectados em uma etapa posterior.</p>
+    <button class="btn-secondary" onclick="_closeModal()">Agora não</button>`);
+}
+function lockedCard(title,copy){
+  return `<div class="locked-card"><div class="locked-icon">✦</div><div class="locked-title">${escapeHtml(title)}</div><div class="locked-copy">${escapeHtml(copy)}</div><button onclick="openPaywall('${escapeHtml(title)}')">Conhecer o Pro</button></div>`;
+}
 const uid=()=>Math.random().toString(36).slice(2,9);
 const monthKeyOf=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
 const monthLabel=key=>{ if(!key)return''; const[y,m]=key.split('-'); return `${['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][+m-1]} ${y}`; };
@@ -456,11 +620,26 @@ let expenseNames=[], acResults=[];
 
 // ===================== CACHE LOCAL (render otimista) =====================
 function saveCache(){
-  try{ localStorage.setItem(CACHE_KEY, JSON.stringify({categories,months,expenses,currentMonthKey,expenseNames,ts:Date.now()})); }catch{}
+  try{ localStorage.setItem(`${CACHE_PREFIX}:${currentUser.id}`, JSON.stringify({categories,months,expenses,currentMonthKey,expenseNames,ts:Date.now()})); }catch{}
+}
+
+function showWelcomeTrial(){
+  openModal(`<div class="modal-title">Bem-vindo ao GastoCerto! 🎉</div>
+    <p class="modal-note">Pelos próximos 14 dias você tem acesso completo: categorias ilimitadas, gráficos e comparativos.</p>
+    <p class="modal-note">Depois disso sua conta passa para o plano gratuito. <strong>Seus dados continuam salvos.</strong> Não pedimos cartão e você não será cobrado automaticamente.</p>
+    <button class="btn-primary" onclick="_closeModal()">Começar</button>`);
+}
+
+function openAccountModal(){
+  const email=escapeHtml(currentUser?.email||'');
+  openModal(`<div class="modal-title">Sua conta</div>
+    <p class="modal-note">Conectado como <strong>${email}</strong><br>Plano: <strong>${isPro()?'Pro':'Gratuito'}</strong></p>
+    <button class="btn-primary" onclick="openPaywall('Planos e assinatura')">Ver planos</button>
+    <button class="btn-secondary" onclick="logout()">Sair da conta</button>`);
 }
 function loadCache(){
   try{
-    const raw=localStorage.getItem(CACHE_KEY);
+    const raw=localStorage.getItem(`${CACHE_PREFIX}:${currentUser.id}`);
     if(!raw) return false;
     const c=JSON.parse(raw);
     if(!c.categories||!c.months) return false;
@@ -481,8 +660,10 @@ async function init(){
   }
   // 2) Busca dados frescos em paralelo
   try{
-    const [cats, mons] = await Promise.all([api.getCategories(), api.getMonths()]);
-    categories=cats; months=mons;
+    const [cats, mons, sub] = await Promise.all([api.getCategories(), api.getMonths(), api.getSubscription()]);
+    categories=cats; months=mons; subscription=sub; userPlan=resolveUserPlan(sub);
+    const trialDays=sub?.subscription_status==='trialing'?Math.max(0,Math.ceil((new Date(sub.trial_ends_at)-new Date())/86400000)):0;
+    document.getElementById('account-btn').textContent=isPro()?(trialDays?`Pro · ${trialDays}d`:'Pro'):'Grátis';
     const now=monthKeyOf(new Date());
     if(!months.find(m=>m.key===now)){ await api.upsertMonth({key:now,closed:false}); months=await api.getMonths(); }
     currentMonthKey=now;
@@ -515,6 +696,29 @@ function badgeHtml(diff){
   return `<span class="badge over">▲ Estourou ${brl(Math.abs(diff))}</span>`;
 }
 
+// ===================== COMPARTILHAR CATEGORIA =====================
+const canvasBlob=canvas=>new Promise(resolve=>canvas.toBlob(resolve,'image/png',.95));
+async function shareCategory(catId){
+  const cat=categories.find(c=>c.id===catId); if(!cat) return;
+  const items=expenses.filter(e=>e.cat_id===catId).sort((a,b)=>b.date.localeCompare(a.date));
+  const spent=items.reduce((s,e)=>s+parseFloat(e.value),0),budget=effBudget(cat,viewMonthKey),diff=budget-spent;
+  const canvas=document.createElement('canvas'); canvas.width=1080; canvas.height=1920;
+  const c=canvas.getContext('2d'); c.fillStyle='#0f0f0f';c.fillRect(0,0,1080,1920);c.fillStyle='#c8f04a';c.fillRect(0,0,18,1920);
+  c.fillStyle='#f0f0f0';c.font='700 72px serif';c.fillText(cat.name,80,150);c.fillStyle='#888';c.font='34px sans-serif';c.fillText(monthLabel(viewMonthKey),80,210);
+  c.fillStyle='#1a1a1a';c.beginPath();c.roundRect(70,270,940,290,32);c.fill();c.fillStyle='#888';c.font='28px sans-serif';c.fillText('TOTAL GASTO',110,340);
+  c.fillStyle='#f0f0f0';c.font='700 64px sans-serif';c.fillText(brl(spent),110,425);c.fillStyle=diff>=0?'#c8f04a':'#ff4f4f';c.font='600 28px sans-serif';c.fillText(diff>=0?`Dentro do orçamento · ${brl(diff)} livres`:`Orçamento excedido · ${brl(Math.abs(diff))}`,110,495);
+  c.fillStyle='#2a2a2a';c.fillRect(110,520,860,10);c.fillStyle=diff>=0?'#c8f04a':'#ff4f4f';c.fillRect(110,520,budget?Math.min(860,860*spent/budget):0,10);
+  c.fillStyle='#888';c.font='600 27px sans-serif';c.fillText('LANÇAMENTOS',80,650);let y=730;
+  for(const item of items.slice(0,12)){c.fillStyle='#f0f0f0';c.font='500 31px sans-serif';c.fillText(String(item.name).slice(0,32),80,y);c.textAlign='right';c.font='600 31px sans-serif';c.fillText(brl(item.value),990,y);c.textAlign='left';c.fillStyle='#555';c.font='24px sans-serif';c.fillText(new Date(item.date+'T12:00').toLocaleDateString('pt-BR'),80,y+42);c.fillRect(80,y+75,910,2);y+=105;}
+  if(!items.length){c.fillStyle='#888';c.font='30px sans-serif';c.fillText('Nenhum lançamento neste período.',80,y);}
+  if(items.length>12){c.fillStyle='#888';c.font='28px sans-serif';c.fillText(`+ ${items.length-12} lançamentos`,80,y);}
+  c.fillStyle='#c8f04a';c.font='700 42px serif';c.fillText('GastoCerto',80,1810);c.fillStyle='#888';c.font='25px sans-serif';c.fillText('Controle seu dinheiro. Acerte seus planos.',80,1855);
+  const blob=await canvasBlob(canvas);if(!blob){showToast('Não foi possível gerar a imagem.','error');return;}
+  const safe=cat.name.toLowerCase().replace(/[^a-z0-9]+/gi,'-'),file=new File([blob],`gastocerto-${safe}.png`,{type:'image/png'});
+  try{if(navigator.share&&navigator.canShare?.({files:[file]})){await navigator.share({title:`${cat.name} · GastoCerto`,files:[file]});return;}}catch(err){if(err.name==='AbortError')return;}
+  const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=file.name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);showToast('Imagem salva!','success');
+}
+
 // ===================== RENDER =====================
 function render(){
   document.getElementById('current-month-label').textContent=monthLabel(viewMonthKey);
@@ -523,7 +727,8 @@ function render(){
   const el=document.getElementById('content');
   if(currentTab==='home') renderHome(el);
   else if(currentTab==='categorias') renderCategorias(el);
-  else renderHistorico(el);
+  else if(currentTab==='historico') renderHistorico(el);
+  else renderSplit(el);
 }
 
 // ===== HOME (carousel) =====
@@ -541,7 +746,9 @@ function renderHome(el){
   const totalSpent=expenses.reduce((s,e)=>s+parseFloat(e.value),0);
   const totalAvail=totalBudget-totalSpent;
   const totalPct=totalBudget>0?Math.min((totalSpent/totalBudget)*100,100):0;
-  const summaryHtml=`<div class="summary-card">
+  const days=trialDaysRemaining();
+  const trialBanner=days>0&&days<=3?`<div class="trial-banner"><span>Seu acesso completo termina em <strong>${days} ${days===1?'dia':'dias'}</strong>.</span><button onclick="openPaywall('Continue com seus relatórios')">Ver Pro</button></div>`:'';
+  const summaryHtml=`${trialBanner}<div class="summary-card">
     <div class="summary-grid">
       <div class="summary-block"><div class="summary-label">Orçamento</div><div class="summary-num">${brl(totalBudget)}</div></div>
       <div class="summary-block"><div class="summary-label">Gasto</div><div class="summary-num" style="color:var(--text2)">${brl(totalSpent)}</div></div>
@@ -620,6 +827,7 @@ function buildSlide(cat, isNow){
       ${forecast?`<div class="forecast">${forecast}</div>`:''}
       ${overrideLink}
       ${expHtml}
+      <button class="share-category-btn" onclick="shareCategory('${cat.id}')">Compartilhar categoria</button>
       ${isNow?`<button class="add-expense-btn" onclick="openAddExpense('${cat.id}')">
         <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         Adicionar gasto
@@ -759,6 +967,11 @@ async function reorderCats(srcId, targetId){
 
 // ===== HISTORICO (v1.5: fetch único + badges + gráfico) =====
 function renderHistorico(el){
+  if(!isPro()){
+    const current=expenses.reduce((s,e)=>s+parseFloat(e.value),0);
+    el.innerHTML=`<div style="padding:16px 20px calc(80px + var(--safe-bot))"><div class="month-title">${monthLabel(currentMonthKey)}</div><div class="summary-card" style="margin:0 0 12px"><div class="summary-label">Gasto no mês atual</div><div class="summary-num">${brl(current)}</div></div>${lockedCard('Histórico e análises','Badges, gráficos e comparativos entre meses estão disponíveis no Pro.')}</div>`;
+    return;
+  }
   el.innerHTML=`<div style="padding:16px 20px calc(80px + var(--safe-bot))"><div class="loading"><div class="spinner"></div>Carregando...</div></div>`;
   renderHistoricoAsync(el);
 }
@@ -831,12 +1044,71 @@ async function renderHistoricoAsync(el){
   el.innerHTML=`<div style="padding:16px 20px calc(80px + var(--safe-bot))">${html||'<div class="empty"><div class="empty-icon">📅</div><div class="empty-text">Nenhum gasto registrado ainda.</div></div>'}</div>`;
 }
 
+// ===================== DIVISÃO DE GASTOS =====================
+async function renderSplit(el){
+  el.innerHTML=`<div class="split-wrap"><div class="loading"><div class="spinner"></div>Carregando divisões...</div></div>`;
+  try{splitGroups=await api.getSplitGroups();}
+  catch{el.innerHTML=`<div class="split-wrap"><div class="empty"><div class="empty-icon">⚠️</div><div class="empty-text">Não foi possível carregar as divisões.</div></div></div>`;return;}
+  const create=isPro()?`<button class="btn-primary" onclick="openCreateSplitGroup()" style="margin-bottom:14px">Novo grupo</button>`:`${lockedCard('Criar divisões de gastos','Usuários do plano gratuito podem consultar convites, mas a criação é Pro.')}`;
+  el.innerHTML=`<div class="split-wrap">${create}${splitGroups.map(g=>`<div class="split-group" onclick="openSplitGroup('${g.id}')"><div class="split-group-title">${escapeHtml(g.name)}</div><div class="split-group-meta">${g.created_by===currentUser.id?'Criado por você':'Você foi convidado'} · ver detalhes ›</div></div>`).join('')||'<div class="empty"><div class="empty-icon">👥</div><div class="empty-text">Nenhuma divisão ainda.</div></div>'}</div>`;
+}
+function openCreateSplitGroup(){
+  if(!isPro()){openPaywall('Criar divisões de gastos');return;}
+  openModal(`<div class="modal-title">Novo grupo</div><div class="form-group"><label class="form-label">Nome</label><input class="form-input" id="f-split-name" placeholder="Ex: Viagem para Paraty" maxlength="100"></div><div class="form-group"><label class="form-label">Convidados por e-mail</label><textarea class="form-input" id="f-split-emails" rows="4" placeholder="amigo@email.com, outra@email.com"></textarea></div><button class="btn-primary" id="btn-split-group" onclick="saveSplitGroup()">Criar grupo</button><button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
+}
+async function saveSplitGroup(){
+  const name=document.getElementById('f-split-name').value.trim();
+  const emails=[...new Set(document.getElementById('f-split-emails').value.split(/[\s,;]+/).map(x=>x.trim().toLowerCase()).filter(Boolean))];
+  if(!name){showToast('Informe o nome do grupo.','error');return;}
+  if(emails.some(e=>!/^\S+@\S+\.\S+$/.test(e))){showToast('Confira os e-mails informados.','error');return;}
+  const btn=document.getElementById('btn-split-group');btn.disabled=true;btn.textContent='Criando...';
+  try{
+    const rows=await api.insertSplitGroup(name),group=rows[0];
+    const memberEmails=[currentUser.email.toLowerCase(),...emails.filter(e=>e!==currentUser.email.toLowerCase())];
+    await api.insertSplitMembers(memberEmails.map(email=>({group_id:group.id,email,user_id:email===currentUser.email.toLowerCase()?currentUser.id:null,display_name:email===currentUser.email.toLowerCase()?'Você':null})));
+    _closeModal();showToast('Grupo criado!','success');renderSplit(document.getElementById('content'));
+  }catch(e){showToast('Erro ao criar grupo.','error');btn.disabled=false;btn.textContent='Criar grupo';}
+}
+async function openSplitGroup(groupId){
+  const group=splitGroups.find(g=>g.id===groupId);if(!group)return;
+  openModal(`<div class="modal-title">${escapeHtml(group.name)}</div><div class="loading"><div class="spinner"></div>Calculando saldos...</div>`);
+  try{
+    const [members,exps]=await Promise.all([api.getSplitMembers(groupId),api.getSplitExpenses(groupId)]),shares=await api.getSplitShares(exps.map(e=>e.id));
+    const memberById=Object.fromEntries(members.map(m=>[m.id,m]));
+    const canManage=isPro()&&group.created_by===currentUser.id;
+    let html=`<div class="modal-title">${escapeHtml(group.name)}</div>${canManage?`<button class="btn-primary" onclick="openAddSplitExpense('${groupId}')" style="margin-bottom:14px">Adicionar despesa</button>`:''}`;
+    html+=exps.map(e=>`<div class="split-expense"><div class="split-expense-head"><span>${escapeHtml(e.description)}</span><span>${brl(e.total_amount)}</span></div><div class="split-group-meta">Pago por ${escapeHtml(e.paid_by_email)}</div>${shares.filter(s=>s.expense_id===e.id).map(s=>{const m=memberById[s.member_id]||{};return `<div class="split-share"><span>${escapeHtml(m.display_name||m.email||'Participante')} · ${brl(s.amount)}</span>${s.is_settled?'<span class="settled">✓ Pago</span>':canManage?`<button class="settle-btn" onclick="settleShare('${s.id}','${groupId}')">Marcar pago</button>`:'<span>Pendente</span>'}</div>`}).join('')}</div>`).join('')||'<div class="empty"><div class="empty-text">Nenhuma despesa neste grupo.</div></div>';
+    html+=`<button class="btn-secondary" onclick="_closeModal()">Fechar</button>`;document.getElementById('modal-content').innerHTML=html;
+  }catch{document.getElementById('modal-content').innerHTML=`<div class="modal-title">${escapeHtml(group.name)}</div><p class="modal-note">Erro ao carregar o grupo.</p><button class="btn-secondary" onclick="_closeModal()">Fechar</button>`;}
+}
+async function openAddSplitExpense(groupId){
+  const members=await api.getSplitMembers(groupId);
+  openModal(`<div class="modal-title">Nova despesa compartilhada</div><p class="modal-note">O valor será dividido igualmente entre ${members.length} participantes.</p><div class="form-group"><label class="form-label">Descrição</label><input class="form-input" id="f-split-desc" maxlength="160" placeholder="Ex: Jantar"></div><div class="form-group"><label class="form-label">Valor total</label><input class="form-input" id="f-split-value" type="number" min="0.01" step="0.01" inputmode="decimal"></div><button class="btn-primary" id="btn-split-exp" onclick="saveSplitExpense('${groupId}')">Dividir igualmente</button><button class="btn-secondary" onclick="openSplitGroup('${groupId}')">Cancelar</button>`);
+}
+async function saveSplitExpense(groupId){
+  const description=document.getElementById('f-split-desc').value.trim(),total=parseFloat(document.getElementById('f-split-value').value);if(!description||!total||total<=0){showToast('Preencha descrição e valor.','error');return;}
+  const btn=document.getElementById('btn-split-exp');btn.disabled=true;btn.textContent='Salvando...';
+  try{
+    const members=await api.getSplitMembers(groupId);if(!members.length)throw new Error('Sem participantes');
+    const exp=(await api.insertSplitExpense({group_id:groupId,description,total_amount:total,paid_by_user_id:currentUser.id,paid_by_email:currentUser.email}))[0];
+    const cents=Math.round(total*100),base=Math.floor(cents/members.length),remainder=cents%members.length;
+    await api.insertSplitShares(members.map((m,i)=>({expense_id:exp.id,member_id:m.id,amount:(base+(i<remainder?1:0))/100,is_settled:m.user_id===currentUser.id,settled_at:m.user_id===currentUser.id?new Date().toISOString():null})));
+    showToast('Despesa dividida!','success');openSplitGroup(groupId);
+  }catch{showToast('Erro ao dividir despesa.','error');btn.disabled=false;btn.textContent='Dividir igualmente';}
+}
+async function settleShare(shareId,groupId){try{await api.settleSplitShare(shareId,true);showToast('Pagamento confirmado!','success');openSplitGroup(groupId);}catch{showToast('Erro ao confirmar pagamento.','error');}}
+
 // ===================== MODAIS =====================
 function openModal(html){ document.getElementById('modal-content').innerHTML=html; document.getElementById('modal-overlay').classList.add('open'); }
 function _closeModal(){ document.getElementById('modal-overlay').classList.remove('open'); }
 function closeModalOverlay(e){ if(e.target===document.getElementById('modal-overlay')) _closeModal(); }
 
 function openAddExpense(catId){
+  if(!isPro()){
+    const today=new Date().toISOString().split('T')[0];
+    const used=expenses.filter(e=>e.date===today).length;
+    if(used>=CONFIG.FREE_DAILY_LAUNCHES){ openPaywall(`Você já registrou ${used} gastos hoje. No Pro, os lançamentos são ilimitados.`); return; }
+  }
   const today=new Date().toISOString().split('T')[0];
   openModal(`<div class="modal-title">Novo Gasto</div>
     <div class="form-group"><label class="form-label">Categoria</label>
@@ -878,6 +1150,7 @@ async function saveExpense(expId){
   const value=parseFloat(document.getElementById('f-value').value);
   const date=document.getElementById('f-date').value;
   if(!name||isNaN(value)||value<=0||!date){ showToast('Preencha todos os campos.','error'); return; }
+  if(!expId&&!isPro()&&expenses.filter(e=>e.date===date).length>=CONFIG.FREE_DAILY_LAUNCHES){ openPaywall('Limite diário de lançamentos atingido'); return; }
   const btn=document.getElementById('btn-save-exp'); btn.disabled=true; btn.textContent='Salvando...';
   try{
     if(expId) await api.updateExpense(expId,{cat_id:catId,name,value,date});
@@ -897,6 +1170,7 @@ async function confirmDeleteExpense(expId){
 }
 
 function openAddCategory(){
+  if(!isPro()&&categories.length>=CONFIG.FREE_MAX_CATEGORIES){ openPaywall('Crie categorias ilimitadas'); return; }
   openModal(`<div class="modal-title">Nova Categoria</div>
     <div class="form-group"><label class="form-label">Nome</label>
       <input class="form-input" id="f-cname" placeholder="Ex: Academia" autocomplete="off"/></div>
@@ -921,6 +1195,7 @@ async function saveCategory(catId){
   const name=document.getElementById('f-cname').value.trim();
   const budget=parseFloat(document.getElementById('f-cbudget').value);
   if(!name||isNaN(budget)||budget<=0){ showToast('Preencha todos os campos.','error'); return; }
+  if(!catId&&!isPro()&&categories.length>=CONFIG.FREE_MAX_CATEGORIES){ openPaywall('Limite de categorias atingido'); return; }
   const btn=document.getElementById('btn-save-cat'); btn.disabled=true; btn.textContent='Salvando...';
   try{
     if(catId) await api.updateCategory(catId,{name,budget});
@@ -967,6 +1242,7 @@ async function confirmCloseMonth(nextKey){
 }
 
 function openMonthPicker(){
+  if(!isPro()){ openPaywall('Histórico de meses anteriores'); return; }
   openModal(`<div class="modal-title">Selecionar Mês</div>
     ${months.map(m=>`<div onclick="selectMonth('${m.key}')" style="padding:14px 16px;border-radius:10px;margin-bottom:8px;background:${m.key===viewMonthKey?'var(--accent)':'var(--surface2)'};color:${m.key===viewMonthKey?'#0f0f0f':'var(--text)'};font-weight:${m.key===viewMonthKey?600:400};cursor:pointer">
       ${monthLabel(m.key)} ${m.closed?'<span style="font-size:11px;opacity:.6">Fechado</span>':''}
@@ -1023,6 +1299,7 @@ function acBlur(){ setTimeout(acClose,150); } // delay para o pointerdown regist
 
 // ===================== CONSOLIDADO DO MÊS =====================
 async function openConsolidado(){
+  if(!isPro()){ openPaywall('Consolidado completo e comparativos'); return; }
   const k0=viewMonthKey, k1=prevMonthKey(k0), k2=prevMonthKey(k1);
   openModal(`<div class="modal-title">Consolidado · ${monthLabel(k0)}</div><div class="loading"><div class="spinner"></div>Calculando...</div>`);
   let e0=[],e1=[],e2=[];
@@ -1141,6 +1418,7 @@ document.addEventListener('touchend', function(e){
 if('serviceWorker' in navigator){
   window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
 }
+bootstrapAuth();
 </script>
 </body>
 </html>

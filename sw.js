@@ -1,4 +1,4 @@
-const CACHE = 'gastocerto-v1.6';
+const CACHE = 'gastocerto-v2.0-foundation';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {

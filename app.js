@@ -190,6 +190,10 @@ const api={
   getSplitShares:(expenseIds)=>expenseIds.length?sbFetch(`split_shares?expense_id=in.(${expenseIds.join(',')})`):Promise.resolve([]),
   insertSplitShares:(rows)=>sbFetch('split_shares',{method:'POST',body:JSON.stringify(rows)}),
   settleSplitShare:(id,settled)=>sbFetch(`split_shares?id=eq.${id}`,{method:'PATCH',body:JSON.stringify({is_settled:settled,settled_at:settled?new Date().toISOString():null})}),
+  settleAllSharesForMember:(memberId)=>sbFetch(`split_shares?member_id=eq.${memberId}&is_settled=eq.false`,{method:'PATCH',body:JSON.stringify({is_settled:true,settled_at:new Date().toISOString()})}),
+  getSplitPayments:(groupId)=>sbFetch(`split_payments?group_id=eq.${groupId}&order=created_at.desc`),
+  insertSplitPayment:(row)=>sbFetch('split_payments',{method:'POST',body:JSON.stringify(row)}),
+  deleteSplitPayment:(id)=>sbFetch(`split_payments?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
   getCategoryShares:(catId)=>sbFetch(`category_shares?category_id=eq.${catId}&order=id.desc`),
   getPendingShares:()=>sbFetch(`category_shares?shared_with_email=ilike.${encodeURIComponent(currentUser.email)}&status=eq.pending`),
   insertCategoryShare:(data)=>sbFetch('category_shares',{method:'POST',body:JSON.stringify({...data,shared_by_user_id:currentUser.id})}),
@@ -969,23 +973,136 @@ async function openSplitGroup(groupId){
   const group=splitGroups.find(g=>g.id===groupId);if(!group)return;
   openModal(`<div class="modal-title">${escapeHtml(group.name)}</div><div class="loading"><div class="spinner"></div>Calculando saldos...</div>`);
   try{
-    const [members,exps]=await Promise.all([api.getSplitMembers(groupId),api.getSplitExpenses(groupId)]),shares=await api.getSplitShares(exps.map(e=>e.id));
+    const [members,exps,payments]=await Promise.all([
+      api.getSplitMembers(groupId),
+      api.getSplitExpenses(groupId),
+      api.getSplitPayments(groupId).catch(()=>[]),
+    ]);
+    const shares=exps.length?await api.getSplitShares(exps.map(e=>e.id)):[];
     const memberById=Object.fromEntries(members.map(m=>[m.id,m]));
     const isCreator=group.created_by===currentUser.id;
     const myMember=members.find(m=>m.user_id===currentUser.id||(m.email&&m.email.toLowerCase()===currentUser.email.toLowerCase()));
-    const isAcceptedMember=myMember?.status==='accepted';
-    const canAdd=isPro()&&(isCreator||isAcceptedMember);
-    const canSettle=isCreator||isAcceptedMember;
+    const isParticipant=isCreator||myMember?.status==='accepted';
+    const canAdd=isPro()&&isParticipant;
     const acceptedMembers=members.filter(m=>m.status==='accepted');
     const pendingMembers=members.filter(m=>m.status==='pending');
+
+    // ── Saldo líquido por membro ──────────────────────────────────
+    // gross > 0 = a receber; < 0 = a pagar
+    const gross={};
+    acceptedMembers.forEach(m=>{gross[m.id]=0;});
+    // Despesas: payer recebe crédito, devedores ficam no débito
+    for(const shr of shares.filter(s=>!s.is_settled)){
+      const exp=exps.find(e=>e.id===shr.expense_id); if(!exp) continue;
+      const payer=members.find(m=>m.user_id===exp.paid_by_user_id); if(!payer||payer.id===shr.member_id) continue;
+      if(gross[payer.id]!==undefined) gross[payer.id]+=shr.amount;
+      if(gross[shr.member_id]!==undefined) gross[shr.member_id]-=shr.amount;
+    }
+    // Pagamentos: quem pagou melhora saldo, quem recebeu diminui crédito
+    for(const pmt of (payments||[])){
+      if(gross[pmt.from_member_id]!==undefined) gross[pmt.from_member_id]+=pmt.amount;
+      if(gross[pmt.to_member_id]!==undefined) gross[pmt.to_member_id]-=pmt.amount;
+    }
+    acceptedMembers.forEach(m=>{gross[m.id]=Math.round((gross[m.id]||0)*100)/100;});
+
+    // Guarda estado para o modal de pagamento
+    window._splitState={groupId,members:acceptedMembers,gross};
+
+    const allQuite=acceptedMembers.every(m=>Math.abs(gross[m.id]||0)<0.005);
+
+    // ── HTML ──────────────────────────────────────────────────────
     let html=`<div class="modal-title">${escapeHtml(group.name)}</div>`;
-    html+=`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">${acceptedMembers.map(m=>`<span style="font-size:11px;background:var(--surface2);border-radius:100px;padding:3px 10px;color:var(--text2)">${escapeHtml(m.display_name||m.email)}</span>`).join('')}${pendingMembers.map(m=>`<span style="font-size:11px;background:var(--surface2);border-radius:100px;padding:3px 10px;color:var(--text3)">⏳ ${escapeHtml(m.email)}</span>`).join('')}</div>`;
-    if(canAdd) html+=`<button class="btn-primary" onclick="openAddSplitExpense('${groupId}')" style="margin-bottom:10px">Adicionar despesa</button>`;
+
+    // Chips de membros
+    html+=`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px">
+      ${acceptedMembers.map(m=>`<span style="font-size:11px;background:var(--surface2);border-radius:100px;padding:3px 10px;color:var(--text2)">${escapeHtml(m.display_name||m.email.split('@')[0])}</span>`).join('')}
+      ${pendingMembers.map(m=>`<span style="font-size:11px;background:var(--surface2);border-radius:100px;padding:3px 10px;color:var(--text3)">⏳ ${escapeHtml(m.email.split('@')[0])}</span>`).join('')}
+    </div>`;
+
+    // ── Saldo atual ───────────────────────────────────────────────
+    html+=`<div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px">Saldo atual</div>`;
+    if(exps.length===0){
+      html+=`<div style="text-align:center;padding:18px;background:var(--surface2);border-radius:14px;color:var(--text3);font-size:13px;margin-bottom:16px">Nenhuma despesa ainda. Adicione a primeira.</div>`;
+    } else if(allQuite){
+      html+=`<div style="text-align:center;padding:18px;background:#c8f04a18;border:1px solid #c8f04a44;border-radius:14px;color:var(--accent);font-weight:600;font-size:15px;margin-bottom:16px">✓ Todos quite!</div>`;
+    } else {
+      html+=`<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
+        ${acceptedMembers.map(m=>{
+          const n=gross[m.id]||0;
+          const isMe=m.id===myMember?.id;
+          const label=isMe?'Você':escapeHtml(m.display_name||m.email.split('@')[0]);
+          const isDebt=n<-0.005, isCredit=n>0.005;
+          const color=isDebt?'var(--red)':isCredit?'var(--accent)':'var(--text3)';
+          const statusLine=isCredit?`▲ a receber ${brl(n)}`:isDebt?`▼ a pagar ${brl(Math.abs(n))}`:'✓ Quite';
+          const border=isDebt?'#ff4f4f33':isCredit?'#c8f04a33':'var(--border)';
+          return `<div style="display:flex;align-items:center;gap:12px;padding:14px;background:var(--surface2);border-radius:14px;border:1px solid ${border}">
+            <div style="flex:1;min-width:0">
+              <div style="font-size:15px;font-weight:700">${label}</div>
+              <div style="font-size:13px;margin-top:3px;color:${color}">${statusLine}</div>
+            </div>
+            ${isParticipant?`<button onclick="openRegisterPayment('${m.id}')" style="flex-shrink:0;font-size:12px;padding:8px 13px;border-radius:10px;border:1px solid var(--border);background:transparent;color:var(--text);cursor:pointer;font-family:inherit">Pagamento</button>`:''}
+          </div>`;
+        }).join('')}
+      </div>`;
+    }
+
+    // ── Botões de ação ────────────────────────────────────────────
+    if(canAdd) html+=`<button class="btn-primary" onclick="openAddSplitExpense('${groupId}')" style="margin-bottom:8px">Adicionar despesa</button>`;
     if(isCreator) html+=`<button class="btn-secondary" onclick="openAddSplitMember('${groupId}')" style="margin-bottom:14px">Convidar membro</button>`;
-    html+=exps.map(e=>`<div class="split-expense"><div class="split-expense-head"><span>${escapeHtml(e.description)}</span><span>${brl(e.total_amount)}</span></div><div class="split-group-meta">Pago por ${escapeHtml(e.paid_by_email)}</div>${shares.filter(s=>s.expense_id===e.id).map(s=>{const m=memberById[s.member_id]||{};return `<div class="split-share"><span>${escapeHtml(m.display_name||m.email||'Participante')} · ${brl(s.amount)}</span>${s.is_settled?'<span class="settled"><i class="fa-solid fa-check"></i> Pago</span>':canSettle?`<button class="settle-btn" onclick="settleShare('${s.id}','${groupId}')">Marcar pago</button>`:'<span style="color:var(--text3);font-size:12px">Pendente</span>'}</div>`}).join('')}</div>`).join('')||'<div style="padding:16px 0;text-align:center;color:var(--text3);font-size:13px">Nenhuma despesa neste grupo.</div>';
-    html+=`<button class="btn-secondary" style="margin-top:16px" onclick="_closeModal()">Fechar</button>`;
+
+    // ── Lançamentos (colapsável) ──────────────────────────────────
+    if(exps.length>0){
+      html+=`<details style="margin-bottom:10px"><summary style="cursor:pointer;list-style:none;display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:var(--surface2);border-radius:12px">
+        <span style="font-size:13px;font-weight:600">Lançamentos</span>
+        <span style="font-size:12px;background:var(--surface);border-radius:100px;padding:2px 9px;color:var(--text3)">${exps.length}</span>
+      </summary>
+      <div style="margin-top:6px;border:1px solid var(--border);border-radius:12px;overflow:hidden">
+        ${exps.map((e,i)=>{
+          const expShares=shares.filter(s=>s.expense_id===e.id);
+          const isLast=i===exps.length-1;
+          return `<div style="padding:12px 14px${isLast?'':';border-bottom:1px solid var(--border)'}">
+            <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:600;margin-bottom:2px"><span>${escapeHtml(e.description)}</span><span>${brl(e.total_amount)}</span></div>
+            <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Pago por ${escapeHtml(e.paid_by_email.split('@')[0])}</div>
+            ${expShares.map(s=>{const m=memberById[s.member_id]||{};return `<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2);padding:1px 0"><span>${escapeHtml(m.display_name||m.email?.split('@')[0]||'?')}</span><span>${brl(s.amount)}</span></div>`;}).join('')}
+          </div>`;
+        }).join('')}
+      </div></details>`;
+    }
+
+    // ── Pagamentos registrados (colapsável) ───────────────────────
+    const pmts=payments||[];
+    html+=`<details style="margin-bottom:14px"${pmts.length?'':' style="margin-bottom:14px"'}><summary style="cursor:pointer;list-style:none;display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:var(--surface2);border-radius:12px">
+      <span style="font-size:13px;font-weight:600">Pagamentos registrados</span>
+      <span style="font-size:12px;background:var(--surface);border-radius:100px;padding:2px 9px;color:var(--text3)">${pmts.length}</span>
+    </summary>
+    <div style="margin-top:6px">
+      ${pmts.length===0?`<div style="padding:14px;text-align:center;color:var(--text3);font-size:13px">Nenhum pagamento registrado.</div>`:
+        `<div style="border:1px solid var(--border);border-radius:12px;overflow:hidden">
+          ${pmts.map((pmt,i)=>{
+            const from=memberById[pmt.from_member_id]||{};
+            const to=memberById[pmt.to_member_id]||{};
+            const fromName=escapeHtml(from.display_name||from.email?.split('@')[0]||'?');
+            const toName=escapeHtml(to.display_name||to.email?.split('@')[0]||'?');
+            const canDel=isCreator||pmt.from_member_id===myMember?.id;
+            const isLast=i===pmts.length-1;
+            return `<div style="display:flex;align-items:center;gap:10px;padding:12px 14px${isLast?'':';border-bottom:1px solid var(--border)'}">
+              <div style="flex:1;min-width:0">
+                <div style="font-size:13px;font-weight:600">${fromName} <span style="color:var(--text3);font-weight:400">pagou</span> ${toName}</div>
+                <div style="font-size:14px;color:var(--accent);font-weight:700;margin-top:2px">${brl(pmt.amount)}${pmt.note?`<span style="font-size:12px;color:var(--text3);font-weight:400"> · ${escapeHtml(pmt.note)}</span>`:''}</div>
+                <div style="font-size:11px;color:var(--text3);margin-top:1px">${new Date(pmt.created_at).toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'})}</div>
+              </div>
+              ${canDel?`<div class="icon-btn" style="border-color:#ff4f4f44;color:var(--red);flex-shrink:0" onclick="deleteSplitPayment('${pmt.id}','${groupId}')"><i class="fa-solid fa-trash" aria-hidden="true"></i></div>`:''}
+            </div>`;
+          }).join('')}
+        </div>`
+      }
+    </div></details>`;
+
+    html+=`<button class="btn-secondary" onclick="_closeModal()">Fechar</button>`;
     document.getElementById('modal-content').innerHTML=html;
-  }catch{document.getElementById('modal-content').innerHTML=`<div class="modal-title">${escapeHtml(group.name)}</div><p class="modal-note">Erro ao carregar o grupo.</p><button class="btn-secondary" onclick="_closeModal()">Fechar</button>`;}
+  }catch(err){
+    document.getElementById('modal-content').innerHTML=`<div class="modal-title">${escapeHtml(group.name)}</div><p class="modal-note">Erro ao carregar o grupo.<br><small>${escapeHtml(String(err?.message||'').slice(0,100))}</small></p><button class="btn-secondary" onclick="_closeModal()">Fechar</button>`;
+  }
 }
 async function openAddSplitExpense(groupId){
   const members=await api.getSplitMembers(groupId);
@@ -1016,7 +1133,80 @@ async function saveSplitExpense(groupId){
     showToast('Despesa dividida!','success');openSplitGroup(groupId);
   }catch{showToast('Erro ao dividir despesa.','error');btn.disabled=false;btn.textContent='Dividir igualmente';}
 }
-async function settleShare(shareId,groupId){try{await api.settleSplitShare(shareId,true);showToast('Pagamento confirmado!','success');openSplitGroup(groupId);}catch{showToast('Erro ao confirmar pagamento.','error');}}
+function openRegisterPayment(fromMemberId){
+  const state=window._splitState;
+  if(!state){showToast('Reabra o grupo e tente novamente.','error');return;}
+  const {groupId,members,gross}=state;
+  // Default "to": biggest creditor
+  const creditors=members.filter(m=>m.id!==fromMemberId&&(gross[m.id]||0)>0.005).sort((a,b)=>(gross[b.id]||0)-(gross[a.id]||0));
+  const defaultTo=creditors.length?creditors[0].id:'';
+  const debtAmount=Math.abs(gross[fromMemberId]||0);
+  const defaultAmount=debtAmount>0.005?debtAmount.toFixed(2):'';
+  const memberOpts=id=>members.filter(m=>m.id!==id).map(m=>`<option value="${m.id}"${m.id===defaultTo&&id===fromMemberId?' selected':''}>${escapeHtml(m.display_name||m.email.split('@')[0])}</option>`).join('');
+  openModal(`<div class="modal-title">Registrar pagamento</div>
+    <p class="modal-note" style="margin-bottom:16px">Registre quanto foi pago. Pode ser parcial, total ou maior que a dívida — o saldo é ajustado automaticamente.</p>
+    <div class="form-group"><label class="form-label">Quem pagou</label>
+      <select class="form-input" id="f-pmt-from" onchange="updatePaymentToOpts()">${members.map(m=>`<option value="${m.id}"${m.id===fromMemberId?' selected':''}>${escapeHtml(m.display_name||m.email.split('@')[0])}</option>`).join('')}</select>
+    </div>
+    <div class="form-group"><label class="form-label">Para quem</label>
+      <select class="form-input" id="f-pmt-to"><option value="">Selecione...</option>${memberOpts(fromMemberId)}</select>
+    </div>
+    <div class="form-group"><label class="form-label">Valor (R$)</label>
+      <input class="form-input" id="f-pmt-amount" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="0,00" value="${defaultAmount}"/>
+    </div>
+    <div class="form-group"><label class="form-label">Nota <span style="color:var(--text3)">(opcional)</span></label>
+      <input class="form-input" id="f-pmt-note" maxlength="100" placeholder="Pix, dinheiro, transferência…"/>
+    </div>
+    <button class="btn-primary" id="btn-pmt-save" onclick="savePayment()">Registrar pagamento</button>
+    <button class="btn-secondary" onclick="openSplitGroup('${groupId}')">Cancelar</button>`);
+}
+
+function updatePaymentToOpts(){
+  const state=window._splitState;
+  if(!state) return;
+  const fromId=document.getElementById('f-pmt-from')?.value;
+  const toSel=document.getElementById('f-pmt-to');
+  if(!toSel) return;
+  toSel.innerHTML=`<option value="">Selecione...</option>`+
+    state.members.filter(m=>m.id!==fromId).map(m=>`<option value="${m.id}">${escapeHtml(m.display_name||m.email.split('@')[0])}</option>`).join('');
+  // update amount suggestion
+  const amtInput=document.getElementById('f-pmt-amount');
+  if(amtInput&&!amtInput.value){
+    const debtAmount=Math.abs(state.gross[fromId]||0);
+    if(debtAmount>0.005) amtInput.value=debtAmount.toFixed(2);
+  }
+}
+
+async function savePayment(){
+  const state=window._splitState;
+  if(!state){showToast('Erro de estado. Reabra o grupo.','error');return;}
+  const {groupId}=state;
+  const fromId=document.getElementById('f-pmt-from')?.value;
+  const toId=document.getElementById('f-pmt-to')?.value;
+  const amount=parseFloat(document.getElementById('f-pmt-amount')?.value);
+  const note=(document.getElementById('f-pmt-note')?.value||'').trim();
+  if(!fromId||!toId){showToast('Selecione quem pagou e para quem.','error');return;}
+  if(fromId===toId){showToast('Quem pagou e quem recebeu devem ser pessoas diferentes.','error');return;}
+  if(!amount||amount<=0){showToast('Informe um valor válido.','error');return;}
+  const btn=document.getElementById('btn-pmt-save');btn.disabled=true;btn.textContent='Salvando...';
+  try{
+    await api.insertSplitPayment({group_id:groupId,from_member_id:fromId,to_member_id:toId,amount,note:note||null});
+    showToast('Pagamento registrado!','success');
+    openSplitGroup(groupId);
+  }catch(e){
+    showToast('Erro: '+String(e?.message||'').slice(0,60),'error');
+    btn.disabled=false;btn.textContent='Registrar pagamento';
+  }
+}
+
+async function deleteSplitPayment(paymentId,groupId){
+  if(!confirm('Remover este pagamento? O saldo voltará ao estado anterior.'))return;
+  try{
+    await api.deleteSplitPayment(paymentId);
+    showToast('Pagamento removido.','success');
+    openSplitGroup(groupId);
+  }catch{showToast('Erro ao remover pagamento.','error');}
+}
 
 function openAddSplitMember(groupId){
   openModal(`<div class="modal-title">Convidar membro</div>

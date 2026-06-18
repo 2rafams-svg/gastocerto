@@ -76,7 +76,7 @@ function enterApp(){
 async function logout(){
   const token=session?.access_token;
   if(token) fetch(`${SUPABASE_URL}/auth/v1/logout`,{method:'POST',headers:{apikey:SUPABASE_KEY,Authorization:`Bearer ${token}`}}).catch(()=>{});
-  persistSession(null); categories=[]; months=[]; expenses=[]; expenseNames=[];
+  persistSession(null); categories=[]; months=[]; expenses=[]; expenseNames=[]; acceptedShares=[]; sharedOutMap={};
   document.getElementById('app').style.display='none';
   document.getElementById('auth-screen').style.display='flex';
   _closeModal(); setAuthMode('login');
@@ -192,6 +192,8 @@ const api={
   insertCategoryShare:(data)=>sbFetch('category_shares',{method:'POST',body:JSON.stringify({...data,shared_by_user_id:currentUser.id})}),
   updateCategoryShare:(id,data)=>sbFetch(`category_shares?id=eq.${id}`,{method:'PATCH',body:JSON.stringify(data)}),
   deleteCategoryShare:(id)=>sbFetch(`category_shares?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
+  getAcceptedShares:()=>sbFetch(`category_shares?shared_with_email=ilike.${encodeURIComponent(currentUser.email)}&status=eq.accepted`),
+  getMyShares:()=>sbFetch(`category_shares?shared_by_user_id=eq.${currentUser.id}&status=eq.accepted`),
   getAdminGrant:()=>sbFetch(`admin_grants?email=ilike.${encodeURIComponent(currentUser.email)}&limit=1`),
   insertAdminGrant:(email,plan)=>sbFetch('admin_grants',{method:'POST',body:JSON.stringify({email:email.toLowerCase(),plan,granted_by:currentUser.id})}),
   deleteAdminGrant:(id)=>sbFetch(`admin_grants?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
@@ -201,7 +203,7 @@ const api={
 // ===================== STATE =====================
 let categories=[], months=[], currentMonthKey='', viewMonthKey='', expenses=[], currentTab='home', currentCatIdx=0;
 let subscription=null, userPlan='free';
-let splitGroups=[], pendingShares=[];
+let splitGroups=[], pendingShares=[], acceptedShares=[], sharedOutMap={};
 function resolveUserPlan(sub, now=new Date()){
   if(!sub) return 'free';
   if(sub.billing_cycle==='lifetime') return 'pro';
@@ -361,11 +363,19 @@ async function init(){
     document.getElementById('current-month-label').insertAdjacentHTML('afterend','<span class="sync-dot" id="sync-dot"></span>');
   }
   try{
-    const [cats, mons, sub, adminGrants] = await Promise.all([api.getCategories(), api.getMonths(), api.getSubscription(), api.getAdminGrant().catch(()=>[])]);
+    const [cats, mons, sub, adminGrants, accShares, myShares] = await Promise.all([
+      api.getCategories(), api.getMonths(), api.getSubscription(),
+      api.getAdminGrant().catch(()=>[]),
+      api.getAcceptedShares().catch(()=>[]),
+      api.getMyShares().catch(()=>[]),
+    ]);
     categories=cats; months=mons; subscription=sub; userPlan=resolveUserPlan(sub);
-    if(userPlan==='free'&&adminGrants?.length>0) userPlan='pro';
+    if(adminGrants?.length>0) userPlan='pro';
+    acceptedShares=accShares||[];
+    sharedOutMap=Object.fromEntries((myShares||[]).filter(s=>s.shared_with_user_id).map(s=>[s.shared_with_user_id,s.shared_with_email]));
     const trialDays=sub?.subscription_status==='trialing'?Math.max(0,Math.ceil((new Date(sub.trial_ends_at)-new Date())/86400000)):0;
-    document.getElementById('account-btn').textContent=isPro()?(trialDays?`Pro · ${trialDays}d`:'Pro'):'Grátis';
+    const isAdminPro=adminGrants?.length>0;
+    document.getElementById('account-btn').textContent=isPro()?(isAdminPro?'Pro ★':(trialDays?`Pro · ${trialDays}d`:'Pro')):'Grátis';
     const now=monthKeyOf(new Date());
     if(!months.find(m=>m.key===now)){ await api.insertMonth({key:now,closed:false}); months=await api.getMonths(); }
     currentMonthKey=now;
@@ -598,9 +608,12 @@ function buildSlide(cat, isNow){
       forecast=`Nesse ritmo, o saldo acaba em <strong>${end.toLocaleDateString('pt-BR',{day:'2-digit',month:'short'})}</strong>`;
     } else if(isOver) forecast=`Orçamento estourado em <strong>${brl(Math.abs(available))}</strong>`;
   }
-  const expHtml=catExps.map(e=>`<div class="expense-item">
+  const expHtml=catExps.map(e=>{
+    const byOther=e.user_id&&e.user_id!==currentUser.id;
+    const byLabel=byOther?(sharedOutMap[e.user_id]?`<span style="font-size:10px;color:var(--accent);background:#c8f04a18;border-radius:100px;padding:1px 7px;margin-left:5px">por ${sharedOutMap[e.user_id].split('@')[0]}</span>`:`<span style="font-size:10px;color:var(--accent);background:#c8f04a18;border-radius:100px;padding:1px 7px;margin-left:5px">por parceiro</span>`):'';
+    return `<div class="expense-item">
     <div class="expense-left">
-      <div class="expense-name">${e.recurring?`<i class="fa-solid fa-arrows-rotate" style="font-size:10px;color:var(--accent);margin-right:5px" title="Recorrente" aria-hidden="true"></i>`:''}${escapeHtml(e.name)}</div>
+      <div class="expense-name">${e.recurring?`<i class="fa-solid fa-arrows-rotate" style="font-size:10px;color:var(--accent);margin-right:5px" title="Recorrente" aria-hidden="true"></i>`:''}${escapeHtml(e.name)}${byLabel}</div>
       <div class="expense-date">${new Date(e.date+'T12:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'})}</div>
     </div>
     <div class="expense-right">
@@ -610,7 +623,8 @@ function buildSlide(cat, isNow){
         <div class="exp-btn" style="border-color:#ff4f4f44;color:var(--red)" onclick="confirmDeleteExpense('${e.id}')"><i class="fa-solid fa-trash" aria-label="Excluir"></i></div>
       </div>
     </div>
-  </div>`).join('');
+  </div>`;
+  }).join('');
 
   const isOwned=cat.user_id===currentUser.id;
   const sharedWith=!isOwned;
@@ -1086,6 +1100,19 @@ async function saveCategory(catId){
 }
 
 async function confirmDeleteCategory(catId){
+  const cat=categories.find(c=>c.id===catId);
+  if(!cat) return;
+  if(cat.user_id!==currentUser.id){
+    if(!confirm('Remover seu acesso a esta categoria compartilhada?')) return;
+    try{
+      const share=acceptedShares.find(s=>s.category_id===catId);
+      if(share) await api.deleteCategoryShare(share.id);
+      acceptedShares=acceptedShares.filter(s=>s.category_id!==catId);
+      categories=await api.getCategories();
+      saveCache(); render(); showToast('Acesso removido.','success');
+    }catch{ showToast('Erro ao remover acesso.','error'); }
+    return;
+  }
   if(!confirm('Deletar esta categoria?')) return;
   try{ await api.deleteCategory(catId); categories=categories.filter(c=>c.id!==catId); saveCache(); render(); showToast('Removida.','success'); }
   catch{ showToast('Erro ao deletar.','error'); }

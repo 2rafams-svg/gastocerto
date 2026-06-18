@@ -165,9 +165,10 @@ button{touch-action:manipulation}
 .progress-fill.danger{background:var(--red)}
 .forecast{font-size:12px;color:var(--text3);font-style:italic;margin-bottom:10px}
 .forecast strong{color:var(--text2);font-style:normal}
-.add-expense-btn{width:100%;padding:10px;border-radius:10px;border:1px dashed var(--border);background:transparent;color:var(--text2);font-family:'DM Sans',sans-serif;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;margin-top:10px;transition:all .2s}
-.add-expense-btn svg{width:14px;height:14px;stroke:currentColor}
-.share-category-btn{width:100%;padding:10px;border-radius:10px;border:1px solid #c8f04a44;background:#c8f04a0b;color:var(--accent);font:600 13px 'DM Sans',sans-serif;cursor:pointer;margin-top:10px}
+.add-expense-btn{width:100%;padding:13px;border-radius:10px;border:none;background:var(--accent);color:#0f0f0f;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;margin-top:12px;transition:opacity .2s}
+.add-expense-btn:active{opacity:.85}
+.share-user-btn{width:100%;padding:10px;border-radius:10px;border:1px solid #c8f04a44;background:#c8f04a0b;color:var(--accent);font:600 13px 'DM Sans',sans-serif;cursor:pointer;margin-top:8px;display:flex;align-items:center;justify-content:center;gap:6px}
+.export-category-btn{width:100%;padding:9px;border-radius:10px;border:1px solid var(--border);background:transparent;color:var(--text3);font:500 12px 'DM Sans',sans-serif;cursor:pointer;margin-top:8px;display:flex;align-items:center;justify-content:center;gap:5px}
 .expense-item{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)}
 .expense-item:last-child{border-bottom:none}
 .expense-left{flex:1}
@@ -289,7 +290,7 @@ select.form-input{cursor:pointer}
 .cons-rank{width:24px;height:24px;border-radius:50%;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:var(--accent);flex-shrink:0}
 .modal-note{font-size:13px;color:var(--text2);margin-bottom:16px;line-height:1.45}
 .modal-note strong{color:var(--text)}
-.trial-banner,.locked-card{margin:12px 20px;padding:14px;border-radius:14px;border:1px solid #c8f04a44;background:#c8f04a0d;font-size:13px;line-height:1.45}
+.trial-banner,.locked-card,.share-notification{margin:0;padding:14px;border-radius:14px;border:1px solid #c8f04a44;background:#c8f04a0d;font-size:13px;line-height:1.45}
 .trial-banner{display:flex;justify-content:space-between;align-items:center;gap:12px}.trial-banner button,.locked-card button{border:0;border-radius:9px;background:var(--accent);color:#0f0f0f;padding:8px 11px;font-weight:600;white-space:nowrap}
 .locked-card{text-align:center;margin:12px 0}.locked-icon{font-size:24px;margin-bottom:6px}.locked-title{font-weight:600;margin-bottom:4px}.locked-copy{color:var(--text2);margin-bottom:12px}
 .plan-card{border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:12px}.plan-card.featured{border-color:var(--accent);background:#c8f04a0b}.plan-name{font-weight:600}.plan-price{font-size:12px;color:var(--text2);margin-top:3px}.plan-tag{font-size:10px;color:#0f0f0f;background:var(--accent);border-radius:100px;padding:4px 7px;font-weight:700}
@@ -582,12 +583,17 @@ const api={
   getSplitShares:(expenseIds)=>expenseIds.length?sbFetch(`split_shares?expense_id=in.(${expenseIds.join(',')})`):Promise.resolve([]),
   insertSplitShares:(rows)=>sbFetch('split_shares',{method:'POST',body:JSON.stringify(rows)}),
   settleSplitShare:(id,settled)=>sbFetch(`split_shares?id=eq.${id}`,{method:'PATCH',body:JSON.stringify({is_settled:settled,settled_at:settled?new Date().toISOString():null})}),
+  getCategoryShares:(catId)=>sbFetch(`category_shares?category_id=eq.${catId}&order=created_at.desc`),
+  getPendingShares:()=>sbFetch(`category_shares?shared_with_email=eq.${encodeURIComponent(currentUser.email)}&status=eq.pending`),
+  insertCategoryShare:(data)=>sbFetch('category_shares',{method:'POST',body:JSON.stringify({...data,shared_by_user_id:currentUser.id})}),
+  updateCategoryShare:(id,data)=>sbFetch(`category_shares?id=eq.${id}`,{method:'PATCH',body:JSON.stringify(data)}),
+  deleteCategoryShare:(id)=>sbFetch(`category_shares?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
 };
 
 // ===================== STATE =====================
 let categories=[], months=[], currentMonthKey='', viewMonthKey='', expenses=[], currentTab='home', currentCatIdx=0;
 let subscription=null, userPlan='free';
-let splitGroups=[];
+let splitGroups=[], pendingShares=[];
 function resolveUserPlan(sub, now=new Date()){
   if(!sub) return 'free';
   if(sub.billing_cycle==='lifetime') return 'pro';
@@ -694,6 +700,8 @@ async function init(){
       expenseNames=Object.keys(freq).sort((a,b)=>freq[b]-freq[a]);
       saveCache();
     }).catch(()=>{});
+    // Background: verificar convites de categoria pendentes
+    loadPendingShares();
   }catch(e){
     document.getElementById('sync-dot')?.remove();
     if(!hadCache){
@@ -734,6 +742,86 @@ async function shareCategory(catId){
   const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=file.name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);showToast('Imagem salva!','success');
 }
 
+// ===================== COMPARTILHAMENTO ENTRE USUÁRIOS =====================
+function openShareCategory(catId){
+  const cat=categories.find(c=>c.id===catId);if(!cat)return;
+  openModal(`<div class="modal-title">Compartilhar ${escapeHtml(cat.name)}</div>
+    <p class="modal-note">O convidado verá uma notificação no app e poderá aceitar ou recusar. Nenhum e-mail é enviado.</p>
+    <div class="form-group"><label class="form-label">E-mail do convidado</label>
+      <input class="form-input" id="f-share-email" type="email" placeholder="amigo@email.com" autocomplete="off"/></div>
+    <div class="form-group"><label class="form-label">Permissão</label>
+      <select class="form-input" id="f-share-perm">
+        <option value="view">Visualizar — pode ver os gastos</option>
+        <option value="edit">Editar — pode ver e adicionar gastos</option>
+      </select></div>
+    <button class="btn-primary" id="btn-share-cat" onclick="saveShareCategory('${catId}')">Enviar convite</button>
+    <button class="btn-secondary" onclick="openManageShares('${catId}')">Ver compartilhamentos atuais</button>
+    <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
+}
+
+async function saveShareCategory(catId){
+  const cat=categories.find(c=>c.id===catId);if(!cat)return;
+  const email=(document.getElementById('f-share-email').value||'').trim().toLowerCase();
+  const permission=document.getElementById('f-share-perm').value;
+  if(!email||!/^\S+@\S+\.\S+$/.test(email)){showToast('Informe um e-mail válido.','error');return;}
+  if(email===currentUser.email.toLowerCase()){showToast('Você não pode compartilhar com você mesmo.','error');return;}
+  const btn=document.getElementById('btn-share-cat');btn.disabled=true;btn.textContent='Enviando...';
+  try{
+    await api.insertCategoryShare({category_id:catId,category_name:cat.name,shared_with_email:email,permission});
+    showToast('Convite enviado!','success');_closeModal();
+  }catch{showToast('Erro ao compartilhar. Verifique se a tabela category_shares existe no Supabase.','error');btn.disabled=false;btn.textContent='Enviar convite';}
+}
+
+async function openManageShares(catId){
+  const cat=categories.find(c=>c.id===catId);
+  openModal(`<div class="modal-title">Compartilhamentos</div><div class="loading"><div class="spinner"></div></div>`);
+  try{
+    const shares=await api.getCategoryShares(catId);
+    const statusLabel={pending:'Aguardando',accepted:'Aceito',declined:'Recusado'};
+    const permLabel={view:'Visualizar',edit:'Editar'};
+    let html=`<div class="modal-title">Compartilhamentos · ${escapeHtml(cat?.name||'')}</div>`;
+    if(!shares||!shares.length){
+      html+=`<p class="modal-note">Esta categoria ainda não foi compartilhada com ninguém.</p>`;
+    }else{
+      html+=shares.map(s=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--border)">
+        <div>
+          <div style="font-size:14px;font-weight:500">${escapeHtml(s.shared_with_email)}</div>
+          <div style="font-size:12px;color:var(--text3)">${permLabel[s.permission]||s.permission} · ${statusLabel[s.status]||s.status}</div>
+        </div>
+        <div class="icon-btn" style="border-color:#ff4f4f44;color:var(--red)" onclick="removeShare('${s.id}','${catId}')"><i class="fa-solid fa-trash" aria-hidden="true"></i></div>
+      </div>`).join('');
+    }
+    html+=`<button class="btn-primary" style="margin-top:16px" onclick="openShareCategory('${catId}')">Adicionar compartilhamento</button>
+      <button class="btn-secondary" onclick="_closeModal()">Fechar</button>`;
+    document.getElementById('modal-content').innerHTML=html;
+  }catch{
+    document.getElementById('modal-content').innerHTML=`<div class="modal-title">Compartilhamentos</div><p class="modal-note">Erro ao carregar. Verifique se a tabela category_shares existe.</p><button class="btn-secondary" onclick="_closeModal()">Fechar</button>`;
+  }
+}
+
+async function removeShare(shareId,catId){
+  if(!confirm('Remover este compartilhamento?'))return;
+  try{await api.deleteCategoryShare(shareId);showToast('Compartilhamento removido.','success');openManageShares(catId);}
+  catch{showToast('Erro ao remover.','error');}
+}
+
+async function respondToShare(shareId,accept){
+  try{
+    await api.updateCategoryShare(shareId,{status:accept?'accepted':'declined',shared_with_user_id:accept?currentUser.id:null});
+    pendingShares=pendingShares.filter(s=>s.id!==shareId);
+    showToast(accept?'Categoria aceita!':'Convite recusado.',accept?'success':'');
+    render();
+  }catch{showToast('Erro ao responder ao convite.','error');}
+}
+
+async function loadPendingShares(){
+  try{
+    const shares=await api.getPendingShares();
+    pendingShares=shares||[];
+    if(pendingShares.length>0&&currentTab==='home') render();
+  }catch{}
+}
+
 // ===================== RENDER =====================
 function render(){
   document.getElementById('current-month-label').textContent=monthLabel(viewMonthKey);
@@ -756,29 +844,18 @@ function renderHome(el){
   }
   if(currentCatIdx>=categories.length) currentCatIdx=0;
 
-  // Resumo geral do mês
-  const totalBudget=categories.reduce((s,c)=>s+effBudget(c,viewMonthKey),0);
-  const totalSpent=expenses.reduce((s,e)=>s+parseFloat(e.value),0);
-  const totalAvail=totalBudget-totalSpent;
-  const totalPct=totalBudget>0?Math.min((totalSpent/totalBudget)*100,100):0;
   const days=trialDaysRemaining();
-  const trialBanner=days>0&&days<=3?`<div class="trial-banner"><span>Seu acesso completo termina em <strong>${days} ${days===1?'dia':'dias'}</strong>.</span><button onclick="openPaywall('Continue com seus relatórios')">Ver Pro</button></div>`:'';
-  const summaryHtml=`${trialBanner}<div class="summary-card">
-    <div class="summary-grid">
-      <div class="summary-block"><div class="summary-label">Orçamento</div><div class="summary-num">${brl(totalBudget)}</div></div>
-      <div class="summary-block"><div class="summary-label">Gasto</div><div class="summary-num" style="color:var(--text2)">${brl(totalSpent)}</div></div>
-      <div class="summary-block"><div class="summary-label">Disponível</div><div class="summary-num ${totalAvail>=0?'positive':'negative'}">${brl(totalAvail)}</div></div>
-    </div>
-    <div class="progress-bar" style="margin-bottom:0"><div class="progress-fill ${totalAvail<0?'danger':totalPct>75?'warning':''}" style="width:${totalPct}%"></div></div>
-    <button class="summary-btn" onclick="openConsolidado()">Ver consolidado do mês ›</button>
-  </div>`;
+  const trialBannerHtml=days>0&&days<=3?`<div style="padding:8px 20px 0"><div class="trial-banner" style="margin:0"><span>Seu acesso completo termina em <strong>${days} ${days===1?'dia':'dias'}</strong>.</span><button onclick="openPaywall('Continue com seus relatórios')">Ver Pro</button></div></div>`:'';
+
+  const pendingSharesHtml=pendingShares.length>0?`<div style="padding:8px 20px 0;display:flex;flex-direction:column;gap:8px">${pendingShares.map(s=>`<div class="share-notification"><div style="font-weight:600;font-size:13px;margin-bottom:3px"><i class="fa-solid fa-share-nodes" style="margin-right:6px;color:var(--accent)" aria-hidden="true"></i>Convite de categoria</div><div style="font-size:12px;color:var(--text2);margin-bottom:10px">Você recebeu acesso à categoria <strong>${escapeHtml(s.category_name||'desconhecida')}</strong></div><div style="display:flex;gap:8px"><button onclick="respondToShare('${s.id}',true)" style="flex:1;padding:8px;border-radius:8px;border:none;background:var(--accent);color:#0f0f0f;font:700 12px 'DM Sans',sans-serif;cursor:pointer">Aceitar</button><button onclick="respondToShare('${s.id}',false)" style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text2);font:500 12px 'DM Sans',sans-serif;cursor:pointer">Recusar</button></div></div>`).join('')}</div>`:'';
 
   const slidesHtml = categories.map((cat,i)=>buildSlide(cat,isNow)).join('');
   const dotsHtml = categories.map((_,i)=>`<div class="cdot${i===currentCatIdx?' active':''}" onclick="goToSlide(${i})"></div>`).join('');
 
   el.innerHTML=`<div id="home-content" style="display:flex;flex-direction:column;height:100%">
     ${isNow&&mdata&&!mdata.closed?`<div style="padding:12px 20px 0">${closeMonthBtnHtml()}</div>`:''}
-    <div style="padding-top:12px">${summaryHtml}</div>
+    ${pendingSharesHtml}
+    ${trialBannerHtml}
     <div class="cat-nav" style="padding-top:10px">
       <div class="cat-nav-btn${currentCatIdx===0?' disabled':''}" onclick="goToSlide(${currentCatIdx-1})">‹</div>
       <div class="cat-nav-name">${categories[currentCatIdx].name}</div>
@@ -842,11 +919,18 @@ function buildSlide(cat, isNow){
       ${forecast?`<div class="forecast">${forecast}</div>`:''}
       ${overrideLink}
       ${expHtml}
-      <button class="share-category-btn" onclick="shareCategory('${cat.id}')">Compartilhar categoria</button>
       ${isNow?`<button class="add-expense-btn" onclick="openAddExpense('${cat.id}')">
         <i class="fa-solid fa-plus" aria-hidden="true"></i>
         Adicionar gasto
       </button>`:''}
+      <button class="share-user-btn" onclick="openShareCategory('${cat.id}')">
+        <i class="fa-solid fa-user-plus" aria-hidden="true"></i>
+        Compartilhar categoria
+      </button>
+      <button class="export-category-btn" onclick="shareCategory('${cat.id}')">
+        <i class="fa-solid fa-share-from-square" aria-hidden="true"></i>
+        Exportar como imagem
+      </button>
     </div>
   </div>`;
 }
@@ -984,7 +1068,21 @@ async function reorderCats(srcId, targetId){
 function renderHistorico(el){
   if(!isPro()){
     const current=expenses.reduce((s,e)=>s+parseFloat(e.value),0);
-    el.innerHTML=`<div style="padding:16px 20px calc(80px + var(--safe-bot))"><div class="month-title">${monthLabel(currentMonthKey)}</div><div class="summary-card" style="margin:0 0 12px"><div class="summary-label">Gasto no mês atual</div><div class="summary-num">${brl(current)}</div></div>${lockedCard('Histórico e análises','Badges, gráficos e comparativos entre meses estão disponíveis no Pro.')}</div>`;
+    const totalBudget=categories.reduce((s,c)=>s+effBudget(c,currentMonthKey),0);
+    const totalAvail=totalBudget-current;
+    const totalPct=totalBudget>0?Math.min((current/totalBudget)*100,100):0;
+    el.innerHTML=`<div style="padding:16px 20px calc(80px + var(--safe-bot))">
+      <div class="month-title">${monthLabel(currentMonthKey)}</div>
+      <div class="summary-card" style="margin:0 0 12px">
+        <div class="summary-grid">
+          <div class="summary-block"><div class="summary-label">Orçamento</div><div class="summary-num">${brl(totalBudget)}</div></div>
+          <div class="summary-block"><div class="summary-label">Gasto</div><div class="summary-num" style="color:var(--text2)">${brl(current)}</div></div>
+          <div class="summary-block"><div class="summary-label">Disponível</div><div class="summary-num ${totalAvail>=0?'positive':'negative'}">${brl(totalAvail)}</div></div>
+        </div>
+        <div class="progress-bar" style="margin-bottom:0"><div class="progress-fill ${totalAvail<0?'danger':totalPct>75?'warning':''}" style="width:${totalPct}%"></div></div>
+      </div>
+      ${lockedCard('Histórico e análises','Badges, gráficos e comparativos entre meses estão disponíveis no Pro.')}
+    </div>`;
     return;
   }
   el.innerHTML=`<div style="padding:16px 20px calc(80px + var(--safe-bot))"><div class="loading"><div class="spinner"></div>Carregando...</div></div>`;
@@ -1024,7 +1122,21 @@ async function renderHistoricoAsync(el){
     </div>`;
   }
 
-  let html=chartHtml;
+  const totalSpentSummary=expenses.reduce((s,e)=>s+parseFloat(e.value),0);
+  const totalBudgetSummary=categories.reduce((s,c)=>s+effBudget(c,viewMonthKey),0);
+  const totalAvailSummary=totalBudgetSummary-totalSpentSummary;
+  const totalPctSummary=totalBudgetSummary>0?Math.min((totalSpentSummary/totalBudgetSummary)*100,100):0;
+  const summaryHtml=`<div class="summary-card" style="margin:0 0 16px">
+    <div class="summary-grid">
+      <div class="summary-block"><div class="summary-label">Orçamento</div><div class="summary-num">${brl(totalBudgetSummary)}</div></div>
+      <div class="summary-block"><div class="summary-label">Gasto</div><div class="summary-num" style="color:var(--text2)">${brl(totalSpentSummary)}</div></div>
+      <div class="summary-block"><div class="summary-label">Disponível</div><div class="summary-num ${totalAvailSummary>=0?'positive':'negative'}">${brl(totalAvailSummary)}</div></div>
+    </div>
+    <div class="progress-bar" style="margin-bottom:8px"><div class="progress-fill ${totalAvailSummary<0?'danger':totalPctSummary>75?'warning':''}" style="width:${totalPctSummary}%"></div></div>
+    <button class="summary-btn" onclick="openConsolidado()">Ver consolidado do mês ›</button>
+  </div>`;
+
+  let html=summaryHtml+chartHtml;
   for(const month of months){
     const exps=byMonth[month.key];
     if(!exps||exps.length===0) continue;
@@ -1098,16 +1210,30 @@ async function openSplitGroup(groupId){
 }
 async function openAddSplitExpense(groupId){
   const members=await api.getSplitMembers(groupId);
-  openModal(`<div class="modal-title">Nova despesa compartilhada</div><p class="modal-note">O valor será dividido igualmente entre ${members.length} participantes.</p><div class="form-group"><label class="form-label">Descrição</label><input class="form-input" id="f-split-desc" maxlength="160" placeholder="Ex: Jantar"></div><div class="form-group"><label class="form-label">Valor total</label><input class="form-input" id="f-split-value" type="number" min="0.01" step="0.01" inputmode="decimal"></div><button class="btn-primary" id="btn-split-exp" onclick="saveSplitExpense('${groupId}')">Dividir igualmente</button><button class="btn-secondary" onclick="openSplitGroup('${groupId}')">Cancelar</button>`);
+  const memberCheckboxes=members.map(m=>`<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--surface2);border-radius:8px;margin-bottom:6px">
+    <input type="checkbox" id="split-m-${m.id}" value="${m.id}" checked style="width:18px;height:18px;accent-color:var(--accent);flex-shrink:0"/>
+    <label for="split-m-${m.id}" style="font-size:14px;cursor:pointer;flex:1">${escapeHtml(m.display_name||m.email)}</label>
+  </div>`).join('');
+  openModal(`<div class="modal-title">Nova despesa compartilhada</div>
+    <div class="form-group"><label class="form-label">Descrição</label>
+      <input class="form-input" id="f-split-desc" maxlength="160" placeholder="Ex: Jantar, Uber, Mercado"></div>
+    <div class="form-group"><label class="form-label">Valor total (R$)</label>
+      <input class="form-input" id="f-split-value" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="0,00"></div>
+    <div class="form-group"><label class="form-label">Dividir com</label>${memberCheckboxes}</div>
+    <button class="btn-primary" id="btn-split-exp" onclick="saveSplitExpense('${groupId}')">Dividir igualmente</button>
+    <button class="btn-secondary" onclick="openSplitGroup('${groupId}')">Cancelar</button>`);
 }
 async function saveSplitExpense(groupId){
-  const description=document.getElementById('f-split-desc').value.trim(),total=parseFloat(document.getElementById('f-split-value').value);if(!description||!total||total<=0){showToast('Preencha descrição e valor.','error');return;}
+  const description=document.getElementById('f-split-desc').value.trim(),total=parseFloat(document.getElementById('f-split-value').value);
+  if(!description||!total||total<=0){showToast('Preencha descrição e valor.','error');return;}
+  const allMembers=await api.getSplitMembers(groupId);
+  const selected=allMembers.filter(m=>document.getElementById('split-m-'+m.id)?.checked);
+  if(!selected.length){showToast('Selecione pelo menos um participante.','error');return;}
   const btn=document.getElementById('btn-split-exp');btn.disabled=true;btn.textContent='Salvando...';
   try{
-    const members=await api.getSplitMembers(groupId);if(!members.length)throw new Error('Sem participantes');
     const exp=(await api.insertSplitExpense({group_id:groupId,description,total_amount:total,paid_by_user_id:currentUser.id,paid_by_email:currentUser.email}))[0];
-    const cents=Math.round(total*100),base=Math.floor(cents/members.length),remainder=cents%members.length;
-    await api.insertSplitShares(members.map((m,i)=>({expense_id:exp.id,member_id:m.id,amount:(base+(i<remainder?1:0))/100,is_settled:m.user_id===currentUser.id,settled_at:m.user_id===currentUser.id?new Date().toISOString():null})));
+    const cents=Math.round(total*100),base=Math.floor(cents/selected.length),remainder=cents%selected.length;
+    await api.insertSplitShares(selected.map((m,i)=>({expense_id:exp.id,member_id:m.id,amount:(base+(i<remainder?1:0))/100,is_settled:m.user_id===currentUser.id,settled_at:m.user_id===currentUser.id?new Date().toISOString():null})));
     showToast('Despesa dividida!','success');openSplitGroup(groupId);
   }catch{showToast('Erro ao dividir despesa.','error');btn.disabled=false;btn.textContent='Dividir igualmente';}
 }

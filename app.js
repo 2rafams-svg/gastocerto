@@ -1,5 +1,4 @@
-// ===================== THEME =====================
-(function(){const t=localStorage.getItem('gc-theme')||'dark';document.documentElement.setAttribute('data-theme',t);})();
+﻿(function(){const t=localStorage.getItem('gc-theme')||'dark';document.documentElement.setAttribute('data-theme',t);})();
 function toggleTheme(){
   const isLight=document.documentElement.getAttribute('data-theme')==='light';
   const next=isLight?'dark':'light';
@@ -15,7 +14,6 @@ function syncThemeRow(){
   if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
-// ===================== CONFIG =====================
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
 const CORRECT_PIN = () => String(new Date().getFullYear());
@@ -101,7 +99,6 @@ function updatePlanBadge(isAdminPro,trialDays){
     badge.textContent='Grátis';
   }
 }
-// Tag de exibição de usuário (@username) com fallbacks
 function userTag(uid){
   if(!uid) return null;
   if(uid===currentUser.id) return myProfile?.username?`@${myProfile.username}`:null;
@@ -142,7 +139,6 @@ document.getElementById('auth-form').addEventListener('submit',async e=>{
         myProfile={id:currentUser.id,username,email};
       }catch(pErr){
         if(/já está em uso/.test(pErr.message)){ button.disabled=false; error.textContent=pErr.message; return; }
-        // se a tabela profiles ainda não existir, segue sem bloquear
       }
     }
     enterApp();
@@ -151,10 +147,8 @@ document.getElementById('auth-form').addEventListener('submit',async e=>{
   finally{ button.disabled=false; }
 });
 
-// ===================== HAPTIC =====================
 function vib(ms=8){ if(navigator.vibrate) navigator.vibrate(ms); }
 
-// ===================== PIN =====================
 let pinValue = '';
 document.getElementById('pin-grid').addEventListener('pointerdown', e => {
   const key = e.target.closest('.pin-key');
@@ -200,7 +194,6 @@ function checkPin(){
   }
 }
 
-// ===================== API =====================
 async function sbFetch(path, opts={}){
   if(!await ensureValidSession()) throw new Error('Sessão expirada');
   const request=()=>fetch(`${SUPABASE_URL}/rest/v1/${path}`,{
@@ -267,7 +260,6 @@ const api={
   listAdminGrants:()=>sbFetch('admin_grants?order=id.desc'),
 };
 
-// ===================== STATE =====================
 let categories=[], months=[], currentMonthKey='', viewMonthKey='', expenses=[], currentTab='home', currentCatIdx=0;
 let subscription=null, userPlan='free';
 let splitGroups=[], pendingShares=[], acceptedShares=[], sharedOutMap={}, pendingSplitInvites=[], acceptedGroupIds=new Set();
@@ -315,7 +307,6 @@ function hasOverride(cat, monthKey){
 
 let expenseNames=[], acResults=[];
 
-// ===================== CACHE LOCAL =====================
 function saveCache(){
   try{ localStorage.setItem(`${CACHE_PREFIX}:${currentUser.id}`, JSON.stringify({categories,months,expenses,currentMonthKey,expenseNames,ts:Date.now()})); }catch{}
 }
@@ -374,7 +365,6 @@ async function saveUsername(){
   }catch(e){showToast('Erro ao salvar: '+String(e?.message||'').slice(0,50),'error');btn.disabled=false;btn.textContent='Salvar';}
 }
 
-// ===================== ADMIN PANEL =====================
 function openAdminPanel(){
   if(currentUser?.email!=='2rafab@gmail.com') return;
   openModal(`<div class="modal-title"><i class="fa-solid fa-shield-halved" style="color:var(--accent)" aria-hidden="true"></i> Painel Admin</div>
@@ -459,7 +449,6 @@ function loadCache(){
   }catch{ return false; }
 }
 
-// ===================== INIT =====================
 async function init(){
   const hadCache = loadCache();
   if(hadCache){
@@ -479,7 +468,6 @@ async function init(){
     if(prof) myProfile=prof;
     acceptedShares=accShares||[];
     sharedOutMap=Object.fromEntries((myShares||[]).filter(s=>s.shared_with_user_id).map(s=>[s.shared_with_user_id,s.shared_with_email]));
-    // Resolve usernames de quem participa de compartilhamentos
     const relatedIds=[...new Set([...(myShares||[]).map(s=>s.shared_with_user_id),...(accShares||[]).map(s=>s.shared_by_user_id)].filter(id=>id&&id!==currentUser.id))];
     api.getProfilesByIds(relatedIds).then(rows=>{(rows||[]).forEach(p=>{profilesById[p.id]=p;});render();}).catch(()=>{});
     const [splitInvites, splitMemberships] = await Promise.all([api.getPendingSplitInvites().catch(()=>[]), api.getAcceptedSplitMemberships().catch(()=>[])]);
@@ -518,14 +506,12 @@ async function init(){
   }
 }
 
-// ===================== BADGES =====================
 function badgeHtml(diff){
   if(Math.abs(diff)<0.005) return `<span class="badge ok"><i class="fa-solid fa-check"></i> Na meta</span>`;
   if(diff>0) return `<span class="badge saved">▼ Economizou ${brl(diff)}</span>`;
   return `<span class="badge over">▲ Estourou ${brl(Math.abs(diff))}</span>`;
 }
 
-// ===================== COMPARTILHAR CATEGORIA (imagem) =====================
 const canvasBlob=canvas=>new Promise(resolve=>canvas.toBlob(resolve,'image/png',.95));
 async function shareCategory(catId){
   const cat=categories.find(c=>c.id===catId); if(!cat) return;
@@ -548,7 +534,6 @@ async function shareCategory(catId){
   const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=file.name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);showToast('Imagem salva!','success');
 }
 
-// ===================== RECORRENTES =====================
 async function autoCreateRecurring(){
   try{
     const prevKey=prevMonthKey(currentMonthKey);
@@ -566,7 +551,6 @@ async function autoCreateRecurring(){
   }catch{}
 }
 
-// ===================== COMPARTILHAMENTO ENTRE USUÁRIOS =====================
 function openShareCategory(catId){
   const cat=categories.find(c=>c.id===catId);if(!cat)return;
   openModal(`<div class="modal-title">Compartilhar ${escapeHtml(cat.name)}</div>
@@ -635,7 +619,6 @@ async function respondToShare(shareId,accept){
     await api.updateCategoryShare(shareId,{status:accept?'accepted':'declined',shared_with_user_id:accept?currentUser.id:null});
     pendingShares=pendingShares.filter(s=>s.id!==shareId);
     if(accept){
-      // recarrega tudo que torna a categoria utilizável imediatamente — sem precisar de refresh
       const [cats, accShares] = await Promise.all([api.getCategories(), api.getAcceptedShares().catch(()=>acceptedShares)]);
       categories=cats; acceptedShares=accShares||[];
       expenses=await api.getExpenses(viewMonthKey);
@@ -680,7 +663,6 @@ async function loadPendingShares(){
   }catch{}
 }
 
-// ===================== RENDER =====================
 function render(){
   document.getElementById('current-month-label').textContent=monthLabel(viewMonthKey);
   const isNow=viewMonthKey===currentMonthKey;
@@ -692,7 +674,6 @@ function render(){
   else renderSplit(el);
 }
 
-// ===== HOME (carousel) =====
 function renderHome(el){
   const isNow=viewMonthKey===currentMonthKey;
   const mdata=months.find(m=>m.key===viewMonthKey);
@@ -854,7 +835,6 @@ function setupSwipe(){
   });
 }
 
-// ===== CATEGORIAS (drag & drop) =====
 function renderCategorias(el){
   if(categories.length===0){
     el.innerHTML=`<div class="cat-list"><div class="empty"><div class="empty-icon"><i class="fa-regular fa-folder-open"></i></div><div class="empty-text">Nenhuma categoria ainda.</div></div></div>`;
@@ -944,7 +924,6 @@ async function reorderCats(srcId, targetId){
   renderCategorias(document.getElementById('content'));
 }
 
-// ===== HISTORICO =====
 function renderHistorico(el){
   if(!isPro()){
     const current=expenses.reduce((s,e)=>s+parseFloat(e.value),0);
@@ -1049,7 +1028,6 @@ async function renderHistoricoAsync(el){
   el.innerHTML=`<div style="padding:16px 20px calc(72px + var(--safe-bot))">${html||'<div class="empty"><div class="empty-icon"><i class="fa-regular fa-calendar-xmark"></i></div><div class="empty-text">Nenhum gasto registrado ainda.</div></div>'}</div>`;
 }
 
-// ===================== DIVISÃO DE GASTOS =====================
 async function renderSplit(el){
   el.innerHTML=`<div class="split-wrap"><div class="loading"><div class="spinner"></div>Carregando divisões...</div></div>`;
   try{splitGroups=await api.getSplitGroups();}
@@ -1106,28 +1084,22 @@ async function openSplitGroup(groupId){
     const acceptedMembers=members.filter(m=>m.status==='accepted');
     const pendingMembers=members.filter(m=>m.status==='pending');
 
-    // ── Saldo líquido por membro ──────────────────────────────────
-    // gross > 0 = a receber; < 0 = a pagar
     const gross={};
     acceptedMembers.forEach(m=>{gross[m.id]=0;});
-    // Despesas: payer recebe crédito, devedores ficam no débito
     for(const shr of shares.filter(s=>!s.is_settled)){
       const exp=exps.find(e=>e.id===shr.expense_id); if(!exp) continue;
       const payer=members.find(m=>m.user_id===exp.paid_by_user_id); if(!payer||payer.id===shr.member_id) continue;
       if(gross[payer.id]!==undefined) gross[payer.id]+=shr.amount;
       if(gross[shr.member_id]!==undefined) gross[shr.member_id]-=shr.amount;
     }
-    // Pagamentos: quem pagou melhora saldo, quem recebeu diminui crédito
     for(const pmt of (payments||[])){
       if(gross[pmt.from_member_id]!==undefined) gross[pmt.from_member_id]+=pmt.amount;
       if(gross[pmt.to_member_id]!==undefined) gross[pmt.to_member_id]-=pmt.amount;
     }
     acceptedMembers.forEach(m=>{gross[m.id]=Math.round((gross[m.id]||0)*100)/100;});
 
-    // Guarda estado para o modal de pagamento
     window._splitState={groupId,members:acceptedMembers,gross};
 
-    // Helper: nome de exibição — "Você" para o próprio usuário, independente do display_name salvo
     const mName=m=>{
       if(!m) return '?';
       if(m.user_id===currentUser.id||m.id===myMember?.id) return 'Você';
@@ -1136,7 +1108,6 @@ async function openSplitGroup(groupId){
 
     const allQuite=acceptedMembers.every(m=>Math.abs(gross[m.id]||0)<0.005);
 
-    // ── HTML ──────────────────────────────────────────────────────
     let html=`<div class="modal-head-row">
       <div class="modal-title">${escapeHtml(group.name)}</div>
       ${isCreator?`<div class="modal-head-actions">
@@ -1145,13 +1116,11 @@ async function openSplitGroup(groupId){
       </div>`:''}
     </div>`;
 
-    // Chips de membros
     html+=`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px">
       ${acceptedMembers.map(m=>`<span style="font-size:11px;background:var(--surface2);border-radius:100px;padding:3px 10px;color:var(--text2)">${escapeHtml(mName(m))}</span>`).join('')}
       ${pendingMembers.map(m=>`<span style="font-size:11px;background:var(--surface2);border-radius:100px;padding:3px 10px;color:var(--text3)">⏳ ${escapeHtml(m.email.split('@')[0])}</span>`).join('')}
     </div>`;
 
-    // ── Saldo atual ───────────────────────────────────────────────
     html+=`<div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px">Saldo atual</div>`;
     if(exps.length===0){
       html+=`<div style="text-align:center;padding:18px;background:var(--surface2);border-radius:14px;color:var(--text3);font-size:13px;margin-bottom:16px">Nenhuma despesa ainda. Adicione a primeira.</div>`;
@@ -1174,17 +1143,14 @@ async function openSplitGroup(groupId){
       </div>`;
     }
 
-    // ── Botões de ação ────────────────────────────────────────────
     if(canAdd) html+=`<button class="btn-primary" onclick="openAddSplitExpense('${groupId}')" style="margin-bottom:8px">Adicionar despesa</button>`;
     if(isParticipant){
-      // default from = maior devedor; se não há devedor, usa o membro atual
       const biggestDebtor=acceptedMembers.filter(m=>(gross[m.id]||0)<-0.005).sort((a,b)=>(gross[a.id]||0)-(gross[b.id]||0))[0];
       const defaultFrom=(biggestDebtor||myMember||acceptedMembers[0])?.id||'';
       html+=`<button class="btn-secondary" onclick="openRegisterPayment('${defaultFrom}')" style="margin-bottom:8px">Adicionar pagamento</button>`;
     }
     if(isCreator) html+=`<button class="btn-secondary" onclick="openAddSplitMember('${groupId}')" style="margin-bottom:14px">Convidar membro</button>`;
 
-    // ── Lançamentos (colapsável) ──────────────────────────────────
     if(exps.length>0){
       html+=`<details style="margin-bottom:10px"><summary style="cursor:pointer;list-style:none;display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:var(--surface2);border-radius:12px">
         <span style="font-size:13px;font-weight:600">Lançamentos</span>
@@ -1203,7 +1169,6 @@ async function openSplitGroup(groupId){
       </div></details>`;
     }
 
-    // ── Pagamentos registrados (colapsável) ───────────────────────
     const pmts=payments||[];
     html+=`<details style="margin-bottom:14px"${pmts.length?'':' style="margin-bottom:14px"'}><summary style="cursor:pointer;list-style:none;display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:var(--surface2);border-radius:12px">
       <span style="font-size:13px;font-weight:600">Pagamentos registrados</span>
@@ -1271,7 +1236,6 @@ function openRegisterPayment(fromMemberId){
   const state=window._splitState;
   if(!state){showToast('Reabra o grupo e tente novamente.','error');return;}
   const {groupId,members,gross}=state;
-  // Default "to": biggest creditor
   const creditors=members.filter(m=>m.id!==fromMemberId&&(gross[m.id]||0)>0.005).sort((a,b)=>(gross[b.id]||0)-(gross[a.id]||0));
   const defaultTo=creditors.length?creditors[0].id:'';
   const debtAmount=Math.abs(gross[fromMemberId]||0);
@@ -1303,7 +1267,6 @@ function updatePaymentToOpts(){
   if(!toSel) return;
   toSel.innerHTML=`<option value="">Selecione...</option>`+
     state.members.filter(m=>m.id!==fromId).map(m=>`<option value="${m.id}">${escapeHtml(m.display_name||m.email.split('@')[0])}</option>`).join('');
-  // update amount suggestion
   const amtInput=document.getElementById('f-pmt-amount');
   if(amtInput&&!amtInput.value){
     const debtAmount=Math.abs(state.gross[fromId]||0);
@@ -1396,7 +1359,6 @@ async function confirmDeleteSplitGroup(groupId){
   }catch(e){showToast('Erro ao excluir grupo: '+String(e?.message||'').slice(0,50),'error');}
 }
 
-// ===================== MODAIS =====================
 function openModal(html){ document.getElementById('modal-content').innerHTML=html; document.getElementById('modal-overlay').classList.add('open'); }
 function _closeModal(){ document.getElementById('modal-overlay').classList.remove('open'); }
 function closeModalOverlay(e){ if(e.target===document.getElementById('modal-overlay')) _closeModal(); }
@@ -1599,7 +1561,6 @@ async function switchTab(tab){
   render();
 }
 
-// ===================== AUTOCOMPLETE =====================
 function acFilter(q){
   const list=document.getElementById('ac-list'); if(!list) return;
   q=(q||'').trim().toLowerCase();
@@ -1624,7 +1585,6 @@ function acPick(i){
 function acClose(){ const l=document.getElementById('ac-list'); if(l){ l.innerHTML=''; l.classList.remove('open'); } }
 function acBlur(){ setTimeout(acClose,150); }
 
-// ===================== CONSOLIDADO DO MÊS =====================
 async function openConsolidado(){
   if(!isPro()){ openPaywall('Consolidado completo e comparativos'); return; }
   const k0=viewMonthKey, k1=prevMonthKey(k0), k2=prevMonthKey(k1);
@@ -1678,7 +1638,6 @@ async function openConsolidado(){
   document.getElementById('modal-content').innerHTML=html;
 }
 
-// ===================== ORÇAMENTO DO MÊS (override) =====================
 function openMonthOverride(catId){
   const cat=categories.find(c=>c.id===catId); if(!cat) return;
   const eff=effBudget(cat,currentMonthKey);
@@ -1731,7 +1690,6 @@ function showToast(msg,type=''){
   setTimeout(()=>t.classList.remove('show'),2500);
 }
 
-// ===================== TUTORIAL =====================
 const TUTORIAL_KEY = 'gc-tutorial-v1';
 const TUTORIAL_STEPS = [
   {

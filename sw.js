@@ -1,4 +1,4 @@
-const CACHE = 'gastocerto-v3.3-fixed-nav';
+﻿const CACHE = 'gastocerto-v3.3-fixed-nav';
 const SHELL = ['./', './index.html', './style.css', './app.js', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -14,9 +14,7 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
-  // Supabase e qualquer cross-origin: sempre rede (dados frescos)
   if (url.origin !== location.origin) return;
-  // Shell: cache primeiro, atualiza em background (stale-while-revalidate)
   e.respondWith(
     caches.match(e.request).then(cached => {
       const fresh = fetch(e.request).then(res => {

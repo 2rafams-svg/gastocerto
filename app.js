@@ -5,8 +5,14 @@ function toggleTheme(){
   const next=isLight?'dark':'light';
   document.documentElement.setAttribute('data-theme',next);
   localStorage.setItem('gc-theme',next);
-  const btn=document.getElementById('btn-theme-toggle');
-  if(btn) btn.textContent=next==='light'?'🌙 Tema escuro':'☀️ Tema claro';
+  vib(6);
+}
+function syncThemeRow(){
+  const isLight=document.documentElement.getAttribute('data-theme')==='light';
+  const icon=document.getElementById('theme-icon');
+  const label=icon?.parentElement;
+  if(icon){icon.className=`fa-solid ${isLight?'fa-sun':'fa-moon'}`;}
+  if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
 // ===================== CONFIG =====================
@@ -27,6 +33,7 @@ function setAuthMode(mode){
   document.getElementById('auth-login-tab').classList.toggle('active',!signup);
   document.getElementById('auth-signup-tab').classList.toggle('active',signup);
   document.getElementById('auth-name-field').hidden=!signup;
+  document.getElementById('auth-username-field').hidden=!signup;
   document.getElementById('auth-password').autocomplete=signup?'new-password':'current-password';
   document.getElementById('auth-submit').textContent=signup?'Começar 14 dias grátis':'Entrar';
   document.getElementById('auth-copy').textContent=signup?'Crie sua conta e use todos os recursos Pro por 14 dias.':'Entre para acessar seus gastos com segurança.';
@@ -81,8 +88,27 @@ async function bootstrapAuth(){
 function enterApp(){
   document.getElementById('auth-screen').style.display='none';
   document.getElementById('app').style.display='flex';
-  document.getElementById('account-btn').textContent=currentUser?.email?.split('@')[0]||'Conta';
   init();
+}
+function updatePlanBadge(isAdminPro,trialDays){
+  const badge=document.getElementById('plan-badge');
+  if(!badge) return;
+  if(isPro()){
+    badge.classList.remove('free');
+    badge.innerHTML=`<i class="fa-solid fa-crown" aria-hidden="true"></i> ${isAdminPro?'Pro':(trialDays?`Pro · ${trialDays}d`:'Pro')}`;
+  }else{
+    badge.classList.add('free');
+    badge.textContent='Grátis';
+  }
+}
+// Tag de exibição de usuário (@username) com fallbacks
+function userTag(uid){
+  if(!uid) return null;
+  if(uid===currentUser.id) return myProfile?.username?`@${myProfile.username}`:null;
+  const p=profilesById[uid];
+  if(p?.username) return `@${p.username}`;
+  const email=sharedOutMap[uid];
+  return email?email.split('@')[0]:null;
 }
 async function logout(){
   const token=session?.access_token;
@@ -96,13 +122,30 @@ document.getElementById('auth-form').addEventListener('submit',async e=>{
   e.preventDefault();
   const button=document.getElementById('auth-submit'), error=document.getElementById('auth-error');
   const email=document.getElementById('auth-email').value.trim(), password=document.getElementById('auth-password').value;
+  const username=(document.getElementById('auth-username').value||'').trim().toLowerCase();
   button.disabled=true; error.textContent='';
   try{
+    if(authMode==='signup'){
+      if(username.length<3) throw new Error('O nome de usuário precisa ter ao menos 3 caracteres.');
+      if(!/^[a-z0-9_]+$/.test(username)) throw new Error('Use apenas letras minúsculas, números e _ no nome de usuário.');
+    }
     const data=authMode==='signup'
-      ?await authRequest('signup',{email,password,data:{display_name:document.getElementById('auth-name').value.trim()}})
+      ?await authRequest('signup',{email,password,data:{display_name:document.getElementById('auth-name').value.trim(),username}})
       :await authRequest('token?grant_type=password',{email,password});
     if(!data.access_token) throw new Error('Confira seu e-mail para confirmar a conta antes de entrar.');
-    persistSession(data); enterApp();
+    persistSession(data);
+    if(authMode==='signup'){
+      try{
+        const taken=await api.checkUsername(username);
+        if(taken){ persistSession(null); throw new Error('Este nome de usuário já está em uso. Escolha outro.'); }
+        await api.insertProfile(username);
+        myProfile={id:currentUser.id,username,email};
+      }catch(pErr){
+        if(/já está em uso/.test(pErr.message)){ button.disabled=false; error.textContent=pErr.message; return; }
+        // se a tabela profiles ainda não existir, segue sem bloquear
+      }
+    }
+    enterApp();
     if(authMode==='signup') setTimeout(()=>{ showWelcomeTrial(); localStorage.removeItem(TUTORIAL_KEY); },300);
   }catch(err){ error.textContent=authMessage(err.message); }
   finally{ button.disabled=false; }
@@ -191,6 +234,8 @@ const api={
   setMonthBudgets:(key,budgets)=>sbFetch(`months?key=eq.${key}`,{method:'PATCH',body:JSON.stringify({budgets})}),
   getSplitGroups:()=>sbFetch('split_groups?order=id.desc'),
   insertSplitGroup:(name)=>sbFetch('split_groups',{method:'POST',body:JSON.stringify({name,created_by:currentUser.id})}),
+  updateSplitGroup:(id,name)=>sbFetch(`split_groups?id=eq.${id}`,{method:'PATCH',body:JSON.stringify({name})}),
+  deleteSplitGroup:(id)=>sbFetch(`split_groups?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
   getSplitMembers:(groupId)=>sbFetch(`split_members?group_id=eq.${groupId}`),
   insertSplitMembers:(rows)=>sbFetch('split_members',{method:'POST',body:JSON.stringify(rows)}),
   updateSplitMember:(id,data)=>sbFetch(`split_members?id=eq.${id}`,{method:'PATCH',body:JSON.stringify(data)}),
@@ -212,6 +257,10 @@ const api={
   deleteCategoryShare:(id)=>sbFetch(`category_shares?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
   getAcceptedShares:()=>sbFetch(`category_shares?shared_with_email=ilike.${encodeURIComponent(currentUser.email)}&status=eq.accepted`),
   getMyShares:()=>sbFetch(`category_shares?shared_by_user_id=eq.${currentUser.id}&status=eq.accepted`),
+  getMyProfile:()=>sbFetch(`profiles?id=eq.${currentUser.id}&limit=1`).then(r=>r?.[0]||null),
+  checkUsername:(u)=>sbFetch(`profiles?username=ilike.${encodeURIComponent(u)}&select=id&limit=1`).then(r=>r?.[0]||null),
+  insertProfile:(username)=>sbFetch('profiles',{method:'POST',body:JSON.stringify({id:currentUser.id,username:username.toLowerCase(),email:currentUser.email})}),
+  getProfilesByIds:(ids)=>ids.length?sbFetch(`profiles?id=in.(${ids.join(',')})&select=id,username`):Promise.resolve([]),
   getAdminGrant:()=>sbFetch(`admin_grants?email=ilike.${encodeURIComponent(currentUser.email)}&limit=1`),
   insertAdminGrant:(email,plan)=>sbFetch('admin_grants',{method:'POST',body:JSON.stringify({email:email.toLowerCase(),plan,granted_by:currentUser.id})}),
   deleteAdminGrant:(id)=>sbFetch(`admin_grants?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
@@ -222,6 +271,7 @@ const api={
 let categories=[], months=[], currentMonthKey='', viewMonthKey='', expenses=[], currentTab='home', currentCatIdx=0;
 let subscription=null, userPlan='free';
 let splitGroups=[], pendingShares=[], acceptedShares=[], sharedOutMap={}, pendingSplitInvites=[], acceptedGroupIds=new Set();
+let myProfile=null, profilesById={};
 function resolveUserPlan(sub, now=new Date()){
   if(!sub) return 'free';
   if(sub.billing_cycle==='lifetime') return 'pro';
@@ -279,15 +329,49 @@ function showWelcomeTrial(){
 
 function openAccountModal(){
   const email=escapeHtml(currentUser?.email||'');
+  const uname=myProfile?.username?`@${escapeHtml(myProfile.username)}`:'';
   const isAdmin=currentUser?.email==='2rafab@gmail.com';
   const isLight=document.documentElement.getAttribute('data-theme')==='light';
   openModal(`<div class="modal-title">Sua conta</div>
-    <p class="modal-note">Conectado como <strong>${email}</strong><br>Plano: <strong>${isPro()?'Pro':'Gratuito'}</strong></p>
-    <button class="btn-primary" onclick="openPaywall('Planos e assinatura')">Ver planos</button>
-    <button class="btn-secondary" id="btn-theme-toggle" onclick="toggleTheme()">${isLight?'🌙 Tema escuro':'☀️ Tema claro'}</button>
+    <div style="display:flex;align-items:center;gap:12px;padding:14px;background:var(--surface2);border-radius:14px;margin-bottom:16px">
+      <div style="width:44px;height:44px;border-radius:50%;background:var(--accent-soft);border:1px solid var(--accent-line);display:flex;align-items:center;justify-content:center;color:var(--accent-text);font-weight:700;font-size:18px;flex-shrink:0">${escapeHtml((myProfile?.username||email||'?').charAt(0).toUpperCase())}</div>
+      <div style="min-width:0;flex:1">
+        ${uname?`<div style="font-weight:700;font-size:15px">${uname}</div>`:`<div style="font-weight:700;font-size:14px;color:var(--accent-text);cursor:pointer" onclick="openSetUsername()"><i class="fa-solid fa-at" aria-hidden="true"></i> Definir nome de usuário</div>`}
+        <div style="font-size:12px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${email}</div>
+        <div style="font-size:11px;color:var(--accent-text);font-weight:600;margin-top:2px">${isPro()?'Plano Pro':'Plano Gratuito'}</div>
+      </div>
+    </div>
+    <div class="theme-row">
+      <span class="theme-row-label"><i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}</span>
+      <label class="switch"><input type="checkbox" id="theme-switch" ${isLight?'checked':''} onchange="toggleTheme();syncThemeRow()"><span class="switch-track"><span class="switch-thumb"></span></span></label>
+    </div>
+    <button class="btn-secondary" onclick="openPaywall('Planos e assinatura')"><i class="fa-solid fa-crown" aria-hidden="true"></i> Ver planos</button>
     <button class="btn-secondary" onclick="_closeModal();showTutorial(true)"><i class="fa-solid fa-circle-question" aria-hidden="true"></i> Ver tutorial</button>
-    ${isAdmin?`<button class="btn-secondary" style="border-color:var(--accent);color:var(--accent)" onclick="openAdminPanel()"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> Painel Admin</button>`:''}
-    <button class="btn-secondary" onclick="logout()">Sair da conta</button>`);
+    ${isAdmin?`<button class="btn-secondary" style="border-color:var(--accent-line);color:var(--accent-text)" onclick="openAdminPanel()"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> Painel Admin</button>`:''}
+    <button class="btn-secondary" onclick="logout()"><i class="fa-solid fa-right-from-bracket" aria-hidden="true"></i> Sair da conta</button>`);
+}
+
+function openSetUsername(){
+  openModal(`<div class="modal-title">Nome de usuário</div>
+    <p class="modal-note">É assim que você aparece para outras pessoas (ex.: ao compartilhar uma categoria). Único, sem espaços.</p>
+    <div class="form-group"><label class="form-label">@usuário</label>
+      <input class="form-input" id="f-set-username" maxlength="20" placeholder="ex: rafael" autocomplete="off" oninput="this.value=this.value.toLowerCase().replace(/[^a-z0-9_]/g,'')"/></div>
+    <button class="btn-primary" id="btn-set-username" onclick="saveUsername()">Salvar</button>
+    <button class="btn-secondary" onclick="openAccountModal()">Cancelar</button>`);
+}
+async function saveUsername(){
+  const u=(document.getElementById('f-set-username').value||'').trim().toLowerCase();
+  if(u.length<3){showToast('Use ao menos 3 caracteres.','error');return;}
+  if(!/^[a-z0-9_]+$/.test(u)){showToast('Apenas letras minúsculas, números e _.','error');return;}
+  const btn=document.getElementById('btn-set-username');btn.disabled=true;btn.textContent='Salvando...';
+  try{
+    const taken=await api.checkUsername(u);
+    if(taken){showToast('Nome de usuário já em uso.','error');btn.disabled=false;btn.textContent='Salvar';return;}
+    await api.insertProfile(u);
+    myProfile={id:currentUser.id,username:u,email:currentUser.email};
+    showToast('Nome de usuário definido!','success');
+    openAccountModal();
+  }catch(e){showToast('Erro ao salvar: '+String(e?.message||'').slice(0,50),'error');btn.disabled=false;btn.textContent='Salvar';}
 }
 
 // ===================== ADMIN PANEL =====================
@@ -383,22 +467,27 @@ async function init(){
     document.getElementById('current-month-label').insertAdjacentHTML('afterend','<span class="sync-dot" id="sync-dot"></span>');
   }
   try{
-    const [cats, mons, sub, adminGrants, accShares, myShares] = await Promise.all([
+    const [cats, mons, sub, adminGrants, accShares, myShares, prof] = await Promise.all([
       api.getCategories(), api.getMonths(), api.getSubscription(),
       api.getAdminGrant().catch(()=>[]),
       api.getAcceptedShares().catch(()=>[]),
       api.getMyShares().catch(()=>[]),
+      api.getMyProfile().catch(()=>null),
     ]);
     categories=cats; months=mons; subscription=sub; userPlan=resolveUserPlan(sub);
     if(adminGrants?.length>0) userPlan='pro';
+    if(prof) myProfile=prof;
     acceptedShares=accShares||[];
     sharedOutMap=Object.fromEntries((myShares||[]).filter(s=>s.shared_with_user_id).map(s=>[s.shared_with_user_id,s.shared_with_email]));
+    // Resolve usernames de quem participa de compartilhamentos
+    const relatedIds=[...new Set([...(myShares||[]).map(s=>s.shared_with_user_id),...(accShares||[]).map(s=>s.shared_by_user_id)].filter(id=>id&&id!==currentUser.id))];
+    api.getProfilesByIds(relatedIds).then(rows=>{(rows||[]).forEach(p=>{profilesById[p.id]=p;});render();}).catch(()=>{});
     const [splitInvites, splitMemberships] = await Promise.all([api.getPendingSplitInvites().catch(()=>[]), api.getAcceptedSplitMemberships().catch(()=>[])]);
     pendingSplitInvites=splitInvites||[];
     acceptedGroupIds=new Set((splitMemberships||[]).map(m=>m.group_id));
     const trialDays=sub?.subscription_status==='trialing'?Math.max(0,Math.ceil((new Date(sub.trial_ends_at)-new Date())/86400000)):0;
     const isAdminPro=adminGrants?.length>0;
-    document.getElementById('account-btn').textContent=isPro()?(isAdminPro?'Pro ★':(trialDays?`Pro · ${trialDays}d`:'Pro')):'Grátis';
+    updatePlanBadge(isAdminPro,trialDays);
     const now=monthKeyOf(new Date());
     if(!months.find(m=>m.key===now)){ await api.insertMonth({key:now,closed:false}); months=await api.getMonths(); }
     currentMonthKey=now;
@@ -546,9 +635,14 @@ async function respondToShare(shareId,accept){
     await api.updateCategoryShare(shareId,{status:accept?'accepted':'declined',shared_with_user_id:accept?currentUser.id:null});
     pendingShares=pendingShares.filter(s=>s.id!==shareId);
     if(accept){
-      categories=await api.getCategories();
+      // recarrega tudo que torna a categoria utilizável imediatamente — sem precisar de refresh
+      const [cats, accShares] = await Promise.all([api.getCategories(), api.getAcceptedShares().catch(()=>acceptedShares)]);
+      categories=cats; acceptedShares=accShares||[];
+      expenses=await api.getExpenses(viewMonthKey);
+      const ownerIds=[...new Set((accShares||[]).map(s=>s.shared_by_user_id).filter(id=>id&&id!==currentUser.id&&!profilesById[id]))];
+      if(ownerIds.length) api.getProfilesByIds(ownerIds).then(rows=>{(rows||[]).forEach(p=>{profilesById[p.id]=p;});render();}).catch(()=>{});
       saveCache();
-      showToast(`"${share?.category_name||'Categoria'}" agora visível no seu app!`,'success');
+      showToast(`"${share?.category_name||'Categoria'}" já está no seu app!`,'success');
     }else{
       showToast('Convite recusado.','');
     }
@@ -656,33 +750,37 @@ function buildSlide(cat, isNow){
       forecast=`Nesse ritmo, o saldo acaba em <strong>${end.toLocaleDateString('pt-BR',{day:'2-digit',month:'short'})}</strong>`;
     } else if(isOver) forecast=`Orçamento estourado em <strong>${brl(Math.abs(available))}</strong>`;
   }
+  const isOwned=cat.user_id===currentUser.id;
+  const sharedWith=!isOwned;
+  const perm=isOwned?'owner':sharePerm(cat.id);
+  const canEdit=isOwned||perm==='edit';
+
   const expHtml=catExps.map(e=>{
     const byOther=e.user_id&&e.user_id!==currentUser.id;
-    const byLabel=byOther?(sharedOutMap[e.user_id]?`<span style="font-size:10px;color:var(--accent);background:#c8f04a18;border-radius:100px;padding:1px 7px;margin-left:5px">por ${sharedOutMap[e.user_id].split('@')[0]}</span>`:`<span style="font-size:10px;color:var(--accent);background:#c8f04a18;border-radius:100px;padding:1px 7px;margin-left:5px">por parceiro</span>`):'';
+    const tag=byOther?userTag(e.user_id):null;
+    const byLabel=byOther?`<span style="font-size:10px;color:var(--accent-text);background:var(--accent-soft);border-radius:100px;padding:1px 7px;margin-left:5px">por ${escapeHtml(tag||'parceiro')}</span>`:'';
+    const actions=canEdit?`<div class="expense-actions">
+        <div class="exp-btn" onclick="openEditExpense('${e.id}')"><i class="fa-solid fa-pen" aria-label="Editar"></i></div>
+        <div class="exp-btn" style="border-color:var(--red-soft);color:var(--red)" onclick="confirmDeleteExpense('${e.id}')"><i class="fa-solid fa-trash" aria-label="Excluir"></i></div>
+      </div>`:'';
     return `<div class="expense-item">
     <div class="expense-left">
-      <div class="expense-name">${e.recurring?`<i class="fa-solid fa-arrows-rotate" style="font-size:10px;color:var(--accent);margin-right:5px" title="Recorrente" aria-hidden="true"></i>`:''}${escapeHtml(e.name)}${byLabel}</div>
+      <div class="expense-name">${e.recurring?`<i class="fa-solid fa-arrows-rotate" style="font-size:10px;color:var(--accent-text);margin-right:5px" title="Recorrente" aria-hidden="true"></i>`:''}${escapeHtml(e.name)}${byLabel}</div>
       <div class="expense-date">${new Date(e.date+'T12:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'})}</div>
     </div>
     <div class="expense-right">
       <div class="expense-value">${brl(e.value)}</div>
-      <div class="expense-actions">
-        <div class="exp-btn" onclick="openEditExpense('${e.id}')"><i class="fa-solid fa-pen" aria-label="Editar"></i></div>
-        <div class="exp-btn" style="border-color:#ff4f4f44;color:var(--red)" onclick="confirmDeleteExpense('${e.id}')"><i class="fa-solid fa-trash" aria-label="Excluir"></i></div>
-      </div>
+      ${actions}
     </div>
   </div>`;
   }).join('');
-
-  const isOwned=cat.user_id===currentUser.id;
-  const sharedWith=!isOwned;
 
   const overrideLink=isNow&&isOwned?`<button class="mini-link${overridden?' adjusted':''}" onclick="openMonthOverride('${cat.id}')">
     <i class="fa-solid fa-pen" aria-hidden="true"></i>
     ${overridden?`Orçamento ajustado este mês · editar`:`Ajustar orçamento só deste mês`}
   </button>`:'';
 
-  const sharedBadge=sharedWith?`<div style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--accent);background:#c8f04a18;border:1px solid #c8f04a44;border-radius:100px;padding:3px 10px;margin-bottom:10px"><i class="fa-solid fa-share-nodes" aria-hidden="true"></i> Compartilhada com você</div>`:'';
+  const sharedBadge=sharedWith?`<div style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--accent-text);background:var(--accent-soft);border:1px solid var(--accent-line);border-radius:100px;padding:3px 10px;margin-bottom:10px"><i class="fa-solid ${perm==='edit'?'fa-pen-to-square':'fa-eye'}" aria-hidden="true"></i> ${perm==='edit'?'Compartilhada · pode editar':'Compartilhada · somente leitura'}</div>`:'';
 
   return `<div class="cat-slide">
     <div class="cat-card ${isOver?'over-budget':isWarn?'warning':''}">
@@ -696,10 +794,10 @@ function buildSlide(cat, isNow){
       ${forecast?`<div class="forecast">${forecast}</div>`:''}
       ${overrideLink}
       ${expHtml}
-      <button class="add-expense-btn" onclick="openAddExpense('${cat.id}')">
+      ${canEdit?`<button class="add-expense-btn" onclick="openAddExpense('${cat.id}')">
         <i class="fa-solid fa-plus" aria-hidden="true"></i>
         Adicionar gasto
-      </button>
+      </button>`:''}
       ${isOwned?`<button class="share-user-btn" onclick="openShareCategory('${cat.id}')">
         <i class="fa-solid fa-user-plus" aria-hidden="true"></i>
         Compartilhar categoria
@@ -711,6 +809,8 @@ function buildSlide(cat, isNow){
     </div>
   </div>`;
 }
+
+function sharePerm(catId){ const s=acceptedShares.find(x=>x.category_id===catId); return s?.permission||'view'; }
 
 function closeMonthBtnHtml(){
   return `<button class="close-month-btn" onclick="openCloseMonth()">
@@ -759,18 +859,21 @@ function renderCategorias(el){
     return;
   }
   el.innerHTML=`<div class="cat-list" id="cat-list">
-    ${categories.map(cat=>`
-    <div class="cat-manage-item" draggable="true" data-id="${cat.id}" id="cmi-${cat.id}">
-      <div class="drag-handle" title="Arrastar">⠿</div>
+    ${categories.map(cat=>{
+      const owned=cat.user_id===currentUser.id;
+      const perm=owned?'owner':sharePerm(cat.id);
+      return `
+    <div class="cat-manage-item" ${owned?'draggable="true"':''} data-id="${cat.id}" id="cmi-${cat.id}">
+      ${owned?'<div class="drag-handle" title="Arrastar">⠿</div>':'<div class="drag-handle" style="opacity:.25;cursor:default" title="Compartilhada">⠿</div>'}
       <div class="cat-manage-info">
-        <div class="cat-manage-name">${cat.name}</div>
+        <div class="cat-manage-name">${escapeHtml(cat.name)}${!owned?`<span style="font-size:10px;color:var(--accent-text);background:var(--accent-soft);border-radius:100px;padding:1px 7px;margin-left:6px;font-weight:600">${perm==='edit'?'editar':'leitura'}</span>`:''}</div>
         <div class="cat-manage-budget">${brl(cat.budget)}/mês</div>
       </div>
       <div style="display:flex;gap:8px">
-        <div class="icon-btn" onclick="openEditCategory('${cat.id}')"><i class="fa-solid fa-pen" aria-label="Editar"></i></div>
-        <div class="icon-btn" style="border-color:#ff4f4f44;color:var(--red)" onclick="confirmDeleteCategory('${cat.id}')"><i class="fa-solid fa-trash" aria-label="Excluir"></i></div>
+        ${owned?`<div class="icon-btn" onclick="openEditCategory('${cat.id}')"><i class="fa-solid fa-pen" aria-label="Editar"></i></div>`:''}
+        <div class="icon-btn" style="border-color:var(--red-soft);color:var(--red)" onclick="confirmDeleteCategory('${cat.id}')"><i class="fa-solid ${owned?'fa-trash':'fa-link-slash'}" aria-label="${owned?'Excluir':'Remover acesso'}"></i></div>
       </div>
-    </div>`).join('')}
+    </div>`;}).join('')}
   </div>`;
   setupDragDrop();
 }
@@ -955,8 +1058,8 @@ async function renderSplit(el){
   const visibleGroups=splitGroups.filter(g=>g.created_by===currentUser.id||acceptedGroupIds.has(g.id));
   const create=isPro()?`<button class="btn-primary" onclick="openCreateSplitGroup()" style="margin-bottom:14px">Novo grupo</button>`:`${lockedCard('Criar divisões de gastos','Usuários do plano gratuito podem consultar convites, mas a criação é Pro.')}`;
   const pendingCount=pendingSplitInvites.length;
-  const pendingBadge=pendingCount>0?`<div style="background:#c8f04a18;border:1px solid #c8f04a44;border-radius:10px;padding:12px 14px;margin-bottom:12px;font-size:13px;color:var(--accent)"><i class="fa-solid fa-bell" style="margin-right:8px" aria-hidden="true"></i>Você tem <strong>${pendingCount}</strong> convite${pendingCount>1?'s':''} pendente${pendingCount>1?'s':''} — veja na aba <strong>Início</strong></div>`:'';
-  el.innerHTML=`<div class="split-wrap">${create}${pendingBadge}${visibleGroups.map(g=>`<div class="split-group" onclick="openSplitGroup('${g.id}')"><div class="split-group-title">${escapeHtml(g.name)}</div><div class="split-group-meta">${g.created_by===currentUser.id?'Criado por você':'Você foi convidado'} · ver detalhes ›</div></div>`).join('')||'<div class="empty"><div class="empty-icon"><i class="fa-solid fa-user-group"></i></div><div class="empty-text">Nenhuma divisão ainda.</div></div>'}</div>`;
+  const pendingBadge=pendingCount>0?`<div style="background:var(--accent-soft);border:1px solid var(--accent-line);border-radius:12px;padding:12px 14px;margin-bottom:12px;font-size:13px;color:var(--accent-text)"><i class="fa-solid fa-bell" style="margin-right:8px" aria-hidden="true"></i>Você tem <strong>${pendingCount}</strong> convite${pendingCount>1?'s':''} pendente${pendingCount>1?'s':''} — veja na aba <strong>Início</strong></div>`:'';
+  el.innerHTML=`<div class="split-wrap">${create}${pendingBadge}${visibleGroups.map(g=>`<div class="split-group" onclick="openSplitGroup('${g.id}')"><div class="split-group-main"><div class="split-group-title">${escapeHtml(g.name)}</div><div class="split-group-meta">${g.created_by===currentUser.id?'Criado por você':'Você foi convidado'}</div></div><i class="fa-solid fa-chevron-right split-group-chev" aria-hidden="true"></i></div>`).join('')||'<div class="empty"><div class="empty-icon"><i class="fa-solid fa-user-group"></i></div><div class="empty-text">Nenhuma divisão ainda.</div></div>'}</div>`;
 }
 function openCreateSplitGroup(){
   if(!isPro()){openPaywall('Criar divisões de gastos');return;}
@@ -1031,7 +1134,13 @@ async function openSplitGroup(groupId){
     const allQuite=acceptedMembers.every(m=>Math.abs(gross[m.id]||0)<0.005);
 
     // ── HTML ──────────────────────────────────────────────────────
-    let html=`<div class="modal-title">${escapeHtml(group.name)}</div>`;
+    let html=`<div class="modal-head-row">
+      <div class="modal-title">${escapeHtml(group.name)}</div>
+      ${isCreator?`<div class="modal-head-actions">
+        <div class="modal-icon-btn" onclick="openEditSplitGroup('${groupId}')" title="Renomear"><i class="fa-solid fa-pen" aria-hidden="true"></i></div>
+        <div class="modal-icon-btn danger" onclick="confirmDeleteSplitGroup('${groupId}')" title="Excluir grupo"><i class="fa-solid fa-trash" aria-hidden="true"></i></div>
+      </div>`:''}
+    </div>`;
 
     // Chips de membros
     html+=`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px">
@@ -1253,6 +1362,37 @@ async function saveAddSplitMember(groupId){
   }
 }
 
+function openEditSplitGroup(groupId){
+  const group=splitGroups.find(g=>g.id===groupId);if(!group)return;
+  openModal(`<div class="modal-title">Renomear grupo</div>
+    <div class="form-group"><label class="form-label">Nome do grupo</label>
+      <input class="form-input" id="f-edit-split-name" maxlength="100" value="${escapeHtml(group.name)}"/></div>
+    <button class="btn-primary" id="btn-edit-split" onclick="saveEditSplitGroup('${groupId}')">Salvar</button>
+    <button class="btn-secondary" onclick="openSplitGroup('${groupId}')">Cancelar</button>`);
+}
+async function saveEditSplitGroup(groupId){
+  const name=(document.getElementById('f-edit-split-name').value||'').trim();
+  if(!name){showToast('Informe um nome.','error');return;}
+  const btn=document.getElementById('btn-edit-split');btn.disabled=true;btn.textContent='Salvando...';
+  try{
+    await api.updateSplitGroup(groupId,name);
+    const g=splitGroups.find(x=>x.id===groupId); if(g) g.name=name;
+    showToast('Grupo renomeado!','success');
+    openSplitGroup(groupId);
+  }catch(e){showToast('Erro: '+String(e?.message||'').slice(0,60),'error');btn.disabled=false;btn.textContent='Salvar';}
+}
+async function confirmDeleteSplitGroup(groupId){
+  const group=splitGroups.find(g=>g.id===groupId);
+  if(!confirm(`Excluir o grupo "${group?.name||''}"? Todas as despesas, membros e pagamentos serão removidos. Esta ação não pode ser desfeita.`)) return;
+  try{
+    await api.deleteSplitGroup(groupId);
+    splitGroups=splitGroups.filter(g=>g.id!==groupId);
+    _closeModal();
+    showToast('Grupo excluído.','success');
+    renderSplit(document.getElementById('content'));
+  }catch(e){showToast('Erro ao excluir grupo: '+String(e?.message||'').slice(0,50),'error');}
+}
+
 // ===================== MODAIS =====================
 function openModal(html){ document.getElementById('modal-content').innerHTML=html; document.getElementById('modal-overlay').classList.add('open'); }
 function _closeModal(){ document.getElementById('modal-overlay').classList.remove('open'); }
@@ -1267,7 +1407,7 @@ function openAddExpense(catId){
   const today=new Date().toISOString().split('T')[0];
   openModal(`<div class="modal-title">Novo Gasto</div>
     <div class="form-group"><label class="form-label">Categoria</label>
-      <select class="form-input" id="f-catId">${categories.map(c=>`<option value="${c.id}"${c.id===catId?' selected':''}>${c.name}</option>`).join('')}</select></div>
+      <select class="form-input" id="f-catId">${categories.filter(c=>c.user_id===currentUser.id||sharePerm(c.id)==='edit').map(c=>`<option value="${c.id}"${c.id===catId?' selected':''}>${escapeHtml(c.name)}</option>`).join('')}</select></div>
     <div class="form-group"><label class="form-label">Descrição</label>
       <div class="ac-wrap">
         <input class="form-input" id="f-name" placeholder="Ex: Gasolina Shell" autocomplete="off" oninput="acFilter(this.value)" onfocus="acFilter(this.value)" onblur="acBlur()"/>
@@ -1289,7 +1429,7 @@ function openEditExpense(expId){
   const e=expenses.find(x=>x.id===expId); if(!e) return;
   openModal(`<div class="modal-title">Editar Gasto</div>
     <div class="form-group"><label class="form-label">Categoria</label>
-      <select class="form-input" id="f-catId">${categories.map(c=>`<option value="${c.id}"${c.id===e.cat_id?' selected':''}>${c.name}</option>`).join('')}</select></div>
+      <select class="form-input" id="f-catId">${categories.filter(c=>c.user_id===currentUser.id||sharePerm(c.id)==='edit').map(c=>`<option value="${c.id}"${c.id===e.cat_id?' selected':''}>${escapeHtml(c.name)}</option>`).join('')}</select></div>
     <div class="form-group"><label class="form-label">Descrição</label>
       <div class="ac-wrap">
         <input class="form-input" id="f-name" value="${escapeHtml(e.name)}" autocomplete="off" oninput="acFilter(this.value)" onfocus="acFilter(this.value)" onblur="acBlur()"/>

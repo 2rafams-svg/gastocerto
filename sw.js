@@ -1,4 +1,4 @@
-const CACHE = 'gastocerto-v2.4-light-theme';
+const CACHE = 'gastocerto-v2.5-username-ui';
 const SHELL = ['./', './index.html', './style.css', './app.js', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {

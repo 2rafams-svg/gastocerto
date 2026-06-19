@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png"/>
 <link rel="icon" type="image/png" href="icon-192.png"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
-<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css"/>
 <link rel="stylesheet" href="style.css"/>
 </head>
@@ -63,6 +63,7 @@
     </div>
     <form id="auth-form">
       <label class="auth-field" id="auth-name-field" hidden><span class="auth-label">Nome (opcional)</span><input class="auth-input" id="auth-name" autocomplete="name" maxlength="80"/></label>
+      <label class="auth-field" id="auth-username-field" hidden><span class="auth-label">Nome de usuário</span><input class="auth-input" id="auth-username" autocomplete="off" maxlength="20" placeholder="ex: rafael" oninput="this.value=this.value.toLowerCase().replace(/[^a-z0-9_]/g,'')"/><span class="auth-hint" id="auth-username-hint">Como você aparece para outras pessoas. Único e sem espaços.</span></label>
       <label class="auth-field"><span class="auth-label">E-mail</span><input class="auth-input" id="auth-email" type="email" autocomplete="email" required/></label>
       <label class="auth-field"><span class="auth-label">Senha</span><input class="auth-input" id="auth-password" type="password" autocomplete="current-password" minlength="6" required/></label>
       <button class="auth-submit" id="auth-submit" type="submit">Entrar</button>
@@ -82,11 +83,14 @@
         </svg>
         <div class="app-title">Gasto<span>Certo</span></div>
       </div>
-      <div class="month-pill" onclick="openMonthPicker()">
-        <i class="fa-regular fa-calendar" aria-hidden="true"></i>
-        <span id="current-month-label">---</span>
+      <div class="header-right">
+        <div class="month-pill" onclick="openMonthPicker()">
+          <i class="fa-regular fa-calendar" aria-hidden="true"></i>
+          <span id="current-month-label">---</span>
+        </div>
+        <span class="plan-badge" id="plan-badge" onclick="openAccountModal()">Grátis</span>
+        <button class="account-btn" onclick="openAccountModal()" aria-label="Minha conta" id="account-btn"><i class="fa-regular fa-user" aria-hidden="true"></i></button>
       </div>
-      <button class="account-btn" onclick="openAccountModal()" aria-label="Conta" id="account-btn">Conta</button>
     </div>
   </div>
   <div class="tabs">

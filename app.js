@@ -1054,12 +1054,9 @@ async function openSplitGroup(groupId){
           const color=isDebt?'var(--red)':isCredit?'var(--accent-text,var(--accent))':'var(--text3)';
           const statusLine=isCredit?`▲ a receber ${brl(n)}`:isDebt?`▼ a pagar ${brl(Math.abs(n))}`:'✓ Quite';
           const border=isDebt?'#ff4f4f33':isCredit?'#c8f04a33':'var(--border)';
-          return `<div style="display:flex;align-items:center;gap:12px;padding:14px;background:var(--surface2);border-radius:14px;border:1px solid ${border}">
-            <div style="flex:1;min-width:0">
-              <div style="font-size:15px;font-weight:700">${label}</div>
-              <div style="font-size:13px;margin-top:3px;color:${color}">${statusLine}</div>
-            </div>
-            ${isParticipant?`<button onclick="openRegisterPayment('${m.id}')" style="flex-shrink:0;font-size:12px;padding:8px 13px;border-radius:10px;border:1px solid var(--border);background:transparent;color:var(--text);cursor:pointer;font-family:inherit">Pag.</button>`:''}
+          return `<div style="padding:14px;background:var(--surface2);border-radius:14px;border:1px solid ${border}">
+            <div style="font-size:15px;font-weight:700">${label}</div>
+            <div style="font-size:13px;margin-top:3px;color:${color}">${statusLine}</div>
           </div>`;
         }).join('')}
       </div>`;
@@ -1067,7 +1064,12 @@ async function openSplitGroup(groupId){
 
     // ── Botões de ação ────────────────────────────────────────────
     if(canAdd) html+=`<button class="btn-primary" onclick="openAddSplitExpense('${groupId}')" style="margin-bottom:8px">Adicionar despesa</button>`;
-    if(isParticipant) html+=`<button class="btn-secondary" onclick="openRegisterPayment('${myMember?.id||acceptedMembers[0]?.id}')" style="margin-bottom:8px">Registrar pagamento</button>`;
+    if(isParticipant){
+      // default from = maior devedor; se não há devedor, usa o membro atual
+      const biggestDebtor=acceptedMembers.filter(m=>(gross[m.id]||0)<-0.005).sort((a,b)=>(gross[a.id]||0)-(gross[b.id]||0))[0];
+      const defaultFrom=(biggestDebtor||myMember||acceptedMembers[0])?.id||'';
+      html+=`<button class="btn-secondary" onclick="openRegisterPayment('${defaultFrom}')" style="margin-bottom:8px">Adicionar pagamento</button>`;
+    }
     if(isCreator) html+=`<button class="btn-secondary" onclick="openAddSplitMember('${groupId}')" style="margin-bottom:14px">Convidar membro</button>`;
 
     // ── Lançamentos (colapsável) ──────────────────────────────────

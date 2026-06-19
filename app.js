@@ -936,7 +936,8 @@ async function reorderCats(srcId, targetId){
   const moved=categories.splice(srcIdx,1)[0];
   categories.splice(tgtIdx,0,moved);
   try{
-    await Promise.all(categories.map((c,i)=>api.updateCategory(c.id,{position:i})));
+    const owned=categories.filter(c=>c.user_id===currentUser.id);
+    await Promise.all(owned.map((c,i)=>api.updateCategory(c.id,{position:i})));
     saveCache();
     showToast('Ordem salva!','success');
   }catch{ showToast('Erro ao salvar ordem.','error'); }
@@ -950,7 +951,7 @@ function renderHistorico(el){
     const totalBudget=categories.reduce((s,c)=>s+effBudget(c,currentMonthKey),0);
     const totalAvail=totalBudget-current;
     const totalPct=totalBudget>0?Math.min((current/totalBudget)*100,100):0;
-    el.innerHTML=`<div style="padding:16px 20px calc(80px + var(--safe-bot))">
+    el.innerHTML=`<div style="padding:16px 20px calc(72px + var(--safe-bot))">
       <div class="month-title">${monthLabel(currentMonthKey)}</div>
       <div class="summary-card" style="margin:0 0 12px">
         <div class="summary-grid">
@@ -964,7 +965,7 @@ function renderHistorico(el){
     </div>`;
     return;
   }
-  el.innerHTML=`<div style="padding:16px 20px calc(80px + var(--safe-bot))"><div class="loading"><div class="spinner"></div>Carregando...</div></div>`;
+  el.innerHTML=`<div style="padding:16px 20px calc(72px + var(--safe-bot))"><div class="loading"><div class="spinner"></div>Carregando...</div></div>`;
   renderHistoricoAsync(el);
 }
 async function renderHistoricoAsync(el){
@@ -1045,7 +1046,7 @@ async function renderHistoricoAsync(el){
     });
     html+=`</div>`;
   }
-  el.innerHTML=`<div style="padding:16px 20px calc(80px + var(--safe-bot))">${html||'<div class="empty"><div class="empty-icon"><i class="fa-regular fa-calendar-xmark"></i></div><div class="empty-text">Nenhum gasto registrado ainda.</div></div>'}</div>`;
+  el.innerHTML=`<div style="padding:16px 20px calc(72px + var(--safe-bot))">${html||'<div class="empty"><div class="empty-icon"><i class="fa-regular fa-calendar-xmark"></i></div><div class="empty-text">Nenhum gasto registrado ainda.</div></div>'}</div>`;
 }
 
 // ===================== DIVISÃO DE GASTOS =====================

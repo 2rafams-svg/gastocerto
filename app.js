@@ -1,3 +1,14 @@
+// ===================== THEME =====================
+(function(){const t=localStorage.getItem('gc-theme')||'dark';document.documentElement.setAttribute('data-theme',t);})();
+function toggleTheme(){
+  const isLight=document.documentElement.getAttribute('data-theme')==='light';
+  const next=isLight?'dark':'light';
+  document.documentElement.setAttribute('data-theme',next);
+  localStorage.setItem('gc-theme',next);
+  const btn=document.getElementById('btn-theme-toggle');
+  if(btn) btn.textContent=next==='light'?'🌙 Tema escuro':'☀️ Tema claro';
+}
+
 // ===================== CONFIG =====================
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
@@ -269,9 +280,11 @@ function showWelcomeTrial(){
 function openAccountModal(){
   const email=escapeHtml(currentUser?.email||'');
   const isAdmin=currentUser?.email==='2rafab@gmail.com';
+  const isLight=document.documentElement.getAttribute('data-theme')==='light';
   openModal(`<div class="modal-title">Sua conta</div>
     <p class="modal-note">Conectado como <strong>${email}</strong><br>Plano: <strong>${isPro()?'Pro':'Gratuito'}</strong></p>
     <button class="btn-primary" onclick="openPaywall('Planos e assinatura')">Ver planos</button>
+    <button class="btn-secondary" id="btn-theme-toggle" onclick="toggleTheme()">${isLight?'🌙 Tema escuro':'☀️ Tema claro'}</button>
     <button class="btn-secondary" onclick="_closeModal();showTutorial(true)"><i class="fa-solid fa-circle-question" aria-hidden="true"></i> Ver tutorial</button>
     ${isAdmin?`<button class="btn-secondary" style="border-color:var(--accent);color:var(--accent)" onclick="openAdminPanel()"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> Painel Admin</button>`:''}
     <button class="btn-secondary" onclick="logout()">Sair da conta</button>`);
@@ -960,7 +973,7 @@ async function saveSplitGroup(){
     const group=Array.isArray(rows)?rows[0]:rows;
     if(!group?.id) throw new Error('Grupo não retornado');
     const meEmail=currentUser.email.toLowerCase();
-    const memberRows=[{group_id:group.id,email:meEmail,user_id:currentUser.id,display_name:'Você',status:'accepted'},...emails.filter(e=>e!==meEmail).map(email=>({group_id:group.id,email,user_id:null,display_name:null,status:'pending'}))];
+    const memberRows=[{group_id:group.id,email:meEmail,user_id:currentUser.id,display_name:null,status:'accepted'},...emails.filter(e=>e!==meEmail).map(email=>({group_id:group.id,email,user_id:null,display_name:null,status:'pending'}))];
     await api.insertSplitMembers(memberRows);
     _closeModal();showToast('Grupo criado!','success');renderSplit(document.getElementById('content'));
   }catch(e){
@@ -1008,6 +1021,13 @@ async function openSplitGroup(groupId){
     // Guarda estado para o modal de pagamento
     window._splitState={groupId,members:acceptedMembers,gross};
 
+    // Helper: nome de exibição — "Você" para o próprio usuário, independente do display_name salvo
+    const mName=m=>{
+      if(!m) return '?';
+      if(m.user_id===currentUser.id||m.id===myMember?.id) return 'Você';
+      return (m.display_name&&m.display_name!=='Você'?m.display_name:null)||m.email?.split('@')[0]||'?';
+    };
+
     const allQuite=acceptedMembers.every(m=>Math.abs(gross[m.id]||0)<0.005);
 
     // ── HTML ──────────────────────────────────────────────────────
@@ -1015,7 +1035,7 @@ async function openSplitGroup(groupId){
 
     // Chips de membros
     html+=`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px">
-      ${acceptedMembers.map(m=>`<span style="font-size:11px;background:var(--surface2);border-radius:100px;padding:3px 10px;color:var(--text2)">${escapeHtml(m.display_name||m.email.split('@')[0])}</span>`).join('')}
+      ${acceptedMembers.map(m=>`<span style="font-size:11px;background:var(--surface2);border-radius:100px;padding:3px 10px;color:var(--text2)">${escapeHtml(mName(m))}</span>`).join('')}
       ${pendingMembers.map(m=>`<span style="font-size:11px;background:var(--surface2);border-radius:100px;padding:3px 10px;color:var(--text3)">⏳ ${escapeHtml(m.email.split('@')[0])}</span>`).join('')}
     </div>`;
 
@@ -1026,13 +1046,12 @@ async function openSplitGroup(groupId){
     } else if(allQuite){
       html+=`<div style="text-align:center;padding:18px;background:#c8f04a18;border:1px solid #c8f04a44;border-radius:14px;color:var(--accent);font-weight:600;font-size:15px;margin-bottom:16px">✓ Todos quite!</div>`;
     } else {
-      html+=`<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
+      html+=`<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px">
         ${acceptedMembers.map(m=>{
           const n=gross[m.id]||0;
-          const isMe=m.id===myMember?.id;
-          const label=isMe?'Você':escapeHtml(m.display_name||m.email.split('@')[0]);
+          const label=escapeHtml(mName(m));
           const isDebt=n<-0.005, isCredit=n>0.005;
-          const color=isDebt?'var(--red)':isCredit?'var(--accent)':'var(--text3)';
+          const color=isDebt?'var(--red)':isCredit?'var(--accent-text,var(--accent))':'var(--text3)';
           const statusLine=isCredit?`▲ a receber ${brl(n)}`:isDebt?`▼ a pagar ${brl(Math.abs(n))}`:'✓ Quite';
           const border=isDebt?'#ff4f4f33':isCredit?'#c8f04a33':'var(--border)';
           return `<div style="display:flex;align-items:center;gap:12px;padding:14px;background:var(--surface2);border-radius:14px;border:1px solid ${border}">
@@ -1040,7 +1059,7 @@ async function openSplitGroup(groupId){
               <div style="font-size:15px;font-weight:700">${label}</div>
               <div style="font-size:13px;margin-top:3px;color:${color}">${statusLine}</div>
             </div>
-            ${isParticipant?`<button onclick="openRegisterPayment('${m.id}')" style="flex-shrink:0;font-size:12px;padding:8px 13px;border-radius:10px;border:1px solid var(--border);background:transparent;color:var(--text);cursor:pointer;font-family:inherit">Pagamento</button>`:''}
+            ${isParticipant?`<button onclick="openRegisterPayment('${m.id}')" style="flex-shrink:0;font-size:12px;padding:8px 13px;border-radius:10px;border:1px solid var(--border);background:transparent;color:var(--text);cursor:pointer;font-family:inherit">Pag.</button>`:''}
           </div>`;
         }).join('')}
       </div>`;
@@ -1048,6 +1067,7 @@ async function openSplitGroup(groupId){
 
     // ── Botões de ação ────────────────────────────────────────────
     if(canAdd) html+=`<button class="btn-primary" onclick="openAddSplitExpense('${groupId}')" style="margin-bottom:8px">Adicionar despesa</button>`;
+    if(isParticipant) html+=`<button class="btn-secondary" onclick="openRegisterPayment('${myMember?.id||acceptedMembers[0]?.id}')" style="margin-bottom:8px">Registrar pagamento</button>`;
     if(isCreator) html+=`<button class="btn-secondary" onclick="openAddSplitMember('${groupId}')" style="margin-bottom:14px">Convidar membro</button>`;
 
     // ── Lançamentos (colapsável) ──────────────────────────────────
@@ -1062,8 +1082,8 @@ async function openSplitGroup(groupId){
           const isLast=i===exps.length-1;
           return `<div style="padding:12px 14px${isLast?'':';border-bottom:1px solid var(--border)'}">
             <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:600;margin-bottom:2px"><span>${escapeHtml(e.description)}</span><span>${brl(e.total_amount)}</span></div>
-            <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Pago por ${escapeHtml(e.paid_by_email.split('@')[0])}</div>
-            ${expShares.map(s=>{const m=memberById[s.member_id]||{};return `<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2);padding:1px 0"><span>${escapeHtml(m.display_name||m.email?.split('@')[0]||'?')}</span><span>${brl(s.amount)}</span></div>`;}).join('')}
+            <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Pago por ${escapeHtml(mName(members.find(m=>m.user_id===e.paid_by_user_id)||{email:e.paid_by_email}))}</div>
+            ${expShares.map(s=>{const m=memberById[s.member_id]||{};return `<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2);padding:1px 0"><span>${escapeHtml(mName(m))}</span><span>${brl(s.amount)}</span></div>`;}).join('')}
           </div>`;
         }).join('')}
       </div></details>`;
@@ -1081,8 +1101,8 @@ async function openSplitGroup(groupId){
           ${pmts.map((pmt,i)=>{
             const from=memberById[pmt.from_member_id]||{};
             const to=memberById[pmt.to_member_id]||{};
-            const fromName=escapeHtml(from.display_name||from.email?.split('@')[0]||'?');
-            const toName=escapeHtml(to.display_name||to.email?.split('@')[0]||'?');
+            const fromName=escapeHtml(mName(from));
+            const toName=escapeHtml(mName(to));
             const canDel=isCreator||pmt.from_member_id===myMember?.id;
             const isLast=i===pmts.length-1;
             return `<div style="display:flex;align-items:center;gap:10px;padding:12px 14px${isLast?'':';border-bottom:1px solid var(--border)'}">

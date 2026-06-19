@@ -2,10 +2,22 @@
 [hidden]{display:none!important}
 :root{
   --bg:#0f0f0f;--surface:#1a1a1a;--surface2:#222;--border:#2a2a2a;
-  --accent:#c8f04a;--text:#f0f0f0;--text2:#888;--text3:#555;
+  --accent:#c8f04a;--accent-text:#c8f04a;--text:#f0f0f0;--text2:#888;--text3:#555;
   --red:#ff4f4f;--orange:#ff9f43;--radius:16px;
   --safe-top:env(safe-area-inset-top,0px);--safe-bot:env(safe-area-inset-bottom,0px);
 }
+[data-theme="light"]{
+  --bg:#f4f5f7;--surface:#ffffff;--surface2:#eef0f3;--border:#dde1e8;
+  --accent:#c8f04a;--accent-text:#5c7a00;--text:#0f172a;--text2:#475569;--text3:#94a3b8;
+  --red:#dc2626;--orange:#ea580c;
+}
+[data-theme="light"] .modal-overlay{background:rgba(0,0,0,.5)}
+[data-theme="light"] .toast{box-shadow:0 4px 16px rgba(0,0,0,.12)}
+[data-theme="light"] .cat-card{box-shadow:0 2px 8px rgba(0,0,0,.07)}
+[data-theme="light"] .val-num.positive{color:var(--accent-text)}
+[data-theme="light"] .badge.ok,[data-theme="light"] .badge.saved{color:var(--accent-text)}
+[data-theme="light"] .toast.success{color:var(--accent-text)}
+[data-theme="light"] .summary-num.positive{color:var(--accent-text)}
 html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;font-size:15px;overscroll-behavior:none}
 body{display:flex;flex-direction:column;max-width:430px;margin:0 auto;position:relative}
 

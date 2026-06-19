@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
-<meta name="theme-color" content="#0f0f0f"/>
+<meta name="theme-color" content="#0E1512"/>
 <title>Gasto Certo</title>
 <link rel="manifest" href="manifest.webmanifest"/>
 <link rel="apple-touch-icon" href="apple-touch-icon.png"/>
@@ -21,8 +21,8 @@
 <div id="pin-screen" style="display:none">
   <svg class="pin-logo" width="72" height="72" viewBox="0 0 120 120">
     <rect width="120" height="120" rx="28" fill="#1a1a1a"/>
-    <circle cx="60" cy="60" r="34" fill="none" stroke="#c8f04a" stroke-width="7"/>
-    <path d="M46 61 L56 71 L76 49" fill="none" stroke="#c8f04a" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="60" cy="60" r="34" fill="none" stroke="#27C892" stroke-width="7"/>
+    <path d="M46 61 L56 71 L76 49" fill="none" stroke="#27C892" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
   </svg>
   <div class="pin-title">Gasto<span>Certo</span></div>
   <div class="pin-subtitle">Digite seu PIN para entrar</div>
@@ -53,7 +53,7 @@
 <div id="auth-screen">
   <div class="auth-card">
     <div class="auth-brand">
-      <svg class="logo-mark" width="34" height="34" viewBox="0 0 120 120"><circle cx="60" cy="60" r="44" fill="none" stroke="#c8f04a" stroke-width="10"/><path d="M42 62 L55 75 L80 46" fill="none" stroke="#c8f04a" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <svg class="logo-mark" width="34" height="34" viewBox="0 0 120 120"><circle cx="60" cy="60" r="44" fill="none" stroke="#27C892" stroke-width="10"/><path d="M42 62 L55 75 L80 46" fill="none" stroke="#27C892" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <div class="auth-title">Gasto<span>Certo</span></div>
     </div>
     <div class="auth-copy" id="auth-copy">Entre para acessar seus gastos com segurança.</div>
@@ -78,8 +78,8 @@
     <div class="header-row">
       <div class="title-wrap">
         <svg class="logo-mark" width="26" height="26" viewBox="0 0 120 120">
-          <circle cx="60" cy="60" r="44" fill="none" stroke="#c8f04a" stroke-width="10"/>
-          <path d="M42 62 L55 75 L80 46" fill="none" stroke="#c8f04a" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="60" cy="60" r="44" fill="none" stroke="#27C892" stroke-width="10"/>
+          <path d="M42 62 L55 75 L80 46" fill="none" stroke="#27C892" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
         <div class="app-title">Gasto<span>Certo</span></div>
       </div>
@@ -93,17 +93,16 @@
       </div>
     </div>
   </div>
-  <div class="tabs">
-    <button class="tab active" onclick="switchTab('home',this)">Início</button>
-    <button class="tab" onclick="switchTab('categorias',this)">Grupo de despesa</button>
-    <button class="tab" onclick="switchTab('historico',this)">Histórico</button>
-    <button class="tab" onclick="switchTab('divisao',this)">Divisão de despesas</button>
-
-  </div>
   <div class="content" id="content" style="flex:1;overflow-y:auto">
     <div class="loading"><div class="spinner"></div>Carregando...</div>
   </div>
   <button class="fab" id="fab" onclick="onFab()" style="display:none" aria-label="Adicionar"><i class="fa-solid fa-plus" aria-hidden="true"></i></button>
+  <nav class="bottom-nav" id="bottom-nav">
+    <button class="nav-item active" data-tab="home" onclick="switchTab('home')"><span class="nav-ico"><i class="fa-solid fa-house" aria-hidden="true"></i></span><span class="nav-lbl">Início</span></button>
+    <button class="nav-item" data-tab="categorias" onclick="switchTab('categorias')"><span class="nav-ico"><i class="fa-solid fa-layer-group" aria-hidden="true"></i></span><span class="nav-lbl">Categorias</span></button>
+    <button class="nav-item" data-tab="historico" onclick="switchTab('historico')"><span class="nav-ico"><i class="fa-solid fa-chart-column" aria-hidden="true"></i></span><span class="nav-lbl">Histórico</span></button>
+    <button class="nav-item" data-tab="divisao" onclick="switchTab('divisao')"><span class="nav-ico"><i class="fa-solid fa-user-group" aria-hidden="true"></i></span><span class="nav-lbl">Divisão</span></button>
+  </nav>
 </div>
 
 <div class="toast" id="toast"></div>

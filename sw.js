@@ -1,4 +1,4 @@
-const CACHE = 'gastocerto-v2.5-username-ui';
+const CACHE = 'gastocerto-v3.2-hero-copy';
 const SHELL = ['./', './index.html', './style.css', './app.js', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {

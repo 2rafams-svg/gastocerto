@@ -258,8 +258,8 @@ const api={
   getAcceptedShares:()=>sbFetch(`category_shares?shared_with_email=ilike.${encodeURIComponent(currentUser.email)}&status=eq.accepted`),
   getMyShares:()=>sbFetch(`category_shares?shared_by_user_id=eq.${currentUser.id}&status=eq.accepted`),
   getMyProfile:()=>sbFetch(`profiles?id=eq.${currentUser.id}&limit=1`).then(r=>r?.[0]||null),
-  checkUsername:(u)=>sbFetch(`profiles?username=ilike.${encodeURIComponent(u)}&select=id&limit=1`).then(r=>r?.[0]||null),
-  insertProfile:(username)=>sbFetch('profiles',{method:'POST',body:JSON.stringify({id:currentUser.id,username:username.toLowerCase(),email:currentUser.email})}),
+  checkUsername:(u)=>sbFetch(`profiles?username=ilike.${encodeURIComponent(u)}&id=neq.${currentUser.id}&select=id&limit=1`).then(r=>r?.[0]||null),
+  insertProfile:(username)=>sbFetch('profiles',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=representation'},body:JSON.stringify({id:currentUser.id,username:username.toLowerCase(),email:currentUser.email})}),
   getProfilesByIds:(ids)=>ids.length?sbFetch(`profiles?id=in.(${ids.join(',')})&select=id,username`):Promise.resolve([]),
   getAdminGrant:()=>sbFetch(`admin_grants?email=ilike.${encodeURIComponent(currentUser.email)}&limit=1`),
   insertAdminGrant:(email,plan)=>sbFetch('admin_grants',{method:'POST',body:JSON.stringify({email:email.toLowerCase(),plan,granted_by:currentUser.id})}),
@@ -532,16 +532,16 @@ async function shareCategory(catId){
   const items=expenses.filter(e=>e.cat_id===catId).sort((a,b)=>b.date.localeCompare(a.date));
   const spent=items.reduce((s,e)=>s+parseFloat(e.value),0),budget=effBudget(cat,viewMonthKey),diff=budget-spent;
   const canvas=document.createElement('canvas'); canvas.width=1080; canvas.height=1920;
-  const c=canvas.getContext('2d'); c.fillStyle='#0f0f0f';c.fillRect(0,0,1080,1920);c.fillStyle='#c8f04a';c.fillRect(0,0,18,1920);
+  const c=canvas.getContext('2d'); c.fillStyle='#0f0f0f';c.fillRect(0,0,1080,1920);c.fillStyle='#27C892';c.fillRect(0,0,18,1920);
   c.fillStyle='#f0f0f0';c.font='700 72px serif';c.fillText(cat.name,80,150);c.fillStyle='#888';c.font='34px sans-serif';c.fillText(monthLabel(viewMonthKey),80,210);
   c.fillStyle='#1a1a1a';c.beginPath();c.roundRect(70,270,940,290,32);c.fill();c.fillStyle='#888';c.font='28px sans-serif';c.fillText('TOTAL GASTO',110,340);
-  c.fillStyle='#f0f0f0';c.font='700 64px sans-serif';c.fillText(brl(spent),110,425);c.fillStyle=diff>=0?'#c8f04a':'#ff4f4f';c.font='600 28px sans-serif';c.fillText(diff>=0?`Dentro do orçamento · ${brl(diff)} livres`:`Orçamento excedido · ${brl(Math.abs(diff))}`,110,495);
-  c.fillStyle='#2a2a2a';c.fillRect(110,520,860,10);c.fillStyle=diff>=0?'#c8f04a':'#ff4f4f';c.fillRect(110,520,budget?Math.min(860,860*spent/budget):0,10);
+  c.fillStyle='#f0f0f0';c.font='700 64px sans-serif';c.fillText(brl(spent),110,425);c.fillStyle=diff>=0?'#27C892':'#ff4f4f';c.font='600 28px sans-serif';c.fillText(diff>=0?`Dentro do orçamento · ${brl(diff)} livres`:`Orçamento excedido · ${brl(Math.abs(diff))}`,110,495);
+  c.fillStyle='#2a2a2a';c.fillRect(110,520,860,10);c.fillStyle=diff>=0?'#27C892':'#ff4f4f';c.fillRect(110,520,budget?Math.min(860,860*spent/budget):0,10);
   c.fillStyle='#888';c.font='600 27px sans-serif';c.fillText('LANÇAMENTOS',80,650);let y=730;
   for(const item of items.slice(0,12)){c.fillStyle='#f0f0f0';c.font='500 31px sans-serif';c.fillText(String(item.name).slice(0,32),80,y);c.textAlign='right';c.font='600 31px sans-serif';c.fillText(brl(item.value),990,y);c.textAlign='left';c.fillStyle='#555';c.font='24px sans-serif';c.fillText(new Date(item.date+'T12:00').toLocaleDateString('pt-BR'),80,y+42);c.fillRect(80,y+75,910,2);y+=105;}
   if(!items.length){c.fillStyle='#888';c.font='30px sans-serif';c.fillText('Nenhum lançamento neste período.',80,y);}
   if(items.length>12){c.fillStyle='#888';c.font='28px sans-serif';c.fillText(`+ ${items.length-12} lançamentos`,80,y);}
-  c.fillStyle='#c8f04a';c.font='700 42px serif';c.fillText('GastoCerto',80,1810);c.fillStyle='#888';c.font='25px sans-serif';c.fillText('Controle seu dinheiro. Acerte seus planos.',80,1855);
+  c.fillStyle='#27C892';c.font='700 42px serif';c.fillText('GastoCerto',80,1810);c.fillStyle='#888';c.font='25px sans-serif';c.fillText('Controle seu dinheiro. Acerte seus planos.',80,1855);
   const blob=await canvasBlob(canvas);if(!blob){showToast('Não foi possível gerar a imagem.','error');return;}
   const safe=cat.name.toLowerCase().replace(/[^a-z0-9]+/gi,'-'),file=new File([blob],`gastocerto-${safe}.png`,{type:'image/png'});
   try{if(navigator.share&&navigator.canShare?.({files:[file]})){await navigator.share({title:`${cat.name} · GastoCerto`,files:[file]});return;}}catch(err){if(err.name==='AbortError')return;}
@@ -697,12 +697,18 @@ function renderHome(el){
   const isNow=viewMonthKey===currentMonthKey;
   const mdata=months.find(m=>m.key===viewMonthKey);
 
-  const pendingSharesHtml=pendingShares.length>0?`<div style="padding:8px 20px 0;display:flex;flex-direction:column;gap:8px">${pendingShares.map(s=>`<div class="share-notification"><div style="font-weight:600;font-size:13px;margin-bottom:3px"><i class="fa-solid fa-share-nodes" style="margin-right:6px;color:var(--accent)" aria-hidden="true"></i>Convite de categoria</div><div style="font-size:12px;color:var(--text2);margin-bottom:10px">Você recebeu acesso à categoria <strong>${escapeHtml(s.category_name||'desconhecida')}</strong></div><div style="display:flex;gap:8px"><button onclick="respondToShare('${s.id}',true)" style="flex:1;padding:8px;border-radius:8px;border:none;background:var(--accent);color:#0f0f0f;font:700 12px 'DM Sans',sans-serif;cursor:pointer">Aceitar</button><button onclick="respondToShare('${s.id}',false)" style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text2);font:500 12px 'DM Sans',sans-serif;cursor:pointer">Recusar</button></div></div>`).join('')}</div>`:'';
+  const pendingSharesHtml=pendingShares.length>0?`<div style="padding:8px 20px 0;display:flex;flex-direction:column;gap:8px">${pendingShares.map(s=>`<div class="share-notification"><div style="font-weight:600;font-size:13px;margin-bottom:3px"><i class="fa-solid fa-share-nodes" style="margin-right:6px;color:var(--accent)" aria-hidden="true"></i>Convite de categoria</div><div style="font-size:12px;color:var(--text2);margin-bottom:10px">Você recebeu acesso à categoria <strong>${escapeHtml(s.category_name||'desconhecida')}</strong></div><div style="display:flex;gap:8px"><button onclick="respondToShare('${s.id}',true)" style="flex:1;padding:8px;border-radius:8px;border:none;background:var(--accent);color:var(--on-accent);font:700 12px 'DM Sans',sans-serif;cursor:pointer">Aceitar</button><button onclick="respondToShare('${s.id}',false)" style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text2);font:500 12px 'DM Sans',sans-serif;cursor:pointer">Recusar</button></div></div>`).join('')}</div>`:'';
 
-  const pendingSplitHtml=pendingSplitInvites.length>0?`<div style="padding:8px 20px 0;display:flex;flex-direction:column;gap:8px">${pendingSplitInvites.map(inv=>`<div class="share-notification"><div style="font-weight:600;font-size:13px;margin-bottom:3px"><i class="fa-solid fa-user-group" style="margin-right:6px;color:var(--accent)" aria-hidden="true"></i>Convite de divisão</div><div style="font-size:12px;color:var(--text2);margin-bottom:10px">Você foi convidado para o grupo <strong>${escapeHtml(inv.split_groups?.name||'Divisão')}</strong></div><div style="display:flex;gap:8px"><button onclick="respondToSplitInvite('${inv.id}',true)" style="flex:1;padding:8px;border-radius:8px;border:none;background:var(--accent);color:#0f0f0f;font:700 12px 'DM Sans',sans-serif;cursor:pointer">Aceitar</button><button onclick="respondToSplitInvite('${inv.id}',false)" style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text2);font:500 12px 'DM Sans',sans-serif;cursor:pointer">Recusar</button></div></div>`).join('')}</div>`:'';
+  const pendingSplitHtml=pendingSplitInvites.length>0?`<div style="padding:8px 20px 0;display:flex;flex-direction:column;gap:8px">${pendingSplitInvites.map(inv=>`<div class="share-notification"><div style="font-weight:600;font-size:13px;margin-bottom:3px"><i class="fa-solid fa-user-group" style="margin-right:6px;color:var(--accent)" aria-hidden="true"></i>Convite de divisão</div><div style="font-size:12px;color:var(--text2);margin-bottom:10px">Você foi convidado para o grupo <strong>${escapeHtml(inv.split_groups?.name||'Divisão')}</strong></div><div style="display:flex;gap:8px"><button onclick="respondToSplitInvite('${inv.id}',true)" style="flex:1;padding:8px;border-radius:8px;border:none;background:var(--accent);color:var(--on-accent);font:700 12px 'DM Sans',sans-serif;cursor:pointer">Aceitar</button><button onclick="respondToSplitInvite('${inv.id}',false)" style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text2);font:500 12px 'DM Sans',sans-serif;cursor:pointer">Recusar</button></div></div>`).join('')}</div>`:'';
 
   if(categories.length===0){
-    el.innerHTML=`<div style="padding:16px 20px">${pendingSharesHtml}${pendingSplitHtml}<div class="empty"><div class="empty-icon"><i class="fa-regular fa-folder-open"></i></div><div class="empty-text">Nenhuma categoria ainda.<br><small style="color:var(--text3)">Vá em Categorias para criar a primeira.</small></div></div></div>`;
+    el.innerHTML=`<div style="padding:16px 20px">${pendingSharesHtml}${pendingSplitHtml}
+      <div class="welcome-card">
+        <div class="welcome-emoji"><i class="fa-solid fa-seedling" aria-hidden="true"></i></div>
+        <div class="welcome-title">Vamos organizar seus gastos</div>
+        <div class="welcome-copy">Crie sua primeira categoria — tipo <strong>Mercado</strong>, <strong>Transporte</strong> ou <strong>Lazer</strong> — e defina quanto pretende gastar por mês.</div>
+        <button class="btn-primary" onclick="openAddCategory()"><i class="fa-solid fa-plus" aria-hidden="true"></i> Criar categoria</button>
+      </div></div>`;
     return;
   }
   if(currentCatIdx>=categories.length) currentCatIdx=0;
@@ -711,18 +717,14 @@ function renderHome(el){
   const trialBannerHtml=days>0&&days<=3?`<div style="padding:8px 20px 0"><div class="trial-banner" style="margin:0"><span>Seu acesso completo termina em <strong>${days} ${days===1?'dia':'dias'}</strong>.</span><button onclick="openPaywall('Continue com seus relatórios')">Ver Pro</button></div></div>`:'';
 
   const slidesHtml = categories.map((cat,i)=>buildSlide(cat,isNow)).join('');
-  const dotsHtml = categories.map((_,i)=>`<div class="cdot${i===currentCatIdx?' active':''}" onclick="goToSlide(${i})"></div>`).join('');
 
   el.innerHTML=`<div id="home-content" style="display:flex;flex-direction:column;height:100%">
     ${pendingSharesHtml}
     ${pendingSplitHtml}
     ${trialBannerHtml}
-    <div class="cat-nav" style="padding-top:10px">
-      <div class="cat-nav-btn${currentCatIdx===0?' disabled':''}" onclick="goToSlide(${currentCatIdx-1})">‹</div>
-      <div class="cat-nav-name">${categories[currentCatIdx].name}</div>
-      <div class="cat-nav-btn${currentCatIdx===categories.length-1?' disabled':''}" onclick="goToSlide(${currentCatIdx+1})">›</div>
+    <div class="cat-chips" id="cat-chips">
+      ${categories.map((c,i)=>`<button class="cat-chip${i===currentCatIdx?' active':''}" data-i="${i}" onclick="goToSlide(${i})">${escapeHtml(c.name)}</button>`).join('')}
     </div>
-    <div class="carousel-dots">${dotsHtml}</div>
     <div class="cat-carousel-wrap" id="carousel-wrap">
       <div class="cat-carousel" id="cat-carousel" style="transform:translateX(-${currentCatIdx*100}%)">
         ${slidesHtml}
@@ -775,38 +777,41 @@ function buildSlide(cat, isNow){
   </div>`;
   }).join('');
 
-  const overrideLink=isNow&&isOwned?`<button class="mini-link${overridden?' adjusted':''}" onclick="openMonthOverride('${cat.id}')">
-    <i class="fa-solid fa-pen" aria-hidden="true"></i>
-    ${overridden?`Orçamento ajustado este mês · editar`:`Ajustar orçamento só deste mês`}
-  </button>`:'';
-
   const sharedBadge=sharedWith?`<div style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--accent-text);background:var(--accent-soft);border:1px solid var(--accent-line);border-radius:100px;padding:3px 10px;margin-bottom:10px"><i class="fa-solid ${perm==='edit'?'fa-pen-to-square':'fa-eye'}" aria-hidden="true"></i> ${perm==='edit'?'Compartilhada · pode editar':'Compartilhada · somente leitura'}</div>`:'';
 
+  const status=isOver?'over':isWarn?'warn':'ok';
+  const pctLabel=budget>0?Math.round((spent/budget)*100):0;
+  const heroLabel=available>=0?'Disponível':'Acima do orçamento';
+  const heroValue=available>=0?brl(available):brl(Math.abs(available));
+
   return `<div class="cat-slide">
-    <div class="cat-card ${isOver?'over-budget':isWarn?'warning':''}">
+    <div class="cat-hero ${status}">
       ${sharedBadge}
-      <div class="cat-values">
-        <div class="val-block"><div class="val-label">Orçamento${overridden?' *':''}</div><div class="val-num budget">${brl(budget)}</div></div>
-        <div class="val-block"><div class="val-label">Gasto</div><div class="val-num spent">${brl(spent)}</div></div>
-        <div class="val-block" style="grid-column:1/-1"><div class="val-label">Disponível</div><div class="val-num ${available>=0?'positive':'negative'}">${brl(available)}</div></div>
+      <div class="hero-top">
+        <div class="hero-label">${heroLabel}</div>
+        ${isNow&&isOwned?`<button class="hero-edit" onclick="openMonthOverride('${cat.id}')" title="Ajustar orçamento"><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>`:''}
       </div>
-      <div class="progress-bar"><div class="progress-fill ${isOver?'danger':isWarn?'warning':''}" style="width:${pct}%"></div></div>
-      ${forecast?`<div class="forecast">${forecast}</div>`:''}
-      ${overrideLink}
-      ${expHtml}
-      ${canEdit?`<button class="add-expense-btn" onclick="openAddExpense('${cat.id}')">
-        <i class="fa-solid fa-plus" aria-hidden="true"></i>
-        Adicionar gasto
-      </button>`:''}
-      ${isOwned?`<button class="share-user-btn" onclick="openShareCategory('${cat.id}')">
-        <i class="fa-solid fa-user-plus" aria-hidden="true"></i>
-        Compartilhar categoria
-      </button>
-      <button class="export-category-btn" onclick="shareCategory('${cat.id}')">
-        <i class="fa-solid fa-share-from-square" aria-hidden="true"></i>
-        Exportar como imagem
-      </button>`:''}
+      <div class="hero-amount ${available>=0?'pos':'neg'}">${heroValue}</div>
+      <div class="hero-bar"><span style="width:${pct}%"></span></div>
+      <div class="hero-sub">
+        <span>Gasto <strong>${brl(spent)}</strong></span>
+        <span>${pctLabel}% de ${brl(budget)}${overridden?' ·&nbsp;ajustado':''}</span>
+      </div>
+      ${forecast?`<div class="hero-forecast"><i class="fa-regular fa-clock" aria-hidden="true"></i> ${forecast}</div>`:''}
     </div>
+
+    <div class="exp-head">
+      <span class="section-label" style="margin:0">Lançamentos${catExps.length?` · ${catExps.length}`:''}</span>
+    </div>
+    ${catExps.length?`<div class="exp-list">${expHtml}</div>`:`<div class="exp-empty"><i class="fa-regular fa-receipt" aria-hidden="true"></i><span>Nenhum gasto ${isNow?'este mês':'neste período'}.</span></div>`}
+
+    ${canEdit?`<button class="add-expense-btn" onclick="openAddExpense('${cat.id}')">
+      <i class="fa-solid fa-plus" aria-hidden="true"></i> Adicionar gasto
+    </button>`:''}
+    ${isOwned?`<div class="cat-actions">
+      <button class="ghost-btn" onclick="openShareCategory('${cat.id}')"><i class="fa-solid fa-user-plus" aria-hidden="true"></i> Compartilhar</button>
+      <button class="ghost-btn" onclick="shareCategory('${cat.id}')"><i class="fa-solid fa-arrow-up-from-bracket" aria-hidden="true"></i> Exportar</button>
+    </div>`:''}
   </div>`;
 }
 
@@ -825,12 +830,9 @@ function goToSlide(i){
   currentCatIdx=i;
   const carousel=document.getElementById('cat-carousel');
   if(carousel) carousel.style.transform=`translateX(-${i*100}%)`;
-  document.querySelectorAll('.cdot').forEach((d,j)=>d.classList.toggle('active',j===i));
-  const nameEl=document.querySelector('.cat-nav-name');
-  if(nameEl) nameEl.textContent=categories[i].name;
-  document.querySelectorAll('.cat-nav-btn').forEach((btn,j)=>{
-    btn.classList.toggle('disabled', j===0?i===0:i===categories.length-1);
-    btn.onclick=j===0?()=>goToSlide(i-1):()=>goToSlide(i+1);
+  document.querySelectorAll('.cat-chip').forEach((c,j)=>{
+    const on=j===i; c.classList.toggle('active',on);
+    if(on) c.scrollIntoView({behavior:'smooth',inline:'center',block:'nearest'});
   });
 }
 
@@ -1153,7 +1155,7 @@ async function openSplitGroup(groupId){
     if(exps.length===0){
       html+=`<div style="text-align:center;padding:18px;background:var(--surface2);border-radius:14px;color:var(--text3);font-size:13px;margin-bottom:16px">Nenhuma despesa ainda. Adicione a primeira.</div>`;
     } else if(allQuite){
-      html+=`<div style="text-align:center;padding:18px;background:#c8f04a18;border:1px solid #c8f04a44;border-radius:14px;color:var(--accent);font-weight:600;font-size:15px;margin-bottom:16px">✓ Todos quite!</div>`;
+      html+=`<div style="text-align:center;padding:18px;background:var(--accent-soft);border:1px solid var(--accent-line);border-radius:14px;color:var(--accent-text);font-weight:700;font-size:15px;margin-bottom:16px">✓ Todos quite!</div>`;
     } else {
       html+=`<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px">
         ${acceptedMembers.map(m=>{
@@ -1162,7 +1164,7 @@ async function openSplitGroup(groupId){
           const isDebt=n<-0.005, isCredit=n>0.005;
           const color=isDebt?'var(--red)':isCredit?'var(--accent-text,var(--accent))':'var(--text3)';
           const statusLine=isCredit?`▲ a receber ${brl(n)}`:isDebt?`▼ a pagar ${brl(Math.abs(n))}`:'✓ Quite';
-          const border=isDebt?'#ff4f4f33':isCredit?'#c8f04a33':'var(--border)';
+          const border=isDebt?'var(--red-soft)':isCredit?'var(--accent-line)':'var(--border)';
           return `<div style="padding:14px;background:var(--surface2);border-radius:14px;border:1px solid ${border}">
             <div style="font-size:15px;font-weight:700">${label}</div>
             <div style="font-size:13px;margin-top:3px;color:${color}">${statusLine}</div>
@@ -1569,7 +1571,7 @@ async function confirmCloseMonth(nextKey){
 function openMonthPicker(){
   if(!isPro()){ openPaywall('Histórico de meses anteriores'); return; }
   openModal(`<div class="modal-title">Selecionar Mês</div>
-    ${months.map(m=>`<div onclick="selectMonth('${m.key}')" style="padding:14px 16px;border-radius:10px;margin-bottom:8px;background:${m.key===viewMonthKey?'var(--accent)':'var(--surface2)'};color:${m.key===viewMonthKey?'#0f0f0f':'var(--text)'};font-weight:${m.key===viewMonthKey?600:400};cursor:pointer">
+    ${months.map(m=>`<div onclick="selectMonth('${m.key}')" style="padding:14px 16px;border-radius:10px;margin-bottom:8px;background:${m.key===viewMonthKey?'var(--accent)':'var(--surface2)'};color:${m.key===viewMonthKey?'var(--on-accent)':'var(--text)'};font-weight:${m.key===viewMonthKey?600:400};cursor:pointer">
       ${monthLabel(m.key)} ${m.closed?'<span style="font-size:11px;opacity:.6">Fechado</span>':''}
     </div>`).join('')}`);
 }
@@ -1587,11 +1589,10 @@ function onFab(){
   else{ if(!categories.length){ showToast('Crie uma categoria primeiro.','error'); return; } openAddExpense(categories[currentCatIdx]?.id||categories[0].id); }
 }
 
-async function switchTab(tab,btn){
+async function switchTab(tab){
   vib(5);
   currentTab=tab; currentCatIdx=0;
-  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
-  btn.classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(t=>t.classList.toggle('active',t.dataset.tab===tab));
   viewMonthKey=currentMonthKey;
   expenses=await api.getExpenses(viewMonthKey);
   render();
@@ -1681,12 +1682,17 @@ function openMonthOverride(catId){
   const cat=categories.find(c=>c.id===catId); if(!cat) return;
   const eff=effBudget(cat,currentMonthKey);
   const ov=hasOverride(cat,currentMonthKey);
-  openModal(`<div class="modal-title">Orçamento de ${escapeHtml(cat.name)}</div>
-    <p class="modal-note">Vale só para <strong>${monthLabel(currentMonthKey)}</strong>. O orçamento padrão (<strong>${brl(cat.budget)}/mês</strong>) continua o mesmo nos próximos meses.</p>
-    <div class="form-group"><label class="form-label">Orçamento deste mês (R$)</label>
-      <input class="form-input" id="f-ovbudget" type="number" inputmode="decimal" value="${eff}" step="0.01" min="0"/></div>
-    <button class="btn-primary" id="btn-ov" onclick="saveMonthOverride('${catId}')">Salvar ajuste do mês</button>
-    ${ov?`<button class="btn-secondary" onclick="revertMonthOverride('${catId}')">Voltar ao padrão (${brl(cat.budget)})</button>`:''}
+  openModal(`<div class="modal-title">Ajustar orçamento · ${escapeHtml(cat.name)}</div>
+    <p class="modal-note">Teve um mês fora da rotina (festas, viagem, uma compra grande)? Defina um orçamento só para <strong>${monthLabel(currentMonthKey)}</strong>. O valor padrão dos outros meses <strong>não muda</strong>.</p>
+    <div class="info-rows">
+      <div class="info-row"><span><i class="fa-regular fa-bookmark" aria-hidden="true"></i> Orçamento padrão</span><strong>${brl(cat.budget)}/mês</strong></div>
+      <div class="info-row"><span><i class="fa-regular fa-calendar" aria-hidden="true"></i> Ajuste vale só para</span><strong>${monthLabel(currentMonthKey)}</strong></div>
+    </div>
+    <div class="form-group"><label class="form-label">Orçamento de ${monthLabel(currentMonthKey)} (R$)</label>
+      <input class="form-input" id="f-ovbudget" type="number" inputmode="decimal" value="${eff}" step="0.01" min="0"/>
+      <span class="field-hint">Só este mês passa a usar este valor. ${ov?'Você pode voltar ao padrão a qualquer momento.':''}</span></div>
+    <button class="btn-primary" id="btn-ov" onclick="saveMonthOverride('${catId}')">Salvar só para ${monthLabel(currentMonthKey)}</button>
+    ${ov?`<button class="btn-secondary" onclick="revertMonthOverride('${catId}')">Voltar ao padrão (${brl(cat.budget)}/mês)</button>`:''}
     <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
 }
 

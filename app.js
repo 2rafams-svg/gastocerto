@@ -266,18 +266,6 @@ const api={
   deleteAdminGrant:(id)=>sbFetch(`admin_grants?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
   listAdminGrants:()=>sbFetch('admin_grants?order=id.desc'),
   updateUserMeta:(data)=>fetch(`${SUPABASE_URL}/auth/v1/user`,{method:'PUT',headers:{apikey:SUPABASE_KEY,Authorization:`Bearer ${session.access_token}`,'Content-Type':'application/json'},body:JSON.stringify({data})}).then(r=>r.json()),
-  uploadReceipt:async(file)=>{
-    await ensureValidSession();
-    const raw=file.name.split('.').pop()||'';
-    const ext=/^[a-z0-9]+$/i.test(raw)?raw.toLowerCase():'jpg';
-    const mime=file.type||'image/jpeg';
-    const key=`${currentUser.id}/${uid()}.${ext}`;
-    const doUpload=()=>fetch(`${SUPABASE_URL}/storage/v1/object/receipts/${key}`,{method:'POST',headers:{apikey:SUPABASE_KEY,Authorization:`Bearer ${session.access_token}`,'Content-Type':mime,'x-upsert':'true'},body:file});
-    let res=await doUpload();
-    if(res.status===401){await refreshSession();res=await doUpload();}
-    if(!res.ok){const txt=await res.text().catch(()=>'');throw new Error(`Upload ${res.status}: ${txt}`);}
-    return `${SUPABASE_URL}/storage/v1/object/public/receipts/${key}`;
-  },
 };
 
 let categories=[], months=[], currentMonthKey='', viewMonthKey='', expenses=[], currentTab='home', currentCatIdx=0;
@@ -768,7 +756,7 @@ function buildSlide(cat, isNow){
       </div>`:'';
     return `<div class="expense-item">
     <div class="expense-left">
-      <div class="expense-name">${e.recurring?`<i class="fa-solid fa-arrows-rotate" style="font-size:10px;color:var(--accent-text);margin-right:5px" title="Recorrente" aria-hidden="true"></i>`:''}${escapeHtml(e.name)}${byLabel}${e.image_url?`<span class="exp-receipt-dot" onclick="event.stopPropagation();window.open('${e.image_url}','_blank')" title="Ver comprovante"><i class="fa-solid fa-image" aria-hidden="true"></i></span>`:''}</div>
+      <div class="expense-name">${e.recurring?`<i class="fa-solid fa-arrows-rotate" style="font-size:10px;color:var(--accent-text);margin-right:5px" title="Recorrente" aria-hidden="true"></i>`:''}${escapeHtml(e.name)}${byLabel}${e.image_url?`<span class="exp-receipt-dot" onclick="event.stopPropagation();viewReceipt('${e.id}')" title="Ver comprovante"><i class="fa-solid fa-image" aria-hidden="true"></i></span>`:''}</div>
       <div class="expense-date">${new Date(e.date+'T12:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'})}</div>
     </div>
     <div class="expense-right">
@@ -1096,6 +1084,7 @@ async function openSplitGroup(groupId){
       api.getSplitPayments(groupId).catch(()=>[]),
     ]);
     const shares=exps.length?await api.getSplitShares(exps.map(e=>e.id)):[];
+    window._splitExpCache=exps;
     const memberById=Object.fromEntries(members.map(m=>[m.id,m]));
     const isCreator=group.created_by===currentUser.id;
     const myMember=members.find(m=>m.user_id===currentUser.id||(m.email&&m.email.toLowerCase()===currentUser.email.toLowerCase()));
@@ -1181,7 +1170,7 @@ async function openSplitGroup(groupId){
           const expShares=shares.filter(s=>s.expense_id===e.id);
           const isLast=i===exps.length-1;
           return `<div style="padding:12px 14px${isLast?'':';border-bottom:1px solid var(--border)'}">
-            <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:600;margin-bottom:2px"><span>${escapeHtml(e.description)}</span><span>${brl(e.total_amount)}</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:600;margin-bottom:2px"><span>${escapeHtml(e.description)}${e.image_url?`<span class="exp-receipt-dot" onclick="event.stopPropagation();viewReceipt('${e.id}',true)" title="Ver comprovante"><i class="fa-solid fa-image" aria-hidden="true"></i></span>`:''}</span><span>${brl(e.total_amount)}</span></div>
             <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Pago por ${escapeHtml(mName(members.find(m=>m.user_id===e.paid_by_user_id)||{email:e.paid_by_email}))}</div>
             ${expShares.map(s=>{const m=memberById[s.member_id]||{};return `<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2);padding:1px 0"><span>${escapeHtml(mName(m))}</span><span>${brl(s.amount)}</span></div>`;}).join('')}
           </div>`;
@@ -1254,7 +1243,7 @@ async function saveSplitExpense(groupId){
     const cents=Math.round(total*100),base=Math.floor(cents/selected.length),remainder=cents%selected.length;
     await api.insertSplitShares(selected.map((m,i)=>({expense_id:exp.id,member_id:m.id,amount:(base+(i<remainder?1:0))/100,is_settled:m.user_id===currentUser.id,settled_at:m.user_id===currentUser.id?new Date().toISOString():null})));
     showToast('Despesa dividida!','success');openSplitGroup(groupId);
-  }catch{showToast('Erro ao dividir despesa.','error');btn.disabled=false;btn.textContent='Dividir igualmente';}
+  }catch(err){const msg=String(err?.message||'');showToast(/image_url/i.test(msg)?'Falta a coluna: ALTER TABLE split_expenses ADD COLUMN image_url text':`Erro ao dividir: ${msg.slice(0,100)}`,'error');btn.disabled=false;btn.textContent='Dividir igualmente';}
 }
 function openRegisterPayment(fromMemberId){
   const state=window._splitState;
@@ -1460,10 +1449,12 @@ async function saveExpense(expId){
     _closeModal(); render(); showToast('Salvo!','success');
   }catch(err){
     const msg=String(err?.message||'');
-    if(/recurring/i.test(msg)){
+    if(/image_url/i.test(msg)){
+      showToast('Falta a coluna no banco: ALTER TABLE expenses ADD COLUMN image_url text','error');
+    }else if(/recurring/i.test(msg)){
       showToast('Rode o SQL: ALTER TABLE expenses ADD COLUMN recurring boolean DEFAULT false','error');
     }else{
-      showToast('Erro ao salvar.','error');
+      showToast(`Erro ao salvar: ${msg.slice(0,120)}`,'error');
     }
     btn.disabled=false; btn.textContent='Salvar';
   }
@@ -1489,10 +1480,44 @@ function receiptPickerHtml(existingUrl=''){
     ${thumb}
   </div></div>`;
 }
+function compressImage(file,maxDim=1100,quality=0.55){
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onerror=()=>reject(new Error('Falha ao ler arquivo'));
+    reader.onload=()=>{
+      const img=new Image();
+      img.onerror=()=>reject(new Error('Imagem inválida'));
+      img.onload=()=>{
+        let{width:w,height:h}=img;
+        if(w>maxDim||h>maxDim){ const r=Math.min(maxDim/w,maxDim/h); w=Math.round(w*r); h=Math.round(h*r); }
+        const canvas=document.createElement('canvas');
+        canvas.width=w; canvas.height=h;
+        canvas.getContext('2d').drawImage(img,0,0,w,h);
+        resolve(canvas.toDataURL('image/jpeg',quality));
+      };
+      img.src=reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
 async function getReceiptUrl(){
   const input=document.getElementById('f-receipt');
   if(!input?.files?.length) return null;
-  return api.uploadReceipt(input.files[0]);
+  return compressImage(input.files[0]);
+}
+function viewReceipt(id,isSplit){
+  const list=isSplit?(window._splitExpCache||[]):expenses;
+  const item=list.find(x=>String(x.id)===String(id));
+  if(!item?.image_url) return;
+  const ov=document.createElement('div');
+  ov.style.cssText='position:fixed;inset:0;z-index:3000;background:rgba(0,0,0,.93);display:flex;align-items:center;justify-content:center;padding:18px';
+  ov.onclick=()=>ov.remove();
+  const img=document.createElement('img');
+  img.src=item.image_url;
+  img.style.cssText='max-width:100%;max-height:90vh;border-radius:12px;box-shadow:0 8px 40px rgba(0,0,0,.5)';
+  ov.appendChild(img);
+  document.body.appendChild(ov);
+  vib(6);
 }
 async function confirmDeleteExpense(expId){
   if(!confirm('Deletar este gasto?')) return;

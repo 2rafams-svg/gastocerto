@@ -25,11 +25,11 @@
 [data-theme="light"] .cat-card,[data-theme="light"] .split-group,[data-theme="light"] .summary-card,[data-theme="light"] .cat-manage-item,[data-theme="light"] .auth-card,[data-theme="light"] .chart-card{box-shadow:var(--shadow-sm)}
 [data-theme="light"] .val-num.positive,[data-theme="light"] .summary-num.positive,[data-theme="light"] .badge.ok,[data-theme="light"] .badge.saved,[data-theme="light"] .toast.success{color:var(--accent-text)}
 [data-theme="light"] .header{background:rgba(242,245,240,.85);backdrop-filter:saturate(180%) blur(12px);-webkit-backdrop-filter:saturate(180%) blur(12px)}
-html,body{height:100%;background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;font-size:15px;overscroll-behavior:none}
-body{display:flex;flex-direction:column;max-width:430px;margin:0 auto;position:relative}
-html, body {
-  touch-action: pan-y;
-}
+html{height:100%;height:-webkit-fill-available}
+html,body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;font-size:15px;overscroll-behavior:none}
+body{display:flex;flex-direction:column;max-width:430px;margin:0 auto;position:relative;min-height:100%;min-height:-webkit-fill-available}
+@supports (height:100dvh){html,body{height:100dvh}#app{height:100dvh}}
+html,body{touch-action:pan-y}
 button{touch-action:manipulation}
 #auth-screen{position:fixed;inset:0;z-index:1100;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:28px 22px}
 .auth-card{width:100%;max-width:390px;background:var(--surface);border:1px solid var(--border);border-radius:24px;padding:26px 22px}
@@ -379,3 +379,9 @@ details summary::-webkit-details-marker{display:none}
 .split-group{border-radius:16px}
 .split-group-chev{transition:transform .15s}
 .split-group:active .split-group-chev{transform:translateX(2px)}
+.receipt-pick{display:block;cursor:pointer;border:1.5px dashed var(--border);border-radius:12px;padding:12px 14px;transition:border-color .15s,background .15s}
+.receipt-pick:active{background:var(--surface2)}
+.receipt-pick-label{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text2)}
+.receipt-pick input[type=file]{display:none}
+.receipt-preview-img{width:100%;max-height:180px;object-fit:cover;border-radius:10px;margin-top:10px;display:block}
+.exp-receipt-dot{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:var(--accent-soft);color:var(--accent-text);font-size:9px;margin-left:5px;vertical-align:middle;cursor:pointer;flex-shrink:0}

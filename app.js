@@ -142,7 +142,7 @@ document.getElementById('auth-form').addEventListener('submit',async e=>{
       }
     }
     enterApp();
-    if(authMode==='signup') setTimeout(()=>{ showWelcomeTrial(); localStorage.removeItem(TUTORIAL_KEY); },300);
+    if(authMode==='signup') setTimeout(()=>showWelcomeTrial(),300);
   }catch(err){ error.textContent=authMessage(err.message); }
   finally{ button.disabled=false; }
 });
@@ -258,6 +258,14 @@ const api={
   insertAdminGrant:(email,plan)=>sbFetch('admin_grants',{method:'POST',body:JSON.stringify({email:email.toLowerCase(),plan,granted_by:currentUser.id})}),
   deleteAdminGrant:(id)=>sbFetch(`admin_grants?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
   listAdminGrants:()=>sbFetch('admin_grants?order=id.desc'),
+  updateUserMeta:(data)=>fetch(`${SUPABASE_URL}/auth/v1/user`,{method:'PUT',headers:{apikey:SUPABASE_KEY,Authorization:`Bearer ${session.access_token}`,'Content-Type':'application/json'},body:JSON.stringify({data})}).then(r=>r.json()),
+  uploadReceipt:async(file)=>{
+    const ext=(file.name.split('.').pop()||'jpg').toLowerCase().replace(/[^a-z0-9]/g,'jpg');
+    const key=`${currentUser.id}/${uid()}.${ext}`;
+    const res=await fetch(`${SUPABASE_URL}/storage/v1/object/receipts/${key}`,{method:'POST',headers:{apikey:SUPABASE_KEY,Authorization:`Bearer ${session.access_token}`,'Content-Type':file.type||'image/jpeg','x-upsert':'true'},body:file});
+    if(!res.ok) throw new Error('Upload falhou');
+    return `${SUPABASE_URL}/storage/v1/object/public/receipts/${key}`;
+  },
 };
 
 let categories=[], months=[], currentMonthKey='', viewMonthKey='', expenses=[], currentTab='home', currentCatIdx=0;
@@ -748,7 +756,7 @@ function buildSlide(cat, isNow){
       </div>`:'';
     return `<div class="expense-item">
     <div class="expense-left">
-      <div class="expense-name">${e.recurring?`<i class="fa-solid fa-arrows-rotate" style="font-size:10px;color:var(--accent-text);margin-right:5px" title="Recorrente" aria-hidden="true"></i>`:''}${escapeHtml(e.name)}${byLabel}</div>
+      <div class="expense-name">${e.recurring?`<i class="fa-solid fa-arrows-rotate" style="font-size:10px;color:var(--accent-text);margin-right:5px" title="Recorrente" aria-hidden="true"></i>`:''}${escapeHtml(e.name)}${byLabel}${e.image_url?`<span class="exp-receipt-dot" onclick="event.stopPropagation();window.open('${e.image_url}','_blank')" title="Ver comprovante"><i class="fa-solid fa-image" aria-hidden="true"></i></span>`:''}</div>
       <div class="expense-date">${new Date(e.date+'T12:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'})}</div>
     </div>
     <div class="expense-right">
@@ -1215,6 +1223,7 @@ async function openAddSplitExpense(groupId){
     <div class="form-group"><label class="form-label">Valor total (R$)</label>
       <input class="form-input" id="f-split-value" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="0,00"></div>
     <div class="form-group"><label class="form-label">Dividir com</label>${memberCheckboxes}</div>
+    ${receiptPickerHtml()}
     <button class="btn-primary" id="btn-split-exp" onclick="saveSplitExpense('${groupId}')">Dividir igualmente</button>
     <button class="btn-secondary" onclick="openSplitGroup('${groupId}')">Cancelar</button>`);
 }
@@ -1226,7 +1235,10 @@ async function saveSplitExpense(groupId){
   if(!selected.length){showToast('Selecione pelo menos um participante.','error');return;}
   const btn=document.getElementById('btn-split-exp');btn.disabled=true;btn.textContent='Salvando...';
   try{
-    const exp=(await api.insertSplitExpense({group_id:groupId,description,total_amount:total,paid_by_user_id:currentUser.id,paid_by_email:currentUser.email}))[0];
+    let image_url=null;
+    const newFile=document.getElementById('f-receipt')?.files?.[0];
+    if(newFile){ btn.textContent='Enviando foto...'; image_url=await getReceiptUrl().catch(()=>null); btn.textContent='Salvando...'; }
+    const exp=(await api.insertSplitExpense({group_id:groupId,description,total_amount:total,paid_by_user_id:currentUser.id,paid_by_email:currentUser.email,image_url}))[0];
     const cents=Math.round(total*100),base=Math.floor(cents/selected.length),remainder=cents%selected.length;
     await api.insertSplitShares(selected.map((m,i)=>({expense_id:exp.id,member_id:m.id,amount:(base+(i<remainder?1:0))/100,is_settled:m.user_id===currentUser.id,settled_at:m.user_id===currentUser.id?new Date().toISOString():null})));
     showToast('Despesa dividida!','success');openSplitGroup(groupId);
@@ -1386,6 +1398,7 @@ function openAddExpense(catId){
       <input type="checkbox" id="f-recurring" style="width:18px;height:18px;accent-color:var(--accent);flex-shrink:0"/>
       <label for="f-recurring" style="font-size:14px;cursor:pointer;flex:1">Recorrente <span style="color:var(--text2);font-size:12px">(repetir todo mês)</span></label>
     </div>
+    ${receiptPickerHtml()}
     <button class="btn-primary" id="btn-save-exp" onclick="saveExpense(null)">Salvar</button>
     <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
 }
@@ -1408,6 +1421,7 @@ function openEditExpense(expId){
       <input type="checkbox" id="f-recurring" ${e.recurring?'checked':''} style="width:18px;height:18px;accent-color:var(--accent);flex-shrink:0"/>
       <label for="f-recurring" style="font-size:14px;cursor:pointer;flex:1">Recorrente <span style="color:var(--text2);font-size:12px">(repetir todo mês)</span></label>
     </div>
+    ${receiptPickerHtml(e.image_url||'')}
     <button class="btn-primary" id="btn-save-exp" onclick="saveExpense('${expId}')">Salvar</button>
     <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
 }
@@ -1422,8 +1436,11 @@ async function saveExpense(expId){
   if(!expId&&!isPro()&&expenses.filter(e=>e.date===date).length>=CONFIG.FREE_DAILY_LAUNCHES){ openPaywall('Limite diário de lançamentos atingido'); return; }
   const btn=document.getElementById('btn-save-exp'); btn.disabled=true; btn.textContent='Salvando...';
   try{
-    if(expId) await api.updateExpense(expId,{cat_id:catId,name,value,date,recurring});
-    else await api.insertExpense({id:uid(),cat_id:catId,month_key:viewMonthKey,name,value,date,recurring});
+    let image_url=expId?(expenses.find(x=>x.id===expId)?.image_url||null):null;
+    const newFile=document.getElementById('f-receipt')?.files?.[0];
+    if(newFile){ btn.textContent='Enviando foto...'; image_url=await getReceiptUrl(); btn.textContent='Salvando...'; }
+    if(expId) await api.updateExpense(expId,{cat_id:catId,name,value,date,recurring,image_url});
+    else await api.insertExpense({id:uid(),cat_id:catId,month_key:viewMonthKey,name,value,date,recurring,image_url});
     if(name && !expenseNames.includes(name)) expenseNames.unshift(name);
     expenses=await api.getExpenses(viewMonthKey);
     saveCache();
@@ -1440,6 +1457,31 @@ async function saveExpense(expId){
   }
 }
 
+function previewReceipt(input){
+  const file=input.files[0]; if(!file) return;
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    const img=document.getElementById('receipt-preview-img');
+    const lbl=document.getElementById('receipt-pick-lbl');
+    if(img){img.src=ev.target.result;img.style.display='block';}
+    if(lbl) lbl.innerHTML=`<i class="fa-solid fa-check" style="color:var(--accent)"></i> ${escapeHtml(file.name)}`;
+  };
+  reader.readAsDataURL(file);
+}
+function receiptPickerHtml(existingUrl=''){
+  const thumb=existingUrl?`<img class="receipt-preview-img" id="receipt-preview-img" src="${existingUrl}" alt="Comprovante"/>`:`<img class="receipt-preview-img" id="receipt-preview-img" style="display:none" alt=""/>`;
+  return `<div class="form-group"><label class="form-label">Comprovante <span style="color:var(--text3)">(opcional)</span></label>
+  <label class="receipt-pick">
+    <input type="file" id="f-receipt" accept="image/*" onchange="previewReceipt(this)"/>
+    <span class="receipt-pick-label" id="receipt-pick-lbl"><i class="fa-regular fa-image"></i> ${existingUrl?'Trocar imagem':'Anexar da galeria'}</span>
+    ${thumb}
+  </label></div>`;
+}
+async function getReceiptUrl(){
+  const input=document.getElementById('f-receipt');
+  if(!input?.files?.length) return null;
+  return api.uploadReceipt(input.files[0]);
+}
 async function confirmDeleteExpense(expId){
   if(!confirm('Deletar este gasto?')) return;
   try{ await api.deleteExpense(expId); expenses=expenses.filter(e=>e.id!==expId); saveCache(); render(); showToast('Removido.','success'); }
@@ -1736,7 +1778,7 @@ const TUTORIAL_STEPS = [
 let tutStep=0, tutEl=null;
 
 function showTutorial(force=false){
-  if(!force&&localStorage.getItem(TUTORIAL_KEY)) return;
+  if(!force&&(localStorage.getItem(TUTORIAL_KEY)||currentUser?.user_metadata?.tutorial_done)) return;
   tutStep=0;
   renderTutStep();
 }
@@ -1793,8 +1835,8 @@ function nextTutStep(){
 
 function endTutorial(){
   localStorage.setItem(TUTORIAL_KEY,'1');
+  api.updateUserMeta({tutorial_done:true}).catch(()=>{});
   document.getElementById('tut-overlay')?.remove();
-  const t=document.querySelectorAll('.tab')[0]; if(t) t.click();
 }
 
 document.addEventListener('touchstart', function(e){

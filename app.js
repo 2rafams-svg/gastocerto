@@ -243,6 +243,7 @@ const api={
   getAcceptedSplitMemberships:()=>sbFetch(`split_members?email=ilike.${encodeURIComponent(currentUser.email)}&status=eq.accepted&select=group_id`),
   getSplitExpenses:(groupId)=>sbFetch(`split_expenses?group_id=eq.${groupId}&order=id.desc`),
   insertSplitExpense:(row)=>sbFetch('split_expenses',{method:'POST',body:JSON.stringify(row)}),
+  updateSplitExpense:(id,d)=>sbFetch(`split_expenses?id=eq.${id}`,{method:'PATCH',body:JSON.stringify(d)}),
   getSplitShares:(expenseIds)=>expenseIds.length?sbFetch(`split_shares?expense_id=in.(${expenseIds.join(',')})`):Promise.resolve([]),
   insertSplitShares:(rows)=>sbFetch('split_shares',{method:'POST',body:JSON.stringify(rows)}),
   settleSplitShare:(id,settled)=>sbFetch(`split_shares?id=eq.${id}`,{method:'PATCH',body:JSON.stringify({is_settled:settled,settled_at:settled?new Date().toISOString():null})}),
@@ -1505,19 +1506,71 @@ async function getReceiptUrl(){
   if(!input?.files?.length) return null;
   return compressImage(input.files[0]);
 }
+function canEditReceipt(item,isSplit){
+  if(isSplit) return item.paid_by_user_id===currentUser.id;
+  const cat=categories.find(c=>c.id===item.cat_id);
+  return !!cat&&(cat.user_id===currentUser.id||sharePerm(cat.id)==='edit');
+}
 function viewReceipt(id,isSplit){
   const list=isSplit?(window._splitExpCache||[]):expenses;
   const item=list.find(x=>String(x.id)===String(id));
   if(!item?.image_url) return;
+  document.getElementById('receipt-viewer')?.remove();
+  const canEdit=canEditReceipt(item,isSplit);
+  const actions=canEdit?`
+    <div style="display:flex;gap:10px;width:100%;max-width:360px">
+      <button onclick="changeReceipt('${id}',${!!isSplit})" style="flex:1;padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.1);color:#fff;font:600 13px var(--font-body);cursor:pointer"><i class="fa-regular fa-image" aria-hidden="true"></i> Trocar imagem</button>
+      <button onclick="deleteReceipt('${id}',${!!isSplit})" style="flex:1;padding:12px;border-radius:12px;border:1px solid rgba(251,110,110,.5);background:rgba(251,110,110,.16);color:#FB6E6E;font:600 13px var(--font-body);cursor:pointer"><i class="fa-solid fa-trash" aria-hidden="true"></i> Excluir imagem</button>
+    </div>`:'';
   const ov=document.createElement('div');
-  ov.style.cssText='position:fixed;inset:0;z-index:3000;background:rgba(0,0,0,.93);display:flex;align-items:center;justify-content:center;padding:18px';
-  ov.onclick=()=>ov.remove();
-  const img=document.createElement('img');
-  img.src=item.image_url;
-  img.style.cssText='max-width:100%;max-height:90vh;border-radius:12px;box-shadow:0 8px 40px rgba(0,0,0,.5)';
-  ov.appendChild(img);
+  ov.id='receipt-viewer';
+  ov.style.cssText='position:fixed;inset:0;z-index:3000;background:rgba(0,0,0,.93);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:18px';
+  ov.onclick=e=>{ if(e.target===ov) ov.remove(); };
+  ov.innerHTML=`
+    <img src="${item.image_url}" alt="Comprovante" style="max-width:100%;max-height:${canEdit?'66vh':'80vh'};border-radius:12px;box-shadow:0 8px 40px rgba(0,0,0,.5)"/>
+    ${actions}
+    <button onclick="document.getElementById('receipt-viewer')?.remove()" style="padding:10px 26px;border-radius:100px;border:1px solid rgba(255,255,255,.2);background:transparent;color:#fff;font:600 13px var(--font-body);cursor:pointer">Fechar</button>
+    <input type="file" id="receipt-change-input" accept="image/*" style="display:none"/>`;
   document.body.appendChild(ov);
   vib(6);
+}
+function changeReceipt(id,isSplit){
+  const input=document.getElementById('receipt-change-input');
+  if(!input) return;
+  input.value='';
+  input.onchange=async()=>{
+    if(!input.files?.length) return;
+    try{
+      const dataUrl=await compressImage(input.files[0]);
+      if(isSplit){
+        await api.updateSplitExpense(id,{image_url:dataUrl});
+        const it=(window._splitExpCache||[]).find(x=>String(x.id)===String(id)); if(it) it.image_url=dataUrl;
+      }else{
+        await api.updateExpense(id,{image_url:dataUrl});
+        const it=expenses.find(x=>String(x.id)===String(id)); if(it) it.image_url=dataUrl;
+        saveCache(); render();
+      }
+      showToast('Imagem trocada!','success');
+      viewReceipt(id,isSplit);
+    }catch(err){ showToast(`Erro ao trocar: ${String(err?.message||'').slice(0,90)}`,'error'); }
+  };
+  input.click();
+}
+async function deleteReceipt(id,isSplit){
+  if(!confirm('Excluir a imagem deste comprovante?')) return;
+  try{
+    if(isSplit){
+      await api.updateSplitExpense(id,{image_url:null});
+      const it=(window._splitExpCache||[]).find(x=>String(x.id)===String(id)); if(it) it.image_url=null;
+    }else{
+      await api.updateExpense(id,{image_url:null});
+      const it=expenses.find(x=>String(x.id)===String(id)); if(it) it.image_url=null;
+      saveCache(); render();
+    }
+    document.getElementById('receipt-viewer')?.remove();
+    showToast('Imagem excluída.','success');
+    if(isSplit&&window._splitState?.groupId) openSplitGroup(window._splitState.groupId);
+  }catch(err){ showToast(`Erro ao excluir: ${String(err?.message||'').slice(0,90)}`,'error'); }
 }
 async function confirmDeleteExpense(expId){
   if(!confirm('Deletar este gasto?')) return;

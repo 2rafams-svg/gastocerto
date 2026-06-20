@@ -1450,7 +1450,7 @@ async function saveExpense(expId){
   try{
     let image_url=expId?(expenses.find(x=>x.id===expId)?.image_url||null):null;
     const newFile=document.getElementById('f-receipt')?.files?.[0];
-    if(newFile){ btn.textContent='Enviando foto...'; image_url=await getReceiptUrl(); btn.textContent='Salvando...'; }
+    if(newFile){ btn.textContent='Enviando foto...'; try{ image_url=await getReceiptUrl(); }catch(upErr){ showToast(`Foto não enviada: ${upErr.message}`,'error'); } btn.textContent='Salvando...'; }
     if(expId) await api.updateExpense(expId,{cat_id:catId,name,value,date,recurring,image_url});
     else await api.insertExpense({id:uid(),cat_id:catId,month_key:viewMonthKey,name,value,date,recurring,image_url});
     if(name && !expenseNames.includes(name)) expenseNames.unshift(name);
@@ -1483,11 +1483,11 @@ function previewReceipt(input){
 function receiptPickerHtml(existingUrl=''){
   const thumb=existingUrl?`<img class="receipt-preview-img" id="receipt-preview-img" src="${existingUrl}" alt="Comprovante"/>`:`<img class="receipt-preview-img" id="receipt-preview-img" style="display:none" alt=""/>`;
   return `<div class="form-group"><label class="form-label">Comprovante <span style="color:var(--text3)">(opcional)</span></label>
-  <label class="receipt-pick">
-    <input type="file" id="f-receipt" accept="image/*" onchange="previewReceipt(this)"/>
+  <div class="receipt-pick" onclick="document.getElementById('f-receipt').click()">
+    <input type="file" id="f-receipt" accept="image/*" style="position:absolute;opacity:0;width:0;height:0;pointer-events:none" onchange="previewReceipt(this)"/>
     <span class="receipt-pick-label" id="receipt-pick-lbl"><i class="fa-regular fa-image"></i> ${existingUrl?'Trocar imagem':'Anexar da galeria'}</span>
     ${thumb}
-  </label></div>`;
+  </div></div>`;
 }
 async function getReceiptUrl(){
   const input=document.getElementById('f-receipt');

@@ -383,6 +383,6 @@ details summary::-webkit-details-marker{display:none}
 .receipt-pick{display:block;cursor:pointer;border:1.5px dashed var(--border);border-radius:12px;padding:12px 14px;transition:border-color .15s,background .15s}
 .receipt-pick:active{background:var(--surface2)}
 .receipt-pick-label{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text2)}
-.receipt-pick input[type=file]{display:none}
+.receipt-pick input[type=file]{position:absolute;opacity:0;width:0;height:0;pointer-events:none}
 .receipt-preview-img{width:100%;max-height:180px;object-fit:cover;border-radius:10px;margin-top:10px;display:block}
 .exp-receipt-dot{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:var(--accent-soft);color:var(--accent-text);font-size:9px;margin-left:5px;vertical-align:middle;cursor:pointer;flex-shrink:0}

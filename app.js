@@ -1,9 +1,10 @@
-﻿(function(){const t=localStorage.getItem('gc-theme')||'dark';document.documentElement.setAttribute('data-theme',t);})();
+﻿(function(){const t=localStorage.getItem('gc-theme')||'light';document.documentElement.setAttribute('data-theme',t);})();
 function toggleTheme(){
   const isLight=document.documentElement.getAttribute('data-theme')==='light';
   const next=isLight?'dark':'light';
   document.documentElement.setAttribute('data-theme',next);
   localStorage.setItem('gc-theme',next);
+  if(session) api.updateUserMeta({theme:next}).catch(()=>{});
   vib(6);
 }
 function syncThemeRow(){
@@ -86,6 +87,11 @@ async function bootstrapAuth(){
 function enterApp(){
   document.getElementById('auth-screen').style.display='none';
   document.getElementById('app').style.display='flex';
+  const metaTheme=currentUser?.user_metadata?.theme;
+  if(metaTheme&&!localStorage.getItem('gc-theme')){
+    document.documentElement.setAttribute('data-theme',metaTheme);
+    localStorage.setItem('gc-theme',metaTheme);
+  }
   init();
 }
 function updatePlanBadge(isAdminPro,trialDays){
@@ -260,10 +266,15 @@ const api={
   listAdminGrants:()=>sbFetch('admin_grants?order=id.desc'),
   updateUserMeta:(data)=>fetch(`${SUPABASE_URL}/auth/v1/user`,{method:'PUT',headers:{apikey:SUPABASE_KEY,Authorization:`Bearer ${session.access_token}`,'Content-Type':'application/json'},body:JSON.stringify({data})}).then(r=>r.json()),
   uploadReceipt:async(file)=>{
-    const ext=(file.name.split('.').pop()||'jpg').toLowerCase().replace(/[^a-z0-9]/g,'jpg');
+    await ensureValidSession();
+    const raw=file.name.split('.').pop()||'';
+    const ext=/^[a-z0-9]+$/i.test(raw)?raw.toLowerCase():'jpg';
+    const mime=file.type||'image/jpeg';
     const key=`${currentUser.id}/${uid()}.${ext}`;
-    const res=await fetch(`${SUPABASE_URL}/storage/v1/object/receipts/${key}`,{method:'POST',headers:{apikey:SUPABASE_KEY,Authorization:`Bearer ${session.access_token}`,'Content-Type':file.type||'image/jpeg','x-upsert':'true'},body:file});
-    if(!res.ok) throw new Error('Upload falhou');
+    const doUpload=()=>fetch(`${SUPABASE_URL}/storage/v1/object/receipts/${key}`,{method:'POST',headers:{apikey:SUPABASE_KEY,Authorization:`Bearer ${session.access_token}`,'Content-Type':mime,'x-upsert':'true'},body:file});
+    let res=await doUpload();
+    if(res.status===401){await refreshSession();res=await doUpload();}
+    if(!res.ok){const txt=await res.text().catch(()=>'');throw new Error(`Upload ${res.status}: ${txt}`);}
     return `${SUPABASE_URL}/storage/v1/object/public/receipts/${key}`;
   },
 };

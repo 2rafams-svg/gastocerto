@@ -1864,7 +1864,18 @@ document.addEventListener('touchend', function(e){
 }, {passive: false});
 
 if('serviceWorker' in navigator){
-  window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
+  window.addEventListener('load',()=>{
+    if(!('serviceWorker' in navigator)) return;
+    const hadController=!!navigator.serviceWorker.controller;
+    navigator.serviceWorker.register('sw.js').then(reg=>{
+      reg.addEventListener('updatefound',()=>{
+        const sw=reg.installing;
+        sw.addEventListener('statechange',()=>{
+          if(sw.state==='activated'&&hadController) window.location.reload();
+        });
+      });
+    }).catch(()=>{});
+  });
 }
 bootstrapAuth();
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')ensureValidSession();});

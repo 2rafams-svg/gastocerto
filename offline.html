@@ -50,7 +50,8 @@ p{color:#98A89E;font-size:14px;line-height:1.6;max-width:300px;margin:0 auto 32p
 <div class="icon-wrap">📡</div>
 <h1>Você está offline</h1>
 <p>O GastoCerto precisa de conexão com a internet para acessar seus dados com segurança. Conecte-se ao Wi-Fi ou aos dados móveis e tente novamente.</p>
-<button class="retry" onclick="window.location.reload()">Tentar novamente</button>
+<button class="retry" onclick="window.location.replace('./')">Tentar novamente</button>
+<script>window.addEventListener('online',()=>window.location.replace('./'));</script>
 <div class="hint">Seus dados ficam salvos no servidor e estarão disponíveis assim que a conexão voltar.</div>
 </body>
 </html>

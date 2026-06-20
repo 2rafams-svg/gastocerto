@@ -117,6 +117,7 @@ async function logout(){
   const token=session?.access_token;
   if(token) fetch(`${SUPABASE_URL}/auth/v1/logout`,{method:'POST',headers:{apikey:SUPABASE_KEY,Authorization:`Bearer ${token}`}}).catch(()=>{});
   persistSession(null); categories=[]; months=[]; expenses=[]; expenseNames=[]; acceptedShares=[]; sharedOutMap={}; pendingSplitInvites=[]; acceptedGroupIds=new Set();
+  document.documentElement.classList.remove('gc-has-session');
   document.getElementById('app').style.display='none';
   document.getElementById('auth-screen').style.display='flex';
   _closeModal(); setAuthMode('login');

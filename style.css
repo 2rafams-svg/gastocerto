@@ -31,6 +31,7 @@ body{display:flex;flex-direction:column;max-width:430px;margin:0 auto;position:r
 @supports (height:100dvh){html,body{height:100dvh}#app{height:100dvh}}
 html,body{touch-action:pan-y}
 button{touch-action:manipulation}
+.gc-has-session #auth-screen{display:none!important}
 #auth-screen{position:fixed;inset:0;z-index:1100;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:28px 22px}
 .auth-card{width:100%;max-width:390px;background:var(--surface);border:1px solid var(--border);border-radius:24px;padding:26px 22px}
 .auth-brand{display:flex;align-items:center;gap:10px;margin-bottom:8px}

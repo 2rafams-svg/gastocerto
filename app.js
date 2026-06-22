@@ -230,7 +230,10 @@ const api={
   getExpenseNames:()=>sbFetch('expenses?select=name&order=date.desc'),
   insertExpense:(d)=>sbFetch('expenses',{method:'POST',body:JSON.stringify({...d,user_id:currentUser.id})}),
   updateExpense:(id,d)=>sbFetch(`expenses?id=eq.${id}`,{method:'PATCH',body:JSON.stringify(d)}),
-  deleteExpense:(id)=>sbFetch(`expenses?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
+  deleteExpense:(id)=>sbFetch(`expenses?id=eq.${id}&select=id`,{method:'DELETE'}),
+  getActivity:(catId)=>sbFetch(`activity_log?category_id=eq.${catId}&order=created_at.desc&limit=50`),
+  getAllActivity:()=>sbFetch('activity_log?order=created_at.desc&limit=80'),
+  insertActivity:(d)=>sbFetch('activity_log',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify({...d,actor_user_id:currentUser.id,actor_email:currentUser.email})}),
   setMonthBudgets:(key,budgets)=>sbFetch(`months?key=eq.${key}`,{method:'PATCH',body:JSON.stringify({budgets})}),
   getSplitGroups:()=>sbFetch('split_groups?order=id.desc'),
   insertSplitGroup:(name)=>sbFetch('split_groups',{method:'POST',body:JSON.stringify({name,created_by:currentUser.id})}),
@@ -346,6 +349,7 @@ function openAccountModal(){
       <label class="switch"><input type="checkbox" id="theme-switch" ${isLight?'checked':''} onchange="toggleTheme();syncThemeRow()"><span class="switch-track"><span class="switch-thumb"></span></span></label>
     </div>
     <button class="btn-secondary" onclick="openPaywall('Planos e assinatura')"><i class="fa-solid fa-crown" aria-hidden="true"></i> Ver planos</button>
+    <button class="btn-secondary" onclick="openActivityLog()"><i class="fa-regular fa-clock-rotate-left" aria-hidden="true"></i> Atividades recentes</button>
     <button class="btn-secondary" onclick="_closeModal();showTutorial(true)"><i class="fa-solid fa-circle-question" aria-hidden="true"></i> Ver tutorial</button>
     ${isAdmin?`<button class="btn-secondary" style="border-color:var(--accent-line);color:var(--accent-text)" onclick="openAdminPanel()"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> Painel Admin</button>`:''}
     <button class="btn-secondary" onclick="logout()"><i class="fa-solid fa-right-from-bracket" aria-hidden="true"></i> Sair da conta</button>`);
@@ -792,6 +796,7 @@ function buildSlide(cat, isNow){
 
     <div class="exp-head">
       <span class="section-label" style="margin:0">Lançamentos${catExps.length?` · ${catExps.length}`:''}</span>
+      <button class="act-log-btn" onclick="openActivityLog('${cat.id}')" title="Histórico de atividades" aria-label="Histórico de atividades"><i class="fa-regular fa-clock-rotate-left" aria-hidden="true"></i></button>
     </div>
     ${catExps.length?`<div class="exp-list">${expHtml}</div>`:`<div class="exp-empty"><i class="fa-regular fa-receipt" aria-hidden="true"></i><span>Nenhum gasto ${isNow?'este mês':'neste período'}.</span></div>`}
 
@@ -1443,6 +1448,7 @@ async function saveExpense(expId){
     if(newFile){ btn.textContent='Enviando foto...'; try{ image_url=await getReceiptUrl(); }catch(upErr){ showToast(`Foto não enviada: ${upErr.message}`,'error'); } btn.textContent='Salvando...'; }
     if(expId) await api.updateExpense(expId,{cat_id:catId,name,value,date,recurring,image_url});
     else await api.insertExpense({id:uid(),cat_id:catId,month_key:viewMonthKey,name,value,date,recurring,image_url});
+    logActivity(catId,expId?'edit':'create',name,value);
     if(name && !expenseNames.includes(name)) expenseNames.unshift(name);
     expenses=await api.getExpenses(viewMonthKey);
     saveCache();
@@ -1574,8 +1580,51 @@ async function deleteReceipt(id,isSplit){
 }
 async function confirmDeleteExpense(expId){
   if(!confirm('Deletar este gasto?')) return;
-  try{ await api.deleteExpense(expId); expenses=expenses.filter(e=>e.id!==expId); saveCache(); render(); showToast('Removido.','success'); }
+  try{
+    const target=expenses.find(e=>e.id===expId);
+    const res=await api.deleteExpense(expId);
+    if(!res||!res.length){ showToast('Você não tem permissão para excluir este gasto.','error'); return; }
+    if(target) logActivity(target.cat_id,'delete',target.name,target.value);
+    expenses=expenses.filter(e=>e.id!==expId); saveCache(); render(); showToast('Removido.','success');
+  }
   catch{ showToast('Erro ao deletar.','error'); }
+}
+function logActivity(catId,action,name,value){
+  if(!catId) return Promise.resolve();
+  return api.insertActivity({category_id:catId,action,expense_name:name,value}).catch(()=>{});
+}
+function actorLabel(log){
+  const tag=userTag(log.actor_user_id);
+  if(tag) return tag;
+  if(log.actor_user_id===currentUser.id) return 'você';
+  return log.actor_email?log.actor_email.split('@')[0]:'alguém';
+}
+async function openActivityLog(catId){
+  const global=!catId;
+  const cat=global?null:categories.find(c=>c.id===catId);
+  const titleSuffix=cat?` · ${escapeHtml(cat.name)}`:(global?' recentes':'');
+  openModal(`<div class="modal-title">Atividades${titleSuffix}</div>
+    <div style="display:flex;align-items:center;justify-content:center;padding:28px 0;gap:12px;color:var(--text2)"><div class="spinner"></div>Carregando…</div>`);
+  let logs=[];
+  try{ logs=(global?await api.getAllActivity():await api.getActivity(catId))||[]; }
+  catch{ document.getElementById('modal-content').innerHTML=`<div class="modal-title">Atividades</div><p class="modal-note">Não foi possível carregar. Verifique se a tabela activity_log existe.</p><button class="btn-secondary" onclick="_closeModal()">Fechar</button>`; return; }
+  const verb={create:'adicionou',edit:'editou',delete:'excluiu',cat_create:'criou a categoria',cat_edit:'ajustou a categoria',cat_delete:'excluiu a categoria'};
+  const ico={create:'fa-plus',edit:'fa-pen',delete:'fa-trash',cat_create:'fa-layer-group',cat_edit:'fa-sliders',cat_delete:'fa-trash'};
+  const col={create:'var(--accent-text)',edit:'var(--text2)',delete:'var(--red)',cat_create:'var(--accent-text)',cat_edit:'var(--text2)',cat_delete:'var(--red)'};
+  const catName=id=>categories.find(c=>c.id===id)?.name||null;
+  const rows=logs.length?logs.map(l=>{
+    const cn=global&&!String(l.action).startsWith('cat_')?catName(l.category_id):null;
+    return `
+    <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;background:var(--accent-soft);color:${col[l.action]||'var(--text2)'}"><i class="fa-solid ${ico[l.action]||'fa-clock'}" aria-hidden="true"></i></div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px"><strong>${escapeHtml(actorLabel(l))}</strong> ${verb[l.action]||l.action} <span style="color:var(--text2)">${escapeHtml(l.expense_name||'—')}</span></div>
+        <div style="font-size:11px;color:var(--text3)">${cn?escapeHtml(cn)+' · ':''}${l.value!=null?brl(l.value)+' · ':''}${new Date(l.created_at).toLocaleString('pt-BR',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</div>
+      </div>
+    </div>`;}).join(''):`<p class="modal-note" style="text-align:center;padding:24px 0">Nenhuma atividade registrada ainda.</p>`;
+  document.getElementById('modal-content').innerHTML=`<div class="modal-title">Atividades${titleSuffix}</div>
+    <div style="margin-bottom:14px">${rows}</div>
+    <button class="btn-secondary" onclick="_closeModal()">Fechar</button>`;
 }
 
 function openAddCategory(){
@@ -1607,8 +1656,8 @@ async function saveCategory(catId){
   if(!catId&&!isPro()&&categories.length>=CONFIG.FREE_MAX_CATEGORIES){ openPaywall('Limite de categorias atingido'); return; }
   const btn=document.getElementById('btn-save-cat'); btn.disabled=true; btn.textContent='Salvando...';
   try{
-    if(catId) await api.updateCategory(catId,{name,budget});
-    else await api.insertCategory({id:uid(),name,budget,position:categories.length});
+    if(catId){ await api.updateCategory(catId,{name,budget}); logActivity(catId,'cat_edit',name,budget); }
+    else{ const nid=uid(); await api.insertCategory({id:nid,name,budget,position:categories.length}); logActivity(nid,'cat_create',name,budget); }
     categories=await api.getCategories();
     saveCache();
     vib(15);
@@ -1631,7 +1680,7 @@ async function confirmDeleteCategory(catId){
     return;
   }
   if(!confirm('Deletar esta categoria?')) return;
-  try{ await api.deleteCategory(catId); categories=categories.filter(c=>c.id!==catId); saveCache(); render(); showToast('Removida.','success'); }
+  try{ await logActivity(catId,'cat_delete',cat.name,cat.budget); await api.deleteCategory(catId); categories=categories.filter(c=>c.id!==catId); saveCache(); render(); showToast('Removida.','success'); }
   catch{ showToast('Erro ao deletar.','error'); }
 }
 

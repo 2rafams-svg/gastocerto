@@ -1,4 +1,4 @@
-﻿const CACHE = 'gastocerto-v3.7-receipt-edit';
+﻿const CACHE = 'gastocerto-v3.9-activity-log';
 const SHELL = ['./', './index.html', './offline.html', './style.css', './app.js', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {

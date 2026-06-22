@@ -355,6 +355,8 @@ details summary::-webkit-details-marker{display:none}
 .hero-forecast i{color:var(--text3)}
 .hero-forecast strong{color:var(--text);font-weight:600}
 .exp-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px;padding:0 2px}
+.act-log-btn{background:none;border:none;color:var(--text3);font-size:13px;padding:4px 6px;cursor:pointer;border-radius:8px;line-height:1;transition:color .15s,background .15s}
+.act-log-btn:active{background:var(--accent-soft);color:var(--accent-text)}
 .exp-list{background:var(--surface);border:1px solid var(--border);border-radius:18px;padding:2px 16px;margin-bottom:14px}
 .exp-list .expense-item:last-child{border-bottom:none}
 .exp-empty{display:flex;flex-direction:column;align-items:center;gap:9px;padding:30px 20px;background:var(--surface);border:1px dashed var(--border);border-radius:18px;color:var(--text3);font-size:13px;margin-bottom:14px}

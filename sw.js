@@ -1,4 +1,4 @@
-﻿const CACHE = 'gastocerto-v3.13-no-add-btn';
+﻿const CACHE = 'gastocerto-v3.14-drag-dismiss';
 const SHELL = ['./', './index.html', './offline.html', './style.css', './app.js', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {

@@ -1378,6 +1378,52 @@ async function confirmDeleteSplitGroup(groupId){
 function openModal(html){ document.getElementById('modal-content').innerHTML=html; document.getElementById('modal-overlay').classList.add('open'); }
 function _closeModal(){ document.getElementById('modal-overlay').classList.remove('open'); }
 function closeModalOverlay(e){ if(e.target===document.getElementById('modal-overlay')) _closeModal(); }
+(function(){
+  const modal=document.getElementById('modal');
+  const handle=modal?modal.querySelector('.modal-handle'):null;
+  if(!modal||!handle) return;
+  let startY=0,lastY=0,dragging=false;
+  const clearInline=()=>{ modal.style.transition=''; modal.style.transform=''; };
+  const move=e=>{
+    if(!dragging) return;
+    lastY=(e.touches?e.touches[0].clientY:e.clientY);
+    const dy=Math.max(0,lastY-startY);
+    if(dy>0&&e.cancelable) e.preventDefault();
+    modal.style.transform='translateY('+dy+'px)';
+  };
+  const end=()=>{
+    if(!dragging) return;
+    dragging=false;
+    window.removeEventListener('touchmove',move);
+    window.removeEventListener('touchend',end);
+    window.removeEventListener('mousemove',move);
+    window.removeEventListener('mouseup',end);
+    const dy=Math.max(0,lastY-startY);
+    if(dy>100){
+      let closed=false;
+      const done=()=>{ if(closed) return; closed=true; modal.removeEventListener('transitionend',done); clearInline(); _closeModal(); };
+      modal.style.transition='transform .28s cubic-bezier(.4,0,.2,1)';
+      modal.style.transform='translateY(100%)';
+      modal.addEventListener('transitionend',done);
+      setTimeout(done,340);
+    }else{
+      modal.style.transition='transform .25s cubic-bezier(.4,0,.2,1)';
+      modal.style.transform='translateY(0)';
+      setTimeout(clearInline,260);
+    }
+  };
+  const start=e=>{
+    dragging=true;
+    startY=lastY=(e.touches?e.touches[0].clientY:e.clientY);
+    modal.style.transition='none';
+    window.addEventListener('touchmove',move,{passive:false});
+    window.addEventListener('touchend',end);
+    window.addEventListener('mousemove',move);
+    window.addEventListener('mouseup',end);
+  };
+  handle.addEventListener('touchstart',start,{passive:true});
+  handle.addEventListener('mousedown',e=>{ e.preventDefault(); start(e); });
+})();
 
 function openAddExpense(catId){
   if(!isPro()){

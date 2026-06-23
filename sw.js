@@ -1,4 +1,4 @@
-﻿const CACHE = 'gastocerto-v3.14-drag-dismiss';
+const CACHE = 'gastocerto-v3.15-network-first';
 const SHELL = ['./', './index.html', './offline.html', './style.css', './app.js', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -12,16 +12,25 @@ self.addEventListener('activate', e => {
   );
 });
 
+self.addEventListener('message', e => {
+  if (e.data === 'skip-waiting') self.skipWaiting();
+});
+
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
   if (url.origin !== location.origin) return;
+  if (e.request.method !== 'GET') return;
   e.respondWith(
-    caches.match(e.request).then(cached => {
-      const fresh = fetch(e.request).then(res => {
-        if (res.ok) caches.open(CACHE).then(c => c.put(e.request, res.clone()));
-        return res;
-      }).catch(() => cached || (e.request.mode === 'navigate' ? caches.match('./offline.html') : null));
-      return cached || fresh;
-    })
+    fetch(e.request).then(res => {
+      if (res && res.ok) {
+        const copy = res.clone();
+        caches.open(CACHE).then(c => c.put(e.request, copy));
+      }
+      return res;
+    }).catch(() =>
+      caches.match(e.request).then(cached =>
+        cached || (e.request.mode === 'navigate' ? caches.match('./offline.html') : Response.error())
+      )
+    )
   );
 });

@@ -2037,15 +2037,21 @@ document.addEventListener('touchend', function(e){
 }, {passive: false});
 
 if('serviceWorker' in navigator){
+  const hadController=!!navigator.serviceWorker.controller;
+  let refreshing=false;
+  navigator.serviceWorker.addEventListener('controllerchange',()=>{
+    if(refreshing||!hadController) return;
+    refreshing=true;
+    window.location.reload();
+  });
   window.addEventListener('load',()=>{
-    if(!('serviceWorker' in navigator)) return;
-    const hadController=!!navigator.serviceWorker.controller;
     navigator.serviceWorker.register('sw.js').then(reg=>{
+      reg.update().catch(()=>{});
+      document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') reg.update().catch(()=>{}); });
       reg.addEventListener('updatefound',()=>{
         const sw=reg.installing;
-        sw.addEventListener('statechange',()=>{
-          if(sw.state==='activated'&&hadController) window.location.reload();
-        });
+        if(!sw) return;
+        sw.addEventListener('statechange',()=>{ if(sw.state==='installed'&&navigator.serviceWorker.controller) sw.postMessage('skip-waiting'); });
       });
     }).catch(()=>{});
   });

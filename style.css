@@ -174,9 +174,6 @@ button{touch-action:manipulation}
 .progress-fill.danger{background:var(--red)}
 .forecast{font-size:12px;color:var(--text3);font-style:italic;margin-bottom:10px}
 .forecast strong{color:var(--text2);font-style:normal}
-.add-expense-btn{width:100%;padding:14px;border-radius:13px;border:none;background:var(--accent-grad);color:var(--on-accent);font-family:var(--font-body);font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;margin-top:12px;box-shadow:var(--shadow-sm);transition:transform .12s,filter .15s}
-.add-expense-btn:active{transform:scale(.98);filter:brightness(.95)}
-.add-expense-btn:active{opacity:.85}
 .share-user-btn{width:100%;padding:11px;border-radius:12px;border:1px solid var(--accent-line);background:var(--accent-soft);color:var(--accent-text);font:600 13px var(--font-body);cursor:pointer;margin-top:8px;display:flex;align-items:center;justify-content:center;gap:6px}
 .export-category-btn{width:100%;padding:9px;border-radius:10px;border:1px solid var(--border);background:transparent;color:var(--text3);font:500 12px 'DM Sans',sans-serif;cursor:pointer;margin-top:8px;display:flex;align-items:center;justify-content:center;gap:5px}
 .expense-item{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)}

@@ -800,9 +800,6 @@ function buildSlide(cat, isNow){
     </div>
     ${catExps.length?`<div class="exp-list">${expHtml}</div>`:`<div class="exp-empty"><i class="fa-regular fa-receipt" aria-hidden="true"></i><span>Nenhum gasto ${isNow?'este mês':'neste período'}.</span></div>`}
 
-    ${canEdit?`<button class="add-expense-btn" onclick="openAddExpense('${cat.id}')">
-      <i class="fa-solid fa-plus" aria-hidden="true"></i> Adicionar gasto
-    </button>`:''}
     ${isOwned?`<div class="cat-actions">
       <button class="ghost-btn" onclick="openShareCategory('${cat.id}')"><i class="fa-solid fa-user-plus" aria-hidden="true"></i> Compartilhar</button>
       <button class="ghost-btn" onclick="shareCategory('${cat.id}')"><i class="fa-solid fa-arrow-up-from-bracket" aria-hidden="true"></i> Exportar</button>
@@ -1729,8 +1726,11 @@ async function selectMonth(key){
 
 function onFab(){
   vib();
-  if(currentTab==='categorias') openAddCategory();
-  else{ if(!categories.length){ showToast('Crie uma categoria primeiro.','error'); return; } openAddExpense(categories[currentCatIdx]?.id||categories[0].id); }
+  if(currentTab==='categorias'){ openAddCategory(); return; }
+  if(!categories.length){ showToast('Crie uma categoria primeiro.','error'); return; }
+  const cat=categories[currentCatIdx]||categories[0];
+  if(cat.user_id!==currentUser.id&&sharePerm(cat.id)!=='edit'){ showToast('Esta categoria é somente leitura.','error'); return; }
+  openAddExpense(cat.id);
 }
 
 async function switchTab(tab){

@@ -1,4 +1,4 @@
-﻿const CACHE = 'gastocerto-v3.9-activity-log';
+﻿const CACHE = 'gastocerto-v3.10-activity-icon';
 const SHELL = ['./', './index.html', './offline.html', './style.css', './app.js', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {

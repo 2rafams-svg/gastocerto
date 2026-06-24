@@ -696,12 +696,18 @@ function renderFriendsModal(){
     <button class="btn-secondary" onclick="_closeModal()">Fechar</button>`;
 }
 function renderFriendsPage(el){
+  const list=friends.length
+    ? `<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:2px 16px;margin-bottom:16px;box-shadow:var(--shadow-sm)">${friendsListHtml()}</div>`
+    : `<div style="background:var(--surface);border:1px dashed var(--border);border-radius:16px;padding:26px 22px;margin-bottom:16px;text-align:center;color:var(--text3)">
+        <i class="fa-solid fa-user-group" style="font-size:24px;opacity:.5;display:block;margin-bottom:10px" aria-hidden="true"></i>
+        <div style="font-size:13px;line-height:1.5">Você ainda não adicionou amigos.<br>Adicione abaixo para compartilhar categorias, dividir gastos ou abrir um chat de gastos.</div>
+      </div>`;
   el.innerHTML=`<div class="split-wrap">
     <div class="split-intro">
       <div class="split-intro-title"><i class="fa-solid fa-user-group" aria-hidden="true"></i> Seus amigos</div>
       <p>Adicione amigos por <strong>@usuário</strong> ou e-mail para compartilhar categorias, criar grupos de divisão e abrir um <strong>chat de gastos 1 a 1</strong> (com saldo e extrato) com cada pessoa.</p>
     </div>
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:4px 16px 8px;margin-bottom:14px;box-shadow:var(--shadow-sm)">${friendsListHtml()}</div>
+    ${list}
     ${friendAddHtml()}
   </div>`;
 }

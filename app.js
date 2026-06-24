@@ -357,7 +357,6 @@ function openAccountModal(){
       <label class="switch"><input type="checkbox" id="theme-switch" ${isLight?'checked':''} onchange="toggleTheme();syncThemeRow()"><span class="switch-track"><span class="switch-thumb"></span></span></label>
     </div>
     <button class="btn-secondary" onclick="openPaywall('Planos e assinatura')"><i class="fa-solid fa-crown" aria-hidden="true"></i> Ver planos</button>
-    <button class="btn-secondary" onclick="openFriends()"><i class="fa-solid fa-user-group" aria-hidden="true"></i> Amigos</button>
     <button class="btn-secondary" onclick="openActivityLog()"><i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i> Atividades recentes</button>
     <button class="btn-secondary" onclick="_closeModal();showTutorial(true)"><i class="fa-solid fa-circle-question" aria-hidden="true"></i> Ver tutorial</button>
     ${isAdmin?`<button class="btn-secondary" style="border-color:var(--accent-line);color:var(--accent-text)" onclick="openAdminPanel()"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> Painel Admin</button>`:''}
@@ -671,8 +670,8 @@ async function openFriends(){
   try{ friends=await api.getFriends()||[]; }catch{}
   renderFriendsModal();
 }
-function renderFriendsModal(){
-  const list=friends.length?friends.map(f=>`
+function friendsListHtml(){
+  return friends.length?friends.map(f=>`
     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 0;border-bottom:1px solid var(--border)">
       <div style="min-width:0">
         <div style="font-size:14px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(friendLabel(f))}</div>
@@ -682,14 +681,33 @@ function renderFriendsModal(){
         <div class="icon-btn" style="border-color:var(--accent-line);color:var(--accent-text)" onclick="startChat('${f.id}')" title="Conversar"><i class="fa-solid fa-comment-dollar" aria-hidden="true"></i></div>
         <div class="icon-btn" style="border-color:#ff4f4f44;color:var(--red)" onclick="removeFriend('${f.id}')" title="Remover"><i class="fa-solid fa-trash" aria-hidden="true"></i></div>
       </div>
-    </div>`).join(''):`<p class="modal-note">Você ainda não adicionou amigos. Adicione alguém abaixo para selecionar rapidamente ao compartilhar categorias ou dividir gastos.</p>`;
-  document.getElementById('modal-content').innerHTML=`<div class="modal-title">Amigos</div>
-    <div style="margin-bottom:16px">${list}</div>
-    <div class="form-group"><label class="form-label">Adicionar amigo</label>
+    </div>`).join(''):`<p class="modal-note">Você ainda não adicionou amigos. Adicione alguém abaixo para compartilhar categorias, dividir gastos ou abrir um chat de gastos.</p>`;
+}
+function friendAddHtml(){
+  return `<div class="form-group"><label class="form-label">Adicionar amigo</label>
       <input class="form-input" id="f-friend-input" placeholder="@usuário ou e-mail" autocomplete="off" maxlength="80"/>
       <span class="auth-hint">Use o nome de usuário (ex: @rafael) ou o e-mail da pessoa.</span></div>
-    <button class="btn-primary" id="btn-add-friend" onclick="saveFriend()">Adicionar</button>
+    <button class="btn-primary" id="btn-add-friend" onclick="saveFriend()">Adicionar</button>`;
+}
+function renderFriendsModal(){
+  document.getElementById('modal-content').innerHTML=`<div class="modal-title">Amigos</div>
+    <div style="margin-bottom:16px">${friendsListHtml()}</div>
+    ${friendAddHtml()}
     <button class="btn-secondary" onclick="_closeModal()">Fechar</button>`;
+}
+function renderFriendsPage(el){
+  el.innerHTML=`<div class="split-wrap">
+    <div class="split-intro">
+      <div class="split-intro-title"><i class="fa-solid fa-user-group" aria-hidden="true"></i> Seus amigos</div>
+      <p>Adicione amigos por <strong>@usuário</strong> ou e-mail para compartilhar categorias, criar grupos de divisão e abrir um <strong>chat de gastos 1 a 1</strong> (com saldo e extrato) com cada pessoa.</p>
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:4px 16px 8px;margin-bottom:14px;box-shadow:var(--shadow-sm)">${friendsListHtml()}</div>
+    ${friendAddHtml()}
+  </div>`;
+}
+function friendsViewRefresh(){
+  if(document.getElementById('modal-overlay')?.classList.contains('open')&&document.getElementById('modal-content')?.querySelector('#f-friend-input')) renderFriendsModal();
+  else if(currentTab==='amigos') render();
 }
 async function saveFriend(){
   const raw=(document.getElementById('f-friend-input').value||'').trim();
@@ -705,13 +723,13 @@ async function saveFriend(){
     if(email===currentUser.email.toLowerCase()){ showToast('Esse é o seu próprio cadastro.','error'); btn.disabled=false; btn.textContent='Adicionar'; return; }
     await api.addFriend(email,username,fid);
     friends=await api.getFriends()||[];
-    renderFriendsModal();
+    friendsViewRefresh();
     showToast('Amigo adicionado!','success');
   }catch(e){ showToast('Erro ao adicionar. Verifique se a tabela friends e a função friend_lookup existem.','error'); btn.disabled=false; btn.textContent='Adicionar'; }
 }
 async function removeFriend(id){
   if(!confirm('Remover este amigo da sua lista?')) return;
-  try{ await api.deleteFriend(id); friends=friends.filter(f=>f.id!==id); renderFriendsModal(); showToast('Amigo removido.','success'); }
+  try{ await api.deleteFriend(id); friends=friends.filter(f=>f.id!==id); friendsViewRefresh(); showToast('Amigo removido.','success'); }
   catch{ showToast('Erro ao remover.','error'); }
 }
 
@@ -1004,6 +1022,7 @@ function render(){
   if(currentTab==='home') renderHome(el);
   else if(currentTab==='categorias') renderCategorias(el);
   else if(currentTab==='historico') renderHistorico(el);
+  else if(currentTab==='amigos') renderFriendsPage(el);
   else renderSplit(el);
 }
 
@@ -2376,7 +2395,7 @@ if('serviceWorker' in navigator){
     window.location.reload();
   });
   window.addEventListener('load',()=>{
-    navigator.serviceWorker.register('sw.js').then(reg=>{
+    navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).then(reg=>{
       reg.update().catch(()=>{});
       document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') reg.update().catch(()=>{}); });
       reg.addEventListener('updatefound',()=>{

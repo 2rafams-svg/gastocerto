@@ -116,7 +116,7 @@ function userTag(uid){
 async function logout(){
   const token=session?.access_token;
   if(token) fetch(`${SUPABASE_URL}/auth/v1/logout`,{method:'POST',headers:{apikey:SUPABASE_KEY,Authorization:`Bearer ${token}`}}).catch(()=>{});
-  persistSession(null); categories=[]; months=[]; expenses=[]; expenseNames=[]; acceptedShares=[]; sharedOutMap={}; pendingSplitInvites=[]; acceptedGroupIds=new Set();
+  persistSession(null); categories=[]; months=[]; expenses=[]; expenseNames=[]; acceptedShares=[]; sharedOutMap={}; pendingSplitInvites=[]; acceptedGroupIds=new Set(); friends=[];
   document.documentElement.classList.remove('gc-has-session');
   document.getElementById('app').style.display='none';
   document.getElementById('auth-screen').style.display='flex';
@@ -261,6 +261,14 @@ const api={
   deleteCategoryShare:(id)=>sbFetch(`category_shares?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
   getAcceptedShares:()=>sbFetch(`category_shares?shared_with_email=ilike.${encodeURIComponent(currentUser.email)}&status=eq.accepted`),
   getMyShares:()=>sbFetch(`category_shares?shared_by_user_id=eq.${currentUser.id}&status=eq.accepted`),
+  getFriends:()=>sbFetch(`friends?user_id=eq.${currentUser.id}&order=username.asc.nullslast`),
+  addFriend:(email,username,friendUserId)=>sbFetch('friends',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=representation'},body:JSON.stringify({user_id:currentUser.id,email,username:username||null,friend_user_id:friendUserId||null})}),
+  updateFriend:(id,d)=>sbFetch(`friends?id=eq.${id}`,{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify(d)}),
+  lookupFriend:(identifier)=>sbFetch('rpc/friend_lookup',{method:'POST',body:JSON.stringify({identifier})}),
+  deleteFriend:(id)=>sbFetch(`friends?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
+  getDmEntries:(friendId)=>sbFetch(`dm_entries?or=(and(sender_id.eq.${currentUser.id},recipient_id.eq.${friendId}),and(sender_id.eq.${friendId},recipient_id.eq.${currentUser.id}))&order=created_at.asc`),
+  insertDm:(row)=>sbFetch('dm_entries',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify({...row,sender_id:currentUser.id})}),
+  deleteDm:(id)=>sbFetch(`dm_entries?id=eq.${id}&select=id`,{method:'DELETE'}),
   getMyProfile:()=>sbFetch(`profiles?id=eq.${currentUser.id}&limit=1`).then(r=>r?.[0]||null),
   checkUsername:(u)=>sbFetch(`profiles?username=ilike.${encodeURIComponent(u)}&id=neq.${currentUser.id}&select=id&limit=1`).then(r=>r?.[0]||null),
   insertProfile:(username)=>sbFetch('profiles',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=representation'},body:JSON.stringify({id:currentUser.id,username:username.toLowerCase(),email:currentUser.email})}),
@@ -274,7 +282,7 @@ const api={
 
 let categories=[], months=[], currentMonthKey='', viewMonthKey='', expenses=[], currentTab='home', currentCatIdx=0;
 let subscription=null, userPlan='free';
-let splitGroups=[], pendingShares=[], acceptedShares=[], sharedOutMap={}, pendingSplitInvites=[], acceptedGroupIds=new Set();
+let splitGroups=[], pendingShares=[], acceptedShares=[], sharedOutMap={}, pendingSplitInvites=[], acceptedGroupIds=new Set(), friends=[];
 let myProfile=null, profilesById={};
 function resolveUserPlan(sub, now=new Date()){
   if(!sub) return 'free';
@@ -349,6 +357,7 @@ function openAccountModal(){
       <label class="switch"><input type="checkbox" id="theme-switch" ${isLight?'checked':''} onchange="toggleTheme();syncThemeRow()"><span class="switch-track"><span class="switch-thumb"></span></span></label>
     </div>
     <button class="btn-secondary" onclick="openPaywall('Planos e assinatura')"><i class="fa-solid fa-crown" aria-hidden="true"></i> Ver planos</button>
+    <button class="btn-secondary" onclick="openFriends()"><i class="fa-solid fa-user-group" aria-hidden="true"></i> Amigos</button>
     <button class="btn-secondary" onclick="openActivityLog()"><i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i> Atividades recentes</button>
     <button class="btn-secondary" onclick="_closeModal();showTutorial(true)"><i class="fa-solid fa-circle-question" aria-hidden="true"></i> Ver tutorial</button>
     ${isAdmin?`<button class="btn-secondary" style="border-color:var(--accent-line);color:var(--accent-text)" onclick="openAdminPanel()"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> Painel Admin</button>`:''}
@@ -469,14 +478,16 @@ async function init(){
     document.getElementById('current-month-label').insertAdjacentHTML('afterend','<span class="sync-dot" id="sync-dot"></span>');
   }
   try{
-    const [cats, mons, sub, adminGrants, accShares, myShares, prof] = await Promise.all([
+    const [cats, mons, sub, adminGrants, accShares, myShares, prof, frs] = await Promise.all([
       api.getCategories(), api.getMonths(), api.getSubscription(),
       api.getAdminGrant().catch(()=>[]),
       api.getAcceptedShares().catch(()=>[]),
       api.getMyShares().catch(()=>[]),
       api.getMyProfile().catch(()=>null),
+      api.getFriends().catch(()=>[]),
     ]);
     categories=cats; months=mons; subscription=sub; userPlan=resolveUserPlan(sub);
+    friends=frs||[];
     if(adminGrants?.length>0) userPlan='pro';
     if(prof) myProfile=prof;
     acceptedShares=accShares||[];
@@ -567,30 +578,27 @@ async function autoCreateRecurring(){
 function openShareCategory(catId){
   const cat=categories.find(c=>c.id===catId);if(!cat)return;
   openModal(`<div class="modal-title">Compartilhar ${escapeHtml(cat.name)}</div>
-    <p class="modal-note">O convidado verá uma notificação no app e poderá aceitar ou recusar. Nenhum e-mail é enviado.</p>
-    <div class="form-group"><label class="form-label">E-mail do convidado</label>
-      <input class="form-input" id="f-share-email" type="email" placeholder="amigo@email.com" autocomplete="off"/></div>
-    <div class="form-group"><label class="form-label">Permissão</label>
-      <select class="form-input" id="f-share-perm">
-        <option value="view">Visualizar — pode ver os gastos</option>
-        <option value="edit">Editar — pode ver e adicionar gastos</option>
-      </select></div>
-    <button class="btn-primary" id="btn-share-cat" onclick="saveShareCategory('${catId}')">Enviar convite</button>
+    <p class="modal-note">Os convidados verão uma notificação no app e poderão aceitar ou recusar. Nenhum e-mail é enviado.</p>
+    ${shareFriendRowsHtml()}
+    ${friendNote()}
+    <button class="btn-primary" id="btn-share-cat" onclick="saveShareCategory('${catId}')">Compartilhar com selecionados</button>
     <button class="btn-secondary" onclick="openManageShares('${catId}')">Ver compartilhamentos atuais</button>
     <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
 }
 
 async function saveShareCategory(catId){
   const cat=categories.find(c=>c.id===catId);if(!cat)return;
-  const email=(document.getElementById('f-share-email').value||'').trim().toLowerCase();
-  const permission=document.getElementById('f-share-perm').value;
-  if(!email||!/^\S+@\S+\.\S+$/.test(email)){showToast('Informe um e-mail válido.','error');return;}
-  if(email===currentUser.email.toLowerCase()){showToast('Você não pode compartilhar com você mesmo.','error');return;}
-  const btn=document.getElementById('btn-share-cat');btn.disabled=true;btn.textContent='Enviando...';
+  const picks=[...document.querySelectorAll('.share-friend-row')]
+    .map(r=>({email:r.querySelector('.share-friend-cb').dataset.email,checked:r.querySelector('.share-friend-cb').checked,permission:r.querySelector('.share-friend-perm').value}))
+    .filter(p=>p.checked&&p.email!==currentUser.email.toLowerCase());
+  if(!picks.length){showToast('Selecione ao menos um amigo.','error');return;}
+  const btn=document.getElementById('btn-share-cat');btn.disabled=true;btn.textContent='Compartilhando...';
   try{
-    await api.insertCategoryShare({category_id:catId,category_name:cat.name,shared_with_email:email,permission});
-    showToast('Convite enviado!','success');_closeModal();
-  }catch{showToast('Erro ao compartilhar. Verifique se a tabela category_shares existe no Supabase.','error');btn.disabled=false;btn.textContent='Enviar convite';}
+    for(const p of picks){
+      await api.insertCategoryShare({category_id:catId,category_name:cat.name,shared_with_email:p.email,permission:p.permission});
+    }
+    showToast(picks.length>1?'Convites enviados!':'Convite enviado!','success');_closeModal();
+  }catch{showToast('Erro ao compartilhar. Verifique se a tabela category_shares existe no Supabase.','error');btn.disabled=false;btn.textContent='Compartilhar com selecionados';}
 }
 
 async function openManageShares(catId){
@@ -624,6 +632,318 @@ async function removeShare(shareId,catId){
   if(!confirm('Remover este compartilhamento?'))return;
   try{await api.deleteCategoryShare(shareId);showToast('Compartilhamento removido.','success');openManageShares(catId);}
   catch{showToast('Erro ao remover.','error');}
+}
+
+function friendLabel(f){ return f.username?('@'+f.username):f.email; }
+function friendNote(){
+  return `<p class="modal-note" style="margin-top:-4px">Não encontrou quem procura? Adicione a pessoa em <b>Amigos</b> (toque no seu perfil, no topo) e ela aparecerá aqui para você selecionar.</p>`;
+}
+function friendsPickerHtml(inputId){
+  if(!friends.length) return '';
+  const chips=friends.map(f=>`<button type="button" class="friend-chip" onclick="pickFriend('${inputId}','${escapeHtml(f.email)}',this)">${escapeHtml(friendLabel(f))}</button>`).join('');
+  return `<div class="form-group"><label class="form-label">Escolha um amigo</label><div class="friend-chip-row">${chips}</div></div>`;
+}
+function pickFriend(inputId,email,btn){
+  const inp=document.getElementById(inputId);
+  if(inp) inp.value=email;
+  document.querySelectorAll('.friend-chip.active').forEach(c=>c.classList.remove('active'));
+  if(btn) btn.classList.add('active');
+  vib(5);
+}
+function friendsCheckboxHtml(){
+  if(!friends.length) return `<p class="modal-note">Você ainda não tem amigos na lista.</p>`;
+  return `<div class="form-group"><label class="form-label">Selecione os amigos</label>
+    <div class="friend-check-list">${friends.map(f=>{
+      const sub=f.username?f.email:'';
+      return `<label class="friend-check"><input type="checkbox" class="friend-check-cb" data-email="${escapeHtml(f.email)}"/><span class="friend-check-main">${escapeHtml(friendLabel(f))}${sub?`<span class="friend-check-sub">${escapeHtml(sub)}</span>`:''}</span></label>`;
+    }).join('')}</div></div>`;
+}
+function shareFriendRowsHtml(){
+  if(!friends.length) return `<p class="modal-note">Você ainda não tem amigos na lista.</p>`;
+  return `<div class="form-group"><label class="form-label">Selecione e defina a permissão</label>
+    <div class="friend-check-list">${friends.map(f=>`<div class="share-friend-row">
+      <label class="friend-check" style="flex:1"><input type="checkbox" class="share-friend-cb" data-email="${escapeHtml(f.email)}"/><span class="friend-check-main">${escapeHtml(friendLabel(f))}</span></label>
+      <select class="share-friend-perm" aria-label="Permissão"><option value="view">Ver</option><option value="edit">Editar</option></select>
+    </div>`).join('')}</div></div>`;
+}
+async function openFriends(){
+  openModal(`<div class="modal-title">Amigos</div><div class="loading"><div class="spinner"></div></div>`);
+  try{ friends=await api.getFriends()||[]; }catch{}
+  renderFriendsModal();
+}
+function renderFriendsModal(){
+  const list=friends.length?friends.map(f=>`
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 0;border-bottom:1px solid var(--border)">
+      <div style="min-width:0">
+        <div style="font-size:14px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(friendLabel(f))}</div>
+        ${f.username?`<div style="font-size:12px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(f.email)}</div>`:''}
+      </div>
+      <div style="display:flex;gap:8px;flex-shrink:0">
+        <div class="icon-btn" style="border-color:var(--accent-line);color:var(--accent-text)" onclick="startChat('${f.id}')" title="Conversar"><i class="fa-solid fa-comment-dollar" aria-hidden="true"></i></div>
+        <div class="icon-btn" style="border-color:#ff4f4f44;color:var(--red)" onclick="removeFriend('${f.id}')" title="Remover"><i class="fa-solid fa-trash" aria-hidden="true"></i></div>
+      </div>
+    </div>`).join(''):`<p class="modal-note">Você ainda não adicionou amigos. Adicione alguém abaixo para selecionar rapidamente ao compartilhar categorias ou dividir gastos.</p>`;
+  document.getElementById('modal-content').innerHTML=`<div class="modal-title">Amigos</div>
+    <div style="margin-bottom:16px">${list}</div>
+    <div class="form-group"><label class="form-label">Adicionar amigo</label>
+      <input class="form-input" id="f-friend-input" placeholder="@usuário ou e-mail" autocomplete="off" maxlength="80"/>
+      <span class="auth-hint">Use o nome de usuário (ex: @rafael) ou o e-mail da pessoa.</span></div>
+    <button class="btn-primary" id="btn-add-friend" onclick="saveFriend()">Adicionar</button>
+    <button class="btn-secondary" onclick="_closeModal()">Fechar</button>`;
+}
+async function saveFriend(){
+  const raw=(document.getElementById('f-friend-input').value||'').trim();
+  if(!raw){ showToast('Informe um @usuário ou e-mail.','error'); return; }
+  const btn=document.getElementById('btn-add-friend'); btn.disabled=true; btn.textContent='Adicionando...';
+  try{
+    const isEmail=/^\S+@\S+\.\S+$/.test(raw);
+    const found=await api.lookupFriend(raw).catch(()=>[]);
+    let email=null, username=null, fid=null;
+    if(found&&found.length){ email=found[0].email; username=found[0].username; fid=found[0].id; }
+    else if(isEmail){ email=raw.toLowerCase(); }
+    else { showToast('Usuário não encontrado. Tente pelo e-mail.','error'); btn.disabled=false; btn.textContent='Adicionar'; return; }
+    if(email===currentUser.email.toLowerCase()){ showToast('Esse é o seu próprio cadastro.','error'); btn.disabled=false; btn.textContent='Adicionar'; return; }
+    await api.addFriend(email,username,fid);
+    friends=await api.getFriends()||[];
+    renderFriendsModal();
+    showToast('Amigo adicionado!','success');
+  }catch(e){ showToast('Erro ao adicionar. Verifique se a tabela friends e a função friend_lookup existem.','error'); btn.disabled=false; btn.textContent='Adicionar'; }
+}
+async function removeFriend(id){
+  if(!confirm('Remover este amigo da sua lista?')) return;
+  try{ await api.deleteFriend(id); friends=friends.filter(f=>f.id!==id); renderFriendsModal(); showToast('Amigo removido.','success'); }
+  catch{ showToast('Erro ao remover.','error'); }
+}
+
+async function startChat(friendRowId){
+  const f=friends.find(x=>x.id===friendRowId); if(!f) return;
+  let uid=f.friend_user_id;
+  if(!uid){
+    const found=await api.lookupFriend(f.email).catch(()=>[]);
+    if(found&&found.length){ uid=found[0].id; f.friend_user_id=uid; api.updateFriend(f.id,{friend_user_id:uid}).catch(()=>{}); }
+  }
+  if(!uid){ showToast(`${friendLabel(f)} ainda não tem conta no GastoCerto — não dá para conversar.`,'error'); return; }
+  if(uid===currentUser.id){ showToast('Esse é você mesmo.','error'); return; }
+  openChat(uid,friendLabel(f));
+}
+function dmBalance(entries,me){
+  let bal=0;
+  for(const e of entries){
+    if(e.type==='expense'){
+      const myShare=(e.sender_id===me)?Number(e.share_sender||0):Number(e.share_recipient||0);
+      const myPaid=(e.payer_id===me)?Number(e.amount||0):0;
+      bal+=myPaid-myShare;
+    }else if(e.type==='payment'){
+      bal+=(e.payer_id===me)?Number(e.amount||0):-Number(e.amount||0);
+    }
+  }
+  return Math.round(bal*100)/100;
+}
+function dmBalanceText(bal,label){
+  if(Math.abs(bal)<0.005) return {cls:'zero',txt:'Vocês estão quites'};
+  if(bal>0) return {cls:'pos',txt:`${label} te deve ${brl(bal)}`};
+  return {cls:'neg',txt:`Você deve ${brl(Math.abs(bal))} a ${label}`};
+}
+function chatEntryHtml(e,me,label,friendId){
+  const mine=e.sender_id===me;
+  const time=new Date(e.created_at).toLocaleString('pt-BR',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
+  const del=mine?`<button class="dm-del" onclick="deleteDmEntry('${e.id}','${friendId}','${escapeHtml(label)}')" aria-label="Excluir lançamento"><i class="fa-solid fa-trash" aria-hidden="true"></i></button>`:'';
+  if(e.type==='message'){
+    return `<div class="dm-row ${mine?'me':'them'}"><div class="dm-bubble">${escapeHtml(e.text||'')}<span class="dm-time">${time}</span></div></div>`;
+  }
+  if(e.type==='expense'){
+    const myShare=mine?Number(e.share_sender||0):Number(e.share_recipient||0);
+    const friendShare=mine?Number(e.share_recipient||0):Number(e.share_sender||0);
+    const payerName=e.payer_id===me?'Você':escapeHtml(label);
+    return `<div class="dm-row ${mine?'me':'them'}"><div class="dm-card expense">
+      ${del}
+      <div class="dm-card-top"><i class="fa-solid fa-receipt" aria-hidden="true"></i> ${e.text?escapeHtml(e.text):'Gasto'}</div>
+      <div class="dm-card-amount">${brl(e.amount)}</div>
+      <div class="dm-card-meta">${payerName} pagou · sua parte ${brl(myShare)} · ${escapeHtml(label)} ${brl(friendShare)}</div>
+      <span class="dm-time">${time}</span>
+    </div></div>`;
+  }
+  if(e.type==='payment'){
+    const fromName=e.payer_id===me?'Você':escapeHtml(label);
+    const toName=e.payer_id===me?escapeHtml(label):'Você';
+    return `<div class="dm-row ${mine?'me':'them'}"><div class="dm-card payment">
+      ${del}
+      <div class="dm-card-top"><i class="fa-solid fa-money-bill-transfer" aria-hidden="true"></i> Pagamento</div>
+      <div class="dm-card-amount">${brl(e.amount)}</div>
+      <div class="dm-card-meta">${fromName} <i class="fa-solid fa-arrow-right" style="font-size:10px"></i> ${toName}</div>
+      <span class="dm-time">${time}</span>
+    </div></div>`;
+  }
+  return '';
+}
+async function deleteDmEntry(id,friendId,label){
+  if(!confirm('Excluir este lançamento? O saldo será recalculado.')) return;
+  try{
+    const res=await api.deleteDm(id);
+    if(!res||!res.length){ showToast('Você só pode excluir lançamentos que registrou.','error'); return; }
+  }catch{ showToast('Erro ao excluir.','error'); return; }
+  vib(8);
+  await loadChat(friendId,label);
+}
+function openChat(friendId,label){
+  document.getElementById('dm-chat')?.remove();
+  const safe=escapeHtml(label);
+  const ov=document.createElement('div');
+  ov.id='dm-chat'; ov.className='dm-overlay';
+  ov.innerHTML=`<div class="dm-header">
+      <button class="dm-back" onclick="closeChat()" aria-label="Voltar"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i></button>
+      <div class="dm-head-info"><div class="dm-head-name">${safe}</div><div class="dm-head-bal" id="dm-bal">…</div></div>
+    </div>
+    <div class="dm-body" id="dm-body"><div class="loading"><div class="spinner"></div></div></div>
+    <div class="dm-inputbar">
+      <button class="dm-add" onclick="dmMenu('${friendId}','${safe}')" aria-label="Registrar gasto ou pagamento"><i class="fa-solid fa-plus" aria-hidden="true"></i></button>
+      <input id="dm-input" class="dm-text" placeholder="Mensagem…" autocomplete="off" onkeydown="if(event.key==='Enter')sendChatMessage('${friendId}','${safe}')"/>
+      <button class="dm-send" onclick="sendChatMessage('${friendId}','${safe}')" aria-label="Enviar"><i class="fa-solid fa-paper-plane" aria-hidden="true"></i></button>
+    </div>`;
+  document.body.appendChild(ov);
+  loadChat(friendId,label);
+}
+let _dmPoll=null, _dmSig='';
+function dmSignature(entries){ return entries.length+':'+(entries.length?entries[entries.length-1].id:'')+':'+entries.reduce((s,e)=>s+(e.type==='message'?0:Number(e.amount||0)),0); }
+function renderChatBody(entries,friendId,label,forceScroll){
+  const me=currentUser.id;
+  const body=document.getElementById('dm-body'); if(!body) return;
+  const nearBottom=body.scrollHeight-body.scrollTop-body.clientHeight<90;
+  body.innerHTML=entries.length?entries.map(e=>chatEntryHtml(e,me,label,friendId)).join(''):`<div class="dm-empty">Comece a conversar, registre um gasto para dividir ou um pagamento com <b>${escapeHtml(label)}</b>.</div>`;
+  const bt=dmBalanceText(dmBalance(entries,me),label);
+  const be=document.getElementById('dm-bal'); if(be){ be.textContent=bt.txt; be.className='dm-head-bal '+bt.cls; }
+  if(forceScroll||nearBottom) body.scrollTop=body.scrollHeight;
+}
+async function loadChat(friendId,label){
+  let entries=[];
+  try{ entries=await api.getDmEntries(friendId)||[]; }
+  catch{ const b=document.getElementById('dm-body'); if(b) b.innerHTML=`<div class="dm-empty">Não foi possível carregar. Verifique se a tabela dm_entries existe no Supabase.</div>`; return; }
+  _dmSig=dmSignature(entries);
+  renderChatBody(entries,friendId,label,true);
+  startDmPolling(friendId,label);
+}
+async function refreshChat(friendId,label){
+  if(document.hidden||document.getElementById('dm-sheet')||!document.getElementById('dm-chat')) return;
+  let entries;
+  try{ entries=await api.getDmEntries(friendId)||[]; }catch{ return; }
+  const sig=dmSignature(entries);
+  if(sig===_dmSig) return;
+  _dmSig=sig;
+  renderChatBody(entries,friendId,label,false);
+}
+function startDmPolling(friendId,label){ stopDmPolling(); _dmPoll=setInterval(()=>refreshChat(friendId,label),5000); }
+function stopDmPolling(){ if(_dmPoll){ clearInterval(_dmPoll); _dmPoll=null; } }
+function closeChat(){ stopDmPolling(); closeDmSheet(); document.getElementById('dm-chat')?.remove(); }
+async function sendChatMessage(friendId,label){
+  const inp=document.getElementById('dm-input'); if(!inp) return;
+  const text=(inp.value||'').trim(); if(!text) return;
+  inp.value='';
+  try{ await api.insertDm({recipient_id:friendId,type:'message',text}); }
+  catch{ showToast('Erro ao enviar mensagem.','error'); }
+  await loadChat(friendId,label);
+}
+function dmSheet(html){
+  closeDmSheet();
+  const ov=document.createElement('div');
+  ov.id='dm-sheet'; ov.className='dm-sheet-overlay';
+  ov.onclick=e=>{ if(e.target===ov) closeDmSheet(); };
+  ov.innerHTML=`<div class="dm-sheet"><div class="modal-handle"></div>${html}</div>`;
+  document.body.appendChild(ov);
+  requestAnimationFrame(()=>ov.classList.add('open'));
+}
+function closeDmSheet(){ document.getElementById('dm-sheet')?.remove(); }
+function dmMenu(friendId,label){
+  dmSheet(`<div class="modal-title">O que deseja registrar?</div>
+    <button class="btn-secondary" style="justify-content:flex-start;gap:10px" onclick="openDmExpenseForm('${friendId}','${escapeHtml(label)}')"><i class="fa-solid fa-receipt" style="color:var(--accent-text)"></i> Um gasto para dividir</button>
+    <button class="btn-secondary" style="justify-content:flex-start;gap:10px" onclick="openDmPaymentForm('${friendId}','${escapeHtml(label)}')"><i class="fa-solid fa-money-bill-transfer" style="color:var(--amber-text)"></i> Um pagamento feito</button>
+    <button class="btn-secondary" onclick="closeDmSheet()">Cancelar</button>`);
+}
+function dmSeg(btn){ [...btn.parentElement.children].forEach(b=>b.classList.remove('active')); btn.classList.add('active'); }
+function dmSegVal(id){ const el=document.querySelector('#'+id+' .dm-seg-btn.active'); return el?el.dataset.v:null; }
+function dmSplitMode(mode){
+  const c=document.getElementById('dm-custom'); if(!c) return;
+  if(mode==='custom'){
+    c.hidden=false;
+    const total=parseFloat(document.getElementById('dm-exp-amount').value)||0;
+    const half=Math.round(total/2*100)/100;
+    document.getElementById('dm-share-me').value=total?half:'';
+    document.getElementById('dm-share-friend').value=total?Math.round((total-half)*100)/100:'';
+    dmSplitHint();
+  }else{ c.hidden=true; }
+}
+function dmCustomFill(other){
+  const total=parseFloat(document.getElementById('dm-exp-amount').value)||0;
+  if(total){
+    if(other==='friend'){ const me=parseFloat(document.getElementById('dm-share-me').value)||0; document.getElementById('dm-share-friend').value=Math.round((total-me)*100)/100; }
+    else{ const fr=parseFloat(document.getElementById('dm-share-friend').value)||0; document.getElementById('dm-share-me').value=Math.round((total-fr)*100)/100; }
+  }
+  dmSplitHint();
+}
+function dmSplitHint(){
+  const h=document.getElementById('dm-split-hint'); if(!h) return;
+  const total=parseFloat(document.getElementById('dm-exp-amount').value)||0;
+  const me=parseFloat(document.getElementById('dm-share-me').value)||0;
+  const fr=parseFloat(document.getElementById('dm-share-friend').value)||0;
+  const sum=Math.round((me+fr)*100)/100;
+  if(Math.abs(sum-total)<0.01){ h.textContent='Soma confere ✓'; h.style.color='var(--accent-text)'; }
+  else{ h.textContent=`Soma ${brl(sum)} de ${brl(total)}`; h.style.color='var(--red)'; }
+}
+function dmSplitRecalc(){ const c=document.getElementById('dm-custom'); if(c&&!c.hidden) dmSplitMode('custom'); }
+function openDmExpenseForm(friendId,label){
+  const safe=escapeHtml(label);
+  dmSheet(`<div class="modal-title">Registrar gasto</div>
+    <div class="form-group"><label class="form-label">Descrição</label><input class="form-input" id="dm-exp-desc" placeholder="Ex: Jantar, Uber…" maxlength="80" autocomplete="off"/></div>
+    <div class="form-group"><label class="form-label">Valor total (R$)</label><input class="form-input" id="dm-exp-amount" type="number" inputmode="decimal" step="0.01" placeholder="0,00" oninput="dmSplitRecalc()"/></div>
+    <div class="form-group"><label class="form-label">Quem pagou?</label>
+      <div class="dm-seg" id="dm-payer"><button type="button" class="dm-seg-btn active" data-v="me" onclick="dmSeg(this)">Você</button><button type="button" class="dm-seg-btn" data-v="friend" onclick="dmSeg(this)">${safe}</button></div></div>
+    <div class="form-group"><label class="form-label">Como dividir?</label>
+      <div class="dm-seg" id="dm-split"><button type="button" class="dm-seg-btn active" data-v="half" onclick="dmSeg(this);dmSplitMode('half')">50 / 50</button><button type="button" class="dm-seg-btn" data-v="custom" onclick="dmSeg(this);dmSplitMode('custom')">Personalizado</button></div></div>
+    <div id="dm-custom" hidden>
+      <div class="dm-split-row"><span>Sua parte</span><input class="form-input dm-share" id="dm-share-me" type="number" inputmode="decimal" step="0.01" placeholder="0,00" oninput="dmCustomFill('friend')"/></div>
+      <div class="dm-split-row"><span>${safe}</span><input class="form-input dm-share" id="dm-share-friend" type="number" inputmode="decimal" step="0.01" placeholder="0,00" oninput="dmCustomFill('me')"/></div>
+      <div class="dm-split-hint" id="dm-split-hint"></div>
+    </div>
+    <button class="btn-primary" id="dm-exp-save" onclick="saveDmExpense('${friendId}','${safe}')">Salvar gasto</button>
+    <button class="btn-secondary" onclick="closeDmSheet()">Cancelar</button>`);
+}
+async function saveDmExpense(friendId,label){
+  const amount=Math.round((parseFloat(document.getElementById('dm-exp-amount').value)||0)*100)/100;
+  const desc=(document.getElementById('dm-exp-desc').value||'').trim();
+  if(!(amount>0)){ showToast('Informe um valor válido.','error'); return; }
+  const payer=dmSegVal('dm-payer');
+  const mode=dmSegVal('dm-split');
+  let shareMe,shareFriend;
+  if(mode==='custom'){
+    shareMe=Math.round((parseFloat(document.getElementById('dm-share-me').value)||0)*100)/100;
+    shareFriend=Math.round((parseFloat(document.getElementById('dm-share-friend').value)||0)*100)/100;
+    if(Math.abs((shareMe+shareFriend)-amount)>0.02){ showToast('A soma das partes deve ser igual ao total.','error'); return; }
+  }else{ shareMe=Math.round(amount/2*100)/100; shareFriend=Math.round((amount-shareMe)*100)/100; }
+  const payer_id=payer==='me'?currentUser.id:friendId;
+  const btn=document.getElementById('dm-exp-save'); btn.disabled=true; btn.textContent='Salvando...';
+  try{
+    await api.insertDm({recipient_id:friendId,type:'expense',amount,payer_id,share_sender:shareMe,share_recipient:shareFriend,text:desc||null});
+    closeDmSheet(); vib(12); await loadChat(friendId,label);
+  }catch{ showToast('Erro ao salvar gasto. Verifique a tabela dm_entries.','error'); btn.disabled=false; btn.textContent='Salvar gasto'; }
+}
+function openDmPaymentForm(friendId,label){
+  const safe=escapeHtml(label);
+  dmSheet(`<div class="modal-title">Registrar pagamento</div>
+    <p class="modal-note">Use quando alguém paga o outro para acertar o saldo.</p>
+    <div class="form-group"><label class="form-label">Quem pagou?</label>
+      <div class="dm-seg dm-seg-col" id="dm-pay-dir"><button type="button" class="dm-seg-btn active" data-v="me" onclick="dmSeg(this)">Você pagou ${safe}</button><button type="button" class="dm-seg-btn" data-v="friend" onclick="dmSeg(this)">${safe} pagou você</button></div></div>
+    <div class="form-group"><label class="form-label">Valor (R$)</label><input class="form-input" id="dm-pay-amount" type="number" inputmode="decimal" step="0.01" placeholder="0,00"/></div>
+    <button class="btn-primary" id="dm-pay-save" onclick="saveDmPayment('${friendId}','${safe}')">Registrar pagamento</button>
+    <button class="btn-secondary" onclick="closeDmSheet()">Cancelar</button>`);
+}
+async function saveDmPayment(friendId,label){
+  const amount=Math.round((parseFloat(document.getElementById('dm-pay-amount').value)||0)*100)/100;
+  if(!(amount>0)){ showToast('Informe um valor válido.','error'); return; }
+  const payer_id=dmSegVal('dm-pay-dir')==='me'?currentUser.id:friendId;
+  const btn=document.getElementById('dm-pay-save'); btn.disabled=true; btn.textContent='Registrando...';
+  try{
+    await api.insertDm({recipient_id:friendId,type:'payment',amount,payer_id});
+    closeDmSheet(); vib(12); await loadChat(friendId,label);
+  }catch{ showToast('Erro ao registrar pagamento.','error'); btn.disabled=false; btn.textContent='Registrar pagamento'; }
 }
 
 async function respondToShare(shareId,accept){
@@ -754,7 +1074,7 @@ function buildSlide(cat, isNow){
   const expHtml=catExps.map(e=>{
     const byOther=e.user_id&&e.user_id!==currentUser.id;
     const tag=byOther?userTag(e.user_id):null;
-    const byLabel=byOther?`<span style="font-size:10px;color:var(--accent-text);background:var(--accent-soft);border-radius:100px;padding:1px 7px;margin-left:5px">por ${escapeHtml(tag||'parceiro')}</span>`:'';
+    const byLabel=byOther?`<span style="font-size:10px;color:var(--accent-text);background:var(--accent-soft);border-radius:100px;padding:1px 7px;margin-left:5px;white-space:nowrap;display:inline-block">por ${escapeHtml(tag||'parceiro')}</span>`:'';
     const actions=canEdit?`<div class="expense-actions">
         <div class="exp-btn" onclick="openEditExpense('${e.id}')"><i class="fa-solid fa-pen" aria-label="Editar"></i></div>
         <div class="exp-btn" style="border-color:var(--red-soft);color:var(--red)" onclick="confirmDeleteExpense('${e.id}')"><i class="fa-solid fa-trash" aria-label="Excluir"></i></div>
@@ -1051,17 +1371,26 @@ async function renderSplit(el){
   const create=isPro()?`<button class="btn-primary" onclick="openCreateSplitGroup()" style="margin-bottom:14px">Novo grupo</button>`:`${lockedCard('Criar divisões de gastos','Usuários do plano gratuito podem consultar convites, mas a criação é Pro.')}`;
   const pendingCount=pendingSplitInvites.length;
   const pendingBadge=pendingCount>0?`<div style="background:var(--accent-soft);border:1px solid var(--accent-line);border-radius:12px;padding:12px 14px;margin-bottom:12px;font-size:13px;color:var(--accent-text)"><i class="fa-solid fa-bell" style="margin-right:8px" aria-hidden="true"></i>Você tem <strong>${pendingCount}</strong> convite${pendingCount>1?'s':''} pendente${pendingCount>1?'s':''} — veja na aba <strong>Início</strong></div>`:'';
-  el.innerHTML=`<div class="split-wrap">${create}${pendingBadge}${visibleGroups.map(g=>`<div class="split-group" onclick="openSplitGroup('${g.id}')"><div class="split-group-main"><div class="split-group-title">${escapeHtml(g.name)}</div><div class="split-group-meta">${g.created_by===currentUser.id?'Criado por você':'Você foi convidado'}</div></div><i class="fa-solid fa-chevron-right split-group-chev" aria-hidden="true"></i></div>`).join('')||'<div class="empty"><div class="empty-icon"><i class="fa-solid fa-user-group"></i></div><div class="empty-text">Nenhuma divisão ainda.</div></div>'}</div>`;
+  const intro=`<div class="split-intro">
+    <div class="split-intro-title"><i class="fa-solid fa-user-group" aria-hidden="true"></i> Divida gastos em grupo</div>
+    <p>Crie um grupo para dividir despesas entre <strong>três ou mais pessoas</strong> — perfeito para viagens, repúblicas ou aquele rolê em turma. Todo mundo vê os lançamentos e o app calcula automaticamente quem deve para quem.</p>
+    <p class="split-intro-tip">Para acertar contas com <strong>uma pessoa só</strong>, use o chat em <strong>Amigos</strong> (toque no seu perfil, no topo).</p>
+  </div>`;
+  el.innerHTML=`<div class="split-wrap">${intro}${create}${pendingBadge}${visibleGroups.map(g=>`<div class="split-group" onclick="openSplitGroup('${g.id}')"><div class="split-group-main"><div class="split-group-title">${escapeHtml(g.name)}</div><div class="split-group-meta">${g.created_by===currentUser.id?'Criado por você':'Você foi convidado'}</div></div><i class="fa-solid fa-chevron-right split-group-chev" aria-hidden="true"></i></div>`).join('')||'<div class="empty"><div class="empty-icon"><i class="fa-solid fa-user-group"></i></div><div class="empty-text">Nenhuma divisão ainda.</div></div>'}</div>`;
 }
 function openCreateSplitGroup(){
   if(!isPro()){openPaywall('Criar divisões de gastos');return;}
-  openModal(`<div class="modal-title">Novo grupo</div><div class="form-group"><label class="form-label">Nome</label><input class="form-input" id="f-split-name" placeholder="Ex: Viagem para Paraty" maxlength="100"></div><div class="form-group"><label class="form-label">Convidados por e-mail</label><textarea class="form-input" id="f-split-emails" rows="4" placeholder="amigo@email.com, outra@email.com"></textarea></div><button class="btn-primary" id="btn-split-group" onclick="saveSplitGroup()">Criar grupo</button><button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
+  openModal(`<div class="modal-title">Novo grupo</div>
+    <div class="form-group"><label class="form-label">Nome</label><input class="form-input" id="f-split-name" placeholder="Ex: Viagem para Paraty" maxlength="100"></div>
+    ${friendsCheckboxHtml()}
+    ${friendNote()}
+    <button class="btn-primary" id="btn-split-group" onclick="saveSplitGroup()">Criar grupo</button>
+    <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
 }
 async function saveSplitGroup(){
   const name=document.getElementById('f-split-name').value.trim();
-  const emails=[...new Set(document.getElementById('f-split-emails').value.split(/[\s,;]+/).map(x=>x.trim().toLowerCase()).filter(Boolean))];
+  const emails=[...new Set([...document.querySelectorAll('.friend-check-cb')].filter(cb=>cb.checked).map(cb=>cb.dataset.email))];
   if(!name){showToast('Informe o nome do grupo.','error');return;}
-  if(emails.some(e=>!/^\S+@\S+\.\S+$/.test(e))){showToast('Confira os e-mails informados.','error');return;}
   const btn=document.getElementById('btn-split-group');btn.disabled=true;btn.textContent='Criando...';
   try{
     const rows=await api.insertSplitGroup(name);
@@ -1323,8 +1652,10 @@ async function deleteSplitPayment(paymentId,groupId){
 
 function openAddSplitMember(groupId){
   openModal(`<div class="modal-title">Convidar membro</div>
+    ${friendsPickerHtml('f-split-invite')}
     <div class="form-group"><label class="form-label">E-mail do convidado</label>
       <input class="form-input" id="f-split-invite" type="email" placeholder="amigo@email.com" autocomplete="off"/></div>
+    ${friendNote()}
     <button class="btn-primary" id="btn-split-invite" onclick="saveAddSplitMember('${groupId}')">Enviar convite</button>
     <button class="btn-secondary" onclick="openSplitGroup('${groupId}')">Cancelar</button>`);
 }

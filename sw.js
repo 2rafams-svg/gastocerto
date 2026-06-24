@@ -1,4 +1,4 @@
-const CACHE = 'gastocerto-v3.16-nav-flow';
+const CACHE = 'gastocerto-v3.20-dm-realtime';
 const SHELL = ['./', './index.html', './offline.html', './style.css', './app.js', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {

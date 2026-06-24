@@ -1,5 +1,5 @@
-const CACHE = 'gastocerto-v3.24-app-anchor';
-const SHELL = ['./', './index.html', './offline.html', './style.css?v=3.24', './app.js?v=3.24', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
+const CACHE = 'gastocerto-v3.26-restore-fill';
+const SHELL = ['./', './index.html', './offline.html', './style.css?v=3.26', './app.js?v=3.26', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));

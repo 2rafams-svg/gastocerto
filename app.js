@@ -15,7 +15,7 @@ function syncThemeRow(){
   if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
-const APP_VERSION = '3.24';
+const APP_VERSION = '3.26';
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
 const CORRECT_PIN = () => String(new Date().getFullYear());
@@ -358,7 +358,6 @@ function openAccountModal(){
       <label class="switch"><input type="checkbox" id="theme-switch" ${isLight?'checked':''} onchange="toggleTheme();syncThemeRow()"><span class="switch-track"><span class="switch-thumb"></span></span></label>
     </div>
     <button class="btn-secondary" onclick="openPaywall('Planos e assinatura')"><i class="fa-solid fa-crown" aria-hidden="true"></i> Ver planos</button>
-    <button class="btn-secondary" onclick="openActivityLog()"><i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i> Atividades recentes</button>
     <button class="btn-secondary" onclick="_closeModal();showTutorial(true)"><i class="fa-solid fa-circle-question" aria-hidden="true"></i> Ver tutorial</button>
     ${isAdmin?`<button class="btn-secondary" style="border-color:var(--accent-line);color:var(--accent-text)" onclick="openAdminPanel()"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> Painel Admin</button>`:''}
     <button class="btn-secondary" onclick="logout()"><i class="fa-solid fa-right-from-bracket" aria-hidden="true"></i> Sair da conta</button>
@@ -1288,7 +1287,7 @@ function renderHistorico(el){
     const totalBudget=categories.reduce((s,c)=>s+effBudget(c,currentMonthKey),0);
     const totalAvail=totalBudget-current;
     const totalPct=totalBudget>0?Math.min((current/totalBudget)*100,100):0;
-    el.innerHTML=`<div style="padding:16px 20px 22px">
+    el.innerHTML=`<div style="padding:16px 20px calc(72px + var(--safe-bot))">
       <div class="month-title">${monthLabel(currentMonthKey)}</div>
       <div class="summary-card" style="margin:0 0 12px">
         <div class="summary-grid">
@@ -1302,7 +1301,7 @@ function renderHistorico(el){
     </div>`;
     return;
   }
-  el.innerHTML=`<div style="padding:16px 20px 22px"><div class="loading"><div class="spinner"></div>Carregando...</div></div>`;
+  el.innerHTML=`<div style="padding:16px 20px calc(72px + var(--safe-bot))"><div class="loading"><div class="spinner"></div>Carregando...</div></div>`;
   renderHistoricoAsync(el);
 }
 async function renderHistoricoAsync(el){
@@ -1383,7 +1382,7 @@ async function renderHistoricoAsync(el){
     });
     html+=`</div>`;
   }
-  el.innerHTML=`<div style="padding:16px 20px 22px">${html||'<div class="empty"><div class="empty-icon"><i class="fa-regular fa-calendar-xmark"></i></div><div class="empty-text">Nenhum gasto registrado ainda.</div></div>'}</div>`;
+  el.innerHTML=`<div style="padding:16px 20px calc(72px + var(--safe-bot))">${html||'<div class="empty"><div class="empty-icon"><i class="fa-regular fa-calendar-xmark"></i></div><div class="empty-text">Nenhum gasto registrado ainda.</div></div>'}</div>`;
 }
 
 async function renderSplit(el){
@@ -2276,6 +2275,8 @@ function showToast(msg,type=''){
 }
 
 const TUTORIAL_KEY = 'gc-tutorial-v1';
+const tutNav=(tab)=>document.querySelector(`.nav-item[data-tab="${tab}"]`);
+const tutGo=(tab)=>{ const t=tutNav(tab); if(t) t.click(); };
 const TUTORIAL_STEPS = [
   {
     title: 'Bem-vindo ao GastoCerto!',
@@ -2284,36 +2285,43 @@ const TUTORIAL_STEPS = [
   },
   {
     title: 'Início — seus gastos do mês',
-    body: 'Aqui ficam suas categorias em carrossel. Deslize para navegar entre elas e veja quanto gastou em cada uma.',
-    target: ()=>document.querySelector('.tab.active'),
+    body: 'Suas categorias aparecem em carrossel. Deslize para o lado para navegar entre elas e acompanhe quanto já gastou e quanto ainda tem disponível em cada uma.',
+    target: ()=>tutNav('home'),
+    action: ()=>tutGo('home'),
   },
   {
     title: 'Categorias',
-    body: 'Crie categorias como "Alimentação", "Academia" ou "Aluguel". Cada uma tem um orçamento mensal. Arraste para reordenar.',
-    target: ()=>document.querySelectorAll('.tab')[1],
-    action: ()=>{ const t=document.querySelectorAll('.tab')[1]; if(t) t.click(); },
+    body: 'Crie categorias como "Mercado", "Academia" ou "Aluguel", cada uma com seu orçamento mensal. Arraste para reordenar e toque para definir o limite.',
+    target: ()=>tutNav('categorias'),
+    action: ()=>tutGo('categorias'),
   },
   {
     title: 'Histórico',
-    body: 'Veja gráficos, badges e comparativos dos últimos meses. Disponível no plano Pro.',
-    target: ()=>document.querySelectorAll('.tab')[2],
-    action: ()=>{ const t=document.querySelectorAll('.tab')[2]; if(t) t.click(); },
+    body: 'Veja gráficos, comparativos e o consolidado dos meses anteriores para entender para onde vai o seu dinheiro.',
+    target: ()=>tutNav('historico'),
+    action: ()=>tutGo('historico'),
   },
   {
-    title: 'Grupos de divisão',
-    body: 'Divida despesas com amigos ou família. Crie um grupo, adicione participantes e registre o que cada um deve.',
-    target: ()=>document.querySelectorAll('.tab')[3],
-    action: ()=>{ const t=document.querySelectorAll('.tab')[3]; if(t) t.click(); },
+    title: 'Amigos',
+    body: 'Adicione pessoas por @usuário ou e-mail. Com um amigo você pode: compartilhar categorias (ver ou editar juntos) e abrir um chat de gastos 1 a 1 — registrando despesas com divisão (50/50 ou personalizada) e pagamentos. O app mostra o saldo (quem deve a quem) e o extrato de tudo.',
+    target: ()=>tutNav('amigos'),
+    action: ()=>tutGo('amigos'),
+  },
+  {
+    title: 'Divisão em grupo',
+    body: 'Para rachar despesas entre três ou mais pessoas (viagens, repúblicas, rolês), crie um grupo, selecione os amigos e lance os gastos. O app calcula automaticamente quem deve quanto para quem.',
+    target: ()=>tutNav('divisao'),
+    action: ()=>tutGo('divisao'),
   },
   {
     title: 'Botão de ação rápida',
-    body: 'O botão verde no canto adiciona gastos ou categorias dependendo da aba que você está.',
+    body: 'O botão verde no canto adiciona um gasto (no Início) ou uma categoria (em Categorias), conforme a aba em que você está.',
     target: ()=>document.getElementById('fab'),
-    action: ()=>{ const t=document.querySelectorAll('.tab')[0]; if(t) t.click(); },
+    action: ()=>tutGo('home'),
   },
   {
     title: 'Tudo pronto!',
-    body: 'Crie sua primeira categoria para começar a registrar seus gastos. Qualquer dúvida, acesse sua conta pelo botão no topo.',
+    body: 'Comece criando uma categoria e registrando seus gastos. Para rever este tutorial, é só acessar sua conta pelo ícone no topo.',
     target: null,
   },
 ];

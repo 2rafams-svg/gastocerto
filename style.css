@@ -80,7 +80,7 @@ button{touch-action:manipulation}
 .pin-key.del{font-size:18px;color:var(--text2)}
 .pin-key.empty{border:none;background:transparent;pointer-events:none}
 .pin-error-msg{margin-top:20px;font-size:13px;color:var(--red);min-height:20px;text-align:center}
-#app{position:fixed;inset:0;max-width:430px;margin:0 auto;display:flex;flex-direction:column;overflow:hidden}
+#app{position:fixed;top:0;right:0;bottom:0;left:0;max-width:430px;margin:0 auto;display:flex;flex-direction:column;overflow:hidden}
 .header{padding:calc(var(--safe-top) + clamp(13px,4.2vw,18px)) clamp(15px,4.65vw,20px) clamp(11px,3.26vw,14px);background:var(--bg);position:sticky;top:0;z-index:100;border-bottom:1px solid var(--border)}
 .header-row{display:flex;align-items:center;justify-content:space-between}
 .title-wrap{display:flex;align-items:center;gap:8px;min-width:0;flex-shrink:1}

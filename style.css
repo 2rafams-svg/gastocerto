@@ -25,9 +25,9 @@
 [data-theme="light"] .cat-card,[data-theme="light"] .split-group,[data-theme="light"] .summary-card,[data-theme="light"] .cat-manage-item,[data-theme="light"] .auth-card,[data-theme="light"] .chart-card{box-shadow:var(--shadow-sm)}
 [data-theme="light"] .val-num.positive,[data-theme="light"] .summary-num.positive,[data-theme="light"] .badge.ok,[data-theme="light"] .badge.saved,[data-theme="light"] .toast.success{color:var(--accent-text)}
 [data-theme="light"] .header{background:rgba(242,245,240,.85);backdrop-filter:saturate(180%) blur(12px);-webkit-backdrop-filter:saturate(180%) blur(12px)}
-html{height:100%;height:-webkit-fill-available}
-html,body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;font-size:15px;overscroll-behavior:none}
-body{display:flex;flex-direction:column;max-width:430px;margin:0 auto;position:relative;min-height:100%;min-height:-webkit-fill-available}
+html{height:100%;height:-webkit-fill-available;background:var(--surface)}
+html,body{color:var(--text);font-family:'DM Sans',sans-serif;font-size:15px;overscroll-behavior:none}
+body{display:flex;flex-direction:column;max-width:430px;margin:0 auto;position:relative;min-height:100%;min-height:-webkit-fill-available;background:var(--bg)}
 @supports (height:100dvh){html,body{height:100dvh}#app{height:100dvh}}
 html,body{touch-action:pan-y}
 button{touch-action:manipulation}

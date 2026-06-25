@@ -109,6 +109,7 @@ button{touch-action:manipulation}
 .month-pill svg{width:14px;height:14px;stroke:var(--text2)}
 .content{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch}
 .bottom-nav{position:fixed;bottom:0;left:0;right:0;max-width:430px;margin:0 auto;display:flex;gap:2px;background:var(--surface);border-top:1px solid var(--border);padding:7px 8px calc(7px + var(--safe-bot));z-index:100}
+.bottom-nav::after{content:'';position:absolute;bottom:0;left:0;right:0;height:50px;background:var(--surface);transform:translateY(100%);pointer-events:none}
 .nav-item{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;background:none;border:none;color:var(--text3);font:600 10.5px var(--font-body);letter-spacing:.01em;cursor:pointer;padding:2px 0}
 .nav-ico{width:52px;height:30px;display:flex;align-items:center;justify-content:center;border-radius:100px;font-size:17px;transition:background .2s,color .2s}
 .nav-item.active{color:var(--accent-text)}

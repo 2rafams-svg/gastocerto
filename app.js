@@ -15,7 +15,7 @@ function syncThemeRow(){
   if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
-const APP_VERSION = '3.28';
+const APP_VERSION = '3.30';
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
 const CORRECT_PIN = () => String(new Date().getFullYear());
@@ -1287,7 +1287,7 @@ function renderHistorico(el){
     const totalBudget=categories.reduce((s,c)=>s+effBudget(c,currentMonthKey),0);
     const totalAvail=totalBudget-current;
     const totalPct=totalBudget>0?Math.min((current/totalBudget)*100,100):0;
-    el.innerHTML=`<div style="padding:16px 20px calc(72px + var(--safe-bot))">
+    el.innerHTML=`<div style="padding:16px 20px calc(84px + var(--safe-bot))">
       <div class="month-title">${monthLabel(currentMonthKey)}</div>
       <div class="summary-card" style="margin:0 0 12px">
         <div class="summary-grid">
@@ -1301,7 +1301,7 @@ function renderHistorico(el){
     </div>`;
     return;
   }
-  el.innerHTML=`<div style="padding:16px 20px calc(72px + var(--safe-bot))"><div class="loading"><div class="spinner"></div>Carregando...</div></div>`;
+  el.innerHTML=`<div style="padding:16px 20px calc(84px + var(--safe-bot))"><div class="loading"><div class="spinner"></div>Carregando...</div></div>`;
   renderHistoricoAsync(el);
 }
 async function renderHistoricoAsync(el){
@@ -1382,7 +1382,7 @@ async function renderHistoricoAsync(el){
     });
     html+=`</div>`;
   }
-  el.innerHTML=`<div style="padding:16px 20px calc(72px + var(--safe-bot))">${html||'<div class="empty"><div class="empty-icon"><i class="fa-regular fa-calendar-xmark"></i></div><div class="empty-text">Nenhum gasto registrado ainda.</div></div>'}</div>`;
+  el.innerHTML=`<div style="padding:16px 20px calc(84px + var(--safe-bot))">${html||'<div class="empty"><div class="empty-icon"><i class="fa-regular fa-calendar-xmark"></i></div><div class="empty-text">Nenhum gasto registrado ainda.</div></div>'}</div>`;
 }
 
 async function renderSplit(el){

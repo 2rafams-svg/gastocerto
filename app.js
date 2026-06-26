@@ -44,7 +44,7 @@ function syncThemeRow(){
   if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
-const APP_VERSION = '3.5';
+const APP_VERSION = '3.6';
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
 const CORRECT_PIN = () => String(new Date().getFullYear());
@@ -563,8 +563,8 @@ async function init(){
 
 function badgeHtml(diff){
   if(Math.abs(diff)<0.005) return `<span class="badge ok"><i class="fa-solid fa-check"></i> Na meta</span>`;
-  if(diff>0) return `<span class="badge saved">▼ Economizou ${brl(diff)}</span>`;
-  return `<span class="badge over">▲ Estourou ${brl(Math.abs(diff))}</span>`;
+  if(diff>0) return `<span class="badge saved"><i class="fa-solid fa-arrow-down" aria-hidden="true"></i> Economizou ${brl(diff)}</span>`;
+  return `<span class="badge over"><i class="fa-solid fa-arrow-up" aria-hidden="true"></i> Estourou ${brl(Math.abs(diff))}</span>`;
 }
 
 const canvasBlob=canvas=>new Promise(resolve=>canvas.toBlob(resolve,'image/png',.95));
@@ -706,15 +706,48 @@ async function openFriends(){
 function friendsListHtml(){
   if(!friends.length) return `<p class="modal-note">Você ainda não adicionou amigos. Adicione alguém abaixo para compartilhar categorias, dividir gastos ou abrir um chat de gastos.</p>`;
   return `<div class="friend-cards">${friends.map(f=>`
-    <div class="friend-card" onclick="startChat('${f.id}')" role="button" tabindex="0">
-      <div class="friend-avatar">${escapeHtml(friendInitial(f))}</div>
-      <div class="friend-card-main">
-        <div class="friend-card-name">${escapeHtml(friendLabel(f))}</div>
-        <div class="friend-card-sub">${f.username?escapeHtml(f.email):'Toque para abrir o chat de gastos'}</div>
+    <div class="friend-swipe" data-id="${f.id}">
+      <div class="friend-swipe-del"><i class="fa-solid fa-trash" aria-hidden="true"></i><span>Excluir</span></div>
+      <div class="friend-card" role="button" tabindex="0">
+        <div class="friend-avatar">${escapeHtml(friendInitial(f))}</div>
+        <div class="friend-card-main">
+          <div class="friend-card-name">${escapeHtml(friendLabel(f))}</div>
+          <div class="friend-card-sub">${f.username?escapeHtml(f.email):'Toque para abrir o chat de gastos'}</div>
+        </div>
+        <span class="friend-card-go" aria-hidden="true"><i class="fa-solid fa-comment-dollar"></i></span>
       </div>
-      <span class="friend-card-go" aria-hidden="true"><i class="fa-solid fa-comment-dollar"></i></span>
-      <button class="friend-remove" onclick="event.stopPropagation();removeFriend('${f.id}')" aria-label="Remover amigo"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
     </div>`).join('')}</div>`;
+}
+function setupFriendSwipe(){
+  document.querySelectorAll('.friend-swipe').forEach(row=>{
+    if(row._swipeInit) return; row._swipeInit=true;
+    const card=row.querySelector('.friend-card');
+    const del=row.querySelector('.friend-swipe-del');
+    const id=row.dataset.id;
+    const REVEAL=84, OPEN_AT=42;
+    let startX=0,startY=0,base=0,cur=0,dragging=false,decided=false,horiz=false,open=false;
+    const setX=x=>{ cur=x; card.style.transform=`translateX(${x}px)`; };
+    const close=()=>{ open=false; setX(0); };
+    card.addEventListener('touchstart',e=>{ startX=e.touches[0].clientX; startY=e.touches[0].clientY; base=open?-REVEAL:0; dragging=true; decided=false; horiz=false; },{passive:true});
+    card.addEventListener('touchmove',e=>{
+      if(!dragging) return;
+      const mx=e.touches[0].clientX-startX, my=e.touches[0].clientY-startY;
+      if(!decided){ if(Math.abs(mx)>6||Math.abs(my)>6){ decided=true; horiz=Math.abs(mx)>Math.abs(my); } else return; }
+      if(!horiz) return;
+      e.preventDefault();
+      setX(Math.max(-REVEAL, Math.min(0, base+mx)));
+    },{passive:false});
+    card.addEventListener('touchend',()=>{
+      if(!dragging) return; dragging=false;
+      if(horiz){ open=cur<-OPEN_AT; setX(open?-REVEAL:0); }
+    });
+    card.addEventListener('click',()=>{
+      if(open){ close(); return; }
+      if(decided&&horiz) return;
+      startChat(id);
+    });
+    del.addEventListener('click',e=>{ e.stopPropagation(); removeFriend(id); });
+  });
 }
 function friendAddHtml(){
   return `<div class="friend-add">
@@ -731,6 +764,7 @@ function renderFriendsModal(){
     <div style="margin-bottom:16px">${friendsListHtml()}</div>
     ${friendAddHtml()}
     <button class="btn-secondary" onclick="_closeModal()">Fechar</button>`;
+  setupFriendSwipe();
 }
 function renderFriendsPage(el){
   const list=friends.length
@@ -747,6 +781,7 @@ function renderFriendsPage(el){
     ${list}
     <div class="friend-add-wrap">${friendAddHtml()}</div>
   </div>`;
+  setupFriendSwipe();
 }
 function friendsViewRefresh(){
   if(document.getElementById('modal-overlay')?.classList.contains('open')&&document.getElementById('modal-content')?.querySelector('#f-friend-input')) renderFriendsModal();
@@ -949,7 +984,7 @@ function dmSplitHint(){
   const me=parseFloat(document.getElementById('dm-share-me').value)||0;
   const fr=parseFloat(document.getElementById('dm-share-friend').value)||0;
   const sum=Math.round((me+fr)*100)/100;
-  if(Math.abs(sum-total)<0.01){ h.textContent='Soma confere ✓'; h.style.color='var(--accent-text)'; }
+  if(Math.abs(sum-total)<0.01){ h.innerHTML='<i class="fa-solid fa-check" aria-hidden="true"></i> Soma confere'; h.style.color='var(--accent-text)'; }
   else{ h.textContent=`Soma ${brl(sum)} de ${brl(total)}`; h.style.color='var(--red)'; }
 }
 function dmSplitRecalc(){ const c=document.getElementById('dm-custom'); if(c&&!c.hidden) dmSplitMode('custom'); }
@@ -1243,7 +1278,7 @@ function renderCategorias(el){
       const perm=owned?'owner':sharePerm(cat.id);
       return `
     <div class="cat-manage-item" ${owned?'draggable="true"':''} data-id="${cat.id}" id="cmi-${cat.id}">
-      ${owned?'<div class="drag-handle" title="Arrastar">⠿</div>':'<div class="drag-handle" style="opacity:.25;cursor:default" title="Compartilhada">⠿</div>'}
+      ${owned?'<div class="drag-handle" title="Arrastar"><i class="fa-solid fa-grip-vertical" aria-hidden="true"></i></div>':'<div class="drag-handle" style="opacity:.25;cursor:default" title="Compartilhada"><i class="fa-solid fa-grip-vertical" aria-hidden="true"></i></div>'}
       <div class="cat-manage-info">
         <div class="cat-manage-name">${escapeHtml(cat.name)}${!owned?`<span style="font-size:10px;color:var(--accent-text);background:var(--accent-soft);border-radius:100px;padding:1px 7px;margin-left:6px;font-weight:600">${perm==='edit'?'editar':'leitura'}</span>`:''}</div>
         <div class="cat-manage-budget">${brl(cat.budget)}/mês</div>
@@ -1387,7 +1422,7 @@ async function renderHistoricoAsync(el){
       <div class="summary-block"><div class="summary-label">Disponível</div><div class="summary-num ${totalAvailSummary>=0?'positive':'negative'}">${brl(totalAvailSummary)}</div></div>
     </div>
     <div class="progress-bar" style="margin-bottom:8px"><div class="progress-fill ${totalAvailSummary<0?'danger':totalPctSummary>75?'warning':''}" style="width:${totalPctSummary}%"></div></div>
-    <button class="summary-btn" onclick="openConsolidado()">Ver consolidado do mês ›</button>
+    <button class="summary-btn" onclick="openConsolidado()">Ver consolidado do mês <i class="fa-solid fa-chevron-right" style="font-size:10px" aria-hidden="true"></i></button>
   </div>`;
 
   const vKey=viewMonthKey;
@@ -1558,14 +1593,14 @@ async function openSplitGroup(groupId){
 
     html+=`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px">
       ${acceptedMembers.map(m=>`<span style="font-size:11px;background:var(--surface2);border-radius:100px;padding:3px 10px;color:var(--text2)">${escapeHtml(mName(m))}</span>`).join('')}
-      ${pendingMembers.map(m=>`<span style="font-size:11px;background:var(--surface2);border-radius:100px;padding:3px 10px;color:var(--text3)">⏳ ${escapeHtml(m.email.split('@')[0])}</span>`).join('')}
+      ${pendingMembers.map(m=>`<span style="font-size:11px;background:var(--surface2);border-radius:100px;padding:3px 10px;color:var(--text3)"><i class="fa-regular fa-clock" aria-hidden="true"></i> ${escapeHtml(m.email.split('@')[0])}</span>`).join('')}
     </div>`;
 
     html+=`<div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px">Saldo atual</div>`;
     if(exps.length===0){
       html+=`<div style="text-align:center;padding:18px;background:var(--surface2);border-radius:14px;color:var(--text3);font-size:13px;margin-bottom:16px">Nenhuma despesa ainda. Adicione a primeira.</div>`;
     } else if(allQuite){
-      html+=`<div style="text-align:center;padding:18px;background:var(--accent-soft);border:1px solid var(--accent-line);border-radius:14px;color:var(--accent-text);font-weight:700;font-size:15px;margin-bottom:16px">✓ Todos quite!</div>`;
+      html+=`<div style="text-align:center;padding:18px;background:var(--accent-soft);border:1px solid var(--accent-line);border-radius:14px;color:var(--accent-text);font-weight:700;font-size:15px;margin-bottom:16px"><i class="fa-solid fa-circle-check" aria-hidden="true"></i> Todos quite!</div>`;
     } else {
       html+=`<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px">
         ${acceptedMembers.map(m=>{
@@ -1573,7 +1608,7 @@ async function openSplitGroup(groupId){
           const label=escapeHtml(mName(m));
           const isDebt=n<-0.005, isCredit=n>0.005;
           const color=isDebt?'var(--red)':isCredit?'var(--accent-text,var(--accent))':'var(--text3)';
-          const statusLine=isCredit?`▲ a receber ${brl(n)}`:isDebt?`▼ a pagar ${brl(Math.abs(n))}`:'✓ Quite';
+          const statusLine=isCredit?`<i class="fa-solid fa-arrow-up" aria-hidden="true"></i> a receber ${brl(n)}`:isDebt?`<i class="fa-solid fa-arrow-down" aria-hidden="true"></i> a pagar ${brl(Math.abs(n))}`:'<i class="fa-solid fa-check" aria-hidden="true"></i> Quite';
           const border=isDebt?'var(--red-soft)':isCredit?'var(--accent-line)':'var(--border)';
           return `<div style="padding:14px;background:var(--surface2);border-radius:14px;border:1px solid ${border}">
             <div style="font-size:15px;font-weight:700">${label}</div>
@@ -2256,8 +2291,8 @@ async function openConsolidado(){
   const deltaBadge=(curr,prev)=>{
     if(prev<=0) return curr>0?`<span class="badge over">novo</span>`:`<span class="badge ok">—</span>`;
     const pct=((curr-prev)/prev)*100;
-    if(Math.abs(pct)<0.5) return `<span class="badge ok">≈ igual</span>`;
-    return pct>0?`<span class="badge over">▲ ${Math.abs(pct).toFixed(0)}%</span>`:`<span class="badge saved">▼ ${Math.abs(pct).toFixed(0)}%</span>`;
+    if(Math.abs(pct)<0.5) return `<span class="badge ok"><i class="fa-solid fa-equals" aria-hidden="true"></i> igual</span>`;
+    return pct>0?`<span class="badge over"><i class="fa-solid fa-arrow-up" aria-hidden="true"></i> ${Math.abs(pct).toFixed(0)}%</span>`:`<span class="badge saved"><i class="fa-solid fa-arrow-down" aria-hidden="true"></i> ${Math.abs(pct).toFixed(0)}%</span>`;
   };
 
   const top=[...e0].sort((a,b)=>parseFloat(b.value)-parseFloat(a.value)).slice(0,5);
@@ -2358,7 +2393,7 @@ const TUTORIAL_STEPS = [
   },
   {
     title: 'Início — seus gastos do mês',
-    body: 'Suas categorias aparecem em carrossel: deslize para o lado para navegar. Em cada uma você vê o disponível, o quanto já gastou e uma previsão de quando o saldo acaba. No relógio ↺ você confere o histórico de atividades, e o ícone de imagem abre o comprovante de um lançamento.',
+    body: 'Suas categorias aparecem em carrossel: deslize para o lado para navegar. Em cada uma você vê o disponível, o quanto já gastou e uma previsão de quando o saldo acaba. No ícone de relógio você confere o histórico de atividades, e o ícone de imagem abre o comprovante de um lançamento.',
     target: ()=>tutNav('home'),
     action: ()=>tutGo('home'),
   },
@@ -2382,7 +2417,7 @@ const TUTORIAL_STEPS = [
   },
   {
     title: 'Amigos',
-    body: 'Adicione pessoas por @usuário ou e-mail no campo do final da aba. Toque no card de um amigo para abrir o chat de gastos 1 a 1: registre despesas com divisão (50/50 ou personalizada), lance pagamentos e veja o saldo (quem deve a quem) e o extrato completo.',
+    body: 'Adicione pessoas por @usuário ou e-mail no campo do final da aba. Toque no card de um amigo para abrir o chat de gastos 1 a 1: registre despesas com divisão (50/50 ou personalizada), lance pagamentos e veja o saldo (quem deve a quem) e o extrato completo. Para remover alguém, arraste o card para a esquerda.',
     target: ()=>tutNav('amigos'),
     action: ()=>tutGo('amigos'),
   },

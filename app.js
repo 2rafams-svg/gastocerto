@@ -44,7 +44,7 @@ function syncThemeRow(){
   if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
-const APP_VERSION = '3.34';
+const APP_VERSION = '3.5';
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
 const CORRECT_PIN = () => String(new Date().getFullYear());
@@ -666,8 +666,9 @@ async function removeShare(shareId,catId){
 }
 
 function friendLabel(f){ return f.username?('@'+f.username):f.email; }
+function friendInitial(f){ return String(f.username||f.email||'?').charAt(0).toUpperCase(); }
 function friendNote(){
-  return `<p class="modal-note" style="margin-top:-4px">Não encontrou quem procura? Adicione a pessoa em <b>Amigos</b> (toque no seu perfil, no topo) e ela aparecerá aqui para você selecionar.</p>`;
+  return `<p class="modal-note" style="margin-top:-4px">Não encontrou quem procura? Adicione a pessoa na aba <b>Amigos</b> (no menu inferior) e ela aparecerá aqui para você selecionar.</p>`;
 }
 function friendsPickerHtml(inputId){
   if(!friends.length) return '';
@@ -703,23 +704,27 @@ async function openFriends(){
   renderFriendsModal();
 }
 function friendsListHtml(){
-  return friends.length?friends.map(f=>`
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 0;border-bottom:1px solid var(--border)">
-      <div style="min-width:0">
-        <div style="font-size:14px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(friendLabel(f))}</div>
-        ${f.username?`<div style="font-size:12px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(f.email)}</div>`:''}
+  if(!friends.length) return `<p class="modal-note">Você ainda não adicionou amigos. Adicione alguém abaixo para compartilhar categorias, dividir gastos ou abrir um chat de gastos.</p>`;
+  return `<div class="friend-cards">${friends.map(f=>`
+    <div class="friend-card" onclick="startChat('${f.id}')" role="button" tabindex="0">
+      <div class="friend-avatar">${escapeHtml(friendInitial(f))}</div>
+      <div class="friend-card-main">
+        <div class="friend-card-name">${escapeHtml(friendLabel(f))}</div>
+        <div class="friend-card-sub">${f.username?escapeHtml(f.email):'Toque para abrir o chat de gastos'}</div>
       </div>
-      <div style="display:flex;gap:8px;flex-shrink:0">
-        <div class="icon-btn" style="border-color:var(--accent-line);color:var(--accent-text)" onclick="startChat('${f.id}')" title="Conversar"><i class="fa-solid fa-comment-dollar" aria-hidden="true"></i></div>
-        <div class="icon-btn" style="border-color:#ff4f4f44;color:var(--red)" onclick="removeFriend('${f.id}')" title="Remover"><i class="fa-solid fa-trash" aria-hidden="true"></i></div>
-      </div>
-    </div>`).join(''):`<p class="modal-note">Você ainda não adicionou amigos. Adicione alguém abaixo para compartilhar categorias, dividir gastos ou abrir um chat de gastos.</p>`;
+      <span class="friend-card-go" aria-hidden="true"><i class="fa-solid fa-comment-dollar"></i></span>
+      <button class="friend-remove" onclick="event.stopPropagation();removeFriend('${f.id}')" aria-label="Remover amigo"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+    </div>`).join('')}</div>`;
 }
 function friendAddHtml(){
-  return `<div class="form-group"><label class="form-label">Adicionar amigo</label>
-      <input class="form-input" id="f-friend-input" placeholder="@usuário ou e-mail" autocomplete="off" maxlength="80"/>
-      <span class="auth-hint">Use o nome de usuário (ex: @rafael) ou o e-mail da pessoa.</span></div>
-    <button class="btn-primary" id="btn-add-friend" onclick="saveFriend()">Adicionar</button>`;
+  return `<div class="friend-add">
+    <div class="friend-add-title"><i class="fa-solid fa-user-plus" aria-hidden="true"></i> Adicionar amigo</div>
+    <div class="friend-add-row">
+      <input class="friend-add-input" id="f-friend-input" placeholder="@usuário ou e-mail" autocomplete="off" maxlength="80" onkeydown="if(event.key==='Enter')saveFriend()"/>
+      <button class="friend-add-btn" id="btn-add-friend" onclick="saveFriend()" aria-label="Adicionar amigo"><i class="fa-solid fa-plus" aria-hidden="true"></i></button>
+    </div>
+    <span class="friend-add-hint">Use o nome de usuário (ex: @rafael) ou o e-mail da pessoa.</span>
+  </div>`;
 }
 function renderFriendsModal(){
   document.getElementById('modal-content').innerHTML=`<div class="modal-title">Amigos</div>
@@ -729,10 +734,10 @@ function renderFriendsModal(){
 }
 function renderFriendsPage(el){
   const list=friends.length
-    ? `<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:2px 16px;margin-bottom:16px;box-shadow:var(--shadow-sm)">${friendsListHtml()}</div>`
-    : `<div style="background:var(--surface);border:1px dashed var(--border);border-radius:16px;padding:26px 22px;margin-bottom:16px;text-align:center;color:var(--text3)">
-        <i class="fa-solid fa-user-group" style="font-size:24px;opacity:.5;display:block;margin-bottom:10px" aria-hidden="true"></i>
-        <div style="font-size:13px;line-height:1.5">Você ainda não adicionou amigos.<br>Adicione abaixo para compartilhar categorias, dividir gastos ou abrir um chat de gastos.</div>
+    ? `<div class="friend-list-head">Seus amigos · ${friends.length}</div>${friendsListHtml()}`
+    : `<div class="friend-empty">
+        <i class="fa-solid fa-user-group" aria-hidden="true"></i>
+        <div>Você ainda não adicionou amigos.<br>Adicione abaixo para compartilhar categorias, dividir gastos ou abrir um chat de gastos.</div>
       </div>`;
   el.innerHTML=`<div class="split-wrap">
     <div class="split-intro">
@@ -740,7 +745,7 @@ function renderFriendsPage(el){
       <p>Adicione amigos por <strong>@usuário</strong> ou e-mail para compartilhar categorias, criar grupos de divisão e abrir um <strong>chat de gastos 1 a 1</strong> (com saldo e extrato) com cada pessoa.</p>
     </div>
     ${list}
-    ${friendAddHtml()}
+    <div class="friend-add-wrap">${friendAddHtml()}</div>
   </div>`;
 }
 function friendsViewRefresh(){
@@ -750,20 +755,21 @@ function friendsViewRefresh(){
 async function saveFriend(){
   const raw=(document.getElementById('f-friend-input').value||'').trim();
   if(!raw){ showToast('Informe um @usuário ou e-mail.','error'); return; }
-  const btn=document.getElementById('btn-add-friend'); btn.disabled=true; btn.textContent='Adicionando...';
+  const btn=document.getElementById('btn-add-friend'); const reset=()=>{ btn.disabled=false; btn.innerHTML='<i class="fa-solid fa-plus" aria-hidden="true"></i>'; };
+  btn.disabled=true; btn.innerHTML='<i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>';
   try{
     const isEmail=/^\S+@\S+\.\S+$/.test(raw);
     const found=await api.lookupFriend(raw).catch(()=>[]);
     let email=null, username=null, fid=null;
     if(found&&found.length){ email=found[0].email; username=found[0].username; fid=found[0].id; }
     else if(isEmail){ email=raw.toLowerCase(); }
-    else { showToast('Usuário não encontrado. Tente pelo e-mail.','error'); btn.disabled=false; btn.textContent='Adicionar'; return; }
-    if(email===currentUser.email.toLowerCase()){ showToast('Esse é o seu próprio cadastro.','error'); btn.disabled=false; btn.textContent='Adicionar'; return; }
+    else { showToast('Usuário não encontrado. Tente pelo e-mail.','error'); reset(); return; }
+    if(email===currentUser.email.toLowerCase()){ showToast('Esse é o seu próprio cadastro.','error'); reset(); return; }
     await api.addFriend(email,username,fid);
     friends=await api.getFriends()||[];
     friendsViewRefresh();
     showToast('Amigo adicionado!','success');
-  }catch(e){ showToast('Erro ao adicionar. Verifique se a tabela friends e a função friend_lookup existem.','error'); btn.disabled=false; btn.textContent='Adicionar'; }
+  }catch(e){ showToast('Erro ao adicionar. Verifique se a tabela friends e a função friend_lookup existem.','error'); reset(); }
 }
 async function removeFriend(id){
   if(!confirm('Remover este amigo da sua lista?')) return;
@@ -1384,7 +1390,40 @@ async function renderHistoricoAsync(el){
     <button class="summary-btn" onclick="openConsolidado()">Ver consolidado do mês ›</button>
   </div>`;
 
-  let html=summaryHtml+chartHtml;
+  const vKey=viewMonthKey;
+  const vExps=byMonth[vKey]||[];
+  const vSpent=vExps.reduce((s,e)=>s+parseFloat(e.value),0);
+  const isCurMonth=vKey===currentMonthKey;
+  const [vy,vm]=vKey.split('-').map(Number);
+  const daysInMonth=new Date(vy,vm,0).getDate();
+  const daysElapsed=isCurMonth?Math.max(1,new Date().getDate()):daysInMonth;
+  const avgPerDay=vSpent/daysElapsed;
+  const projection=isCurMonth?avgPerDay*daysInMonth:vSpent;
+  const prevK=prevMonthKey(vKey);
+  const prevSpent=(byMonth[prevK]||[]).reduce((s,e)=>s+parseFloat(e.value),0);
+  const deltaPct=prevSpent>0?((vSpent-prevSpent)/prevSpent*100):null;
+  const catTotals=categories.map(c=>({name:c.name,val:vExps.filter(e=>e.cat_id===c.id).reduce((s,e)=>s+parseFloat(e.value),0)})).filter(x=>x.val>0).sort((a,b)=>b.val-a.val);
+  const biggest=catTotals[0];
+  const statsHtml=`<div class="stat-grid">
+    <div class="stat-card"><div class="stat-label">Média por dia</div><div class="stat-value">${brl(avgPerDay)}</div><div class="stat-sub">${daysElapsed} ${daysElapsed===1?'dia':'dias'}</div></div>
+    <div class="stat-card"><div class="stat-label">${isCurMonth?'Projeção do mês':'Total do mês'}</div><div class="stat-value">${brl(projection)}</div><div class="stat-sub">${isCurMonth?'no ritmo atual':monthLabel(vKey)}</div></div>
+    <div class="stat-card"><div class="stat-label">vs. mês anterior</div><div class="stat-value ${deltaPct==null?'':deltaPct>0.5?'up':deltaPct<-0.5?'down':''}">${deltaPct==null?'—':(deltaPct>0?'+':'')+Math.round(deltaPct)+'%'}</div><div class="stat-sub">${prevSpent>0?brl(prevSpent):'sem dados'}</div></div>
+    <div class="stat-card"><div class="stat-label">Maior categoria</div><div class="stat-value sm">${biggest?escapeHtml(biggest.name):'—'}</div><div class="stat-sub">${biggest?brl(biggest.val):'sem gastos'}</div></div>
+  </div>`;
+  let distHtml='';
+  if(catTotals.length){
+    const distMax=catTotals[0].val;
+    distHtml=`<div class="chart-card">
+      <div class="chart-title">Para onde foi · ${monthLabel(vKey)}</div>
+      ${catTotals.map(c=>{
+        const pct=vSpent>0?Math.round(c.val/vSpent*100):0;
+        const w=distMax>0?Math.max(c.val/distMax*100,3):0;
+        return `<div class="dist-row"><div class="dist-head"><span class="dist-name">${escapeHtml(c.name)}</span><span class="dist-val">${brl(c.val)} · ${pct}%</span></div><div class="dist-bar"><span style="width:${w}%"></span></div></div>`;
+      }).join('')}
+    </div>`;
+  }
+
+  let html=summaryHtml+statsHtml+chartHtml+distHtml;
   for(const month of months){
     const exps=byMonth[month.key];
     if(!exps||exps.length===0) continue;
@@ -2308,42 +2347,48 @@ function showToast(msg,type=''){
   setTimeout(()=>t.classList.remove('show'),2500);
 }
 
-const TUTORIAL_KEY = 'gc-tutorial-v1';
+const TUTORIAL_KEY = 'gc-tutorial-v2';
 const tutNav=(tab)=>document.querySelector(`.nav-item[data-tab="${tab}"]`);
 const tutGo=(tab)=>{ const t=tutNav(tab); if(t) t.click(); };
 const TUTORIAL_STEPS = [
   {
     title: 'Bem-vindo ao GastoCerto!',
-    body: 'Em poucos passos você vai conhecer tudo. Vamos lá?',
+    body: 'Em poucos passos você vai conhecer tudo o que dá para fazer. Vamos lá?',
     target: null,
   },
   {
     title: 'Início — seus gastos do mês',
-    body: 'Suas categorias aparecem em carrossel. Deslize para o lado para navegar entre elas e acompanhe quanto já gastou e quanto ainda tem disponível em cada uma.',
+    body: 'Suas categorias aparecem em carrossel: deslize para o lado para navegar. Em cada uma você vê o disponível, o quanto já gastou e uma previsão de quando o saldo acaba. No relógio ↺ você confere o histórico de atividades, e o ícone de imagem abre o comprovante de um lançamento.',
     target: ()=>tutNav('home'),
     action: ()=>tutGo('home'),
   },
   {
     title: 'Categorias',
-    body: 'Crie categorias como "Mercado", "Academia" ou "Aluguel", cada uma com seu orçamento mensal. Arraste para reordenar e toque para definir o limite.',
+    body: 'Crie categorias como "Mercado", "Academia" ou "Aluguel", cada uma com seu orçamento mensal. Arraste pela alça para reordenar, toque no lápis para editar e marque um gasto como recorrente para ele se repetir todo mês automaticamente.',
     target: ()=>tutNav('categorias'),
     action: ()=>tutGo('categorias'),
   },
   {
+    title: 'Compartilhe uma categoria',
+    body: 'Em uma categoria sua, toque em "Compartilhar" para dar acesso a um amigo — só leitura ou também edição. Ele recebe um convite dentro do app (sem e-mail) e os lançamentos de vocês aparecem juntos, identificados por @usuário. Em "Exportar" você gera uma imagem do resumo para enviar a quem quiser.',
+    target: ()=>tutNav('home'),
+    action: ()=>tutGo('home'),
+  },
+  {
     title: 'Histórico',
-    body: 'Veja gráficos, comparativos e o consolidado dos meses anteriores para entender para onde vai o seu dinheiro.',
+    body: 'Acompanhe sua média de gasto por dia, a projeção do mês, a variação em relação ao mês anterior e a distribuição dos gastos por categoria. Tem ainda o gráfico de evolução por mês e o consolidado. Ao virar o mês, o anterior é fechado automaticamente e guardado aqui.',
     target: ()=>tutNav('historico'),
     action: ()=>tutGo('historico'),
   },
   {
     title: 'Amigos',
-    body: 'Adicione pessoas por @usuário ou e-mail. Com um amigo você pode: compartilhar categorias (ver ou editar juntos) e abrir um chat de gastos 1 a 1 — registrando despesas com divisão (50/50 ou personalizada) e pagamentos. O app mostra o saldo (quem deve a quem) e o extrato de tudo.',
+    body: 'Adicione pessoas por @usuário ou e-mail no campo do final da aba. Toque no card de um amigo para abrir o chat de gastos 1 a 1: registre despesas com divisão (50/50 ou personalizada), lance pagamentos e veja o saldo (quem deve a quem) e o extrato completo.',
     target: ()=>tutNav('amigos'),
     action: ()=>tutGo('amigos'),
   },
   {
     title: 'Divisão em grupo',
-    body: 'Para rachar despesas entre três ou mais pessoas (viagens, repúblicas, rolês), crie um grupo, selecione os amigos e lance os gastos. O app calcula automaticamente quem deve quanto para quem.',
+    body: 'Para rachar despesas entre três ou mais pessoas (viagens, repúblicas, rolês), crie um grupo, selecione os amigos e lance os gastos. O app calcula automaticamente quem deve quanto para quem e você marca o que já foi pago.',
     target: ()=>tutNav('divisao'),
     action: ()=>tutGo('divisao'),
   },
@@ -2354,8 +2399,14 @@ const TUTORIAL_STEPS = [
     action: ()=>tutGo('home'),
   },
   {
+    title: 'Sua conta',
+    body: 'Toque no ícone de perfil, no topo, para definir seu @usuário, alternar entre tema claro e escuro, ver os planos e rever este tutorial quando quiser.',
+    target: ()=>document.getElementById('account-btn'),
+    action: ()=>tutGo('home'),
+  },
+  {
     title: 'Tudo pronto!',
-    body: 'Comece criando uma categoria e registrando seus gastos. Para rever este tutorial, é só acessar sua conta pelo ícone no topo.',
+    body: 'Comece criando uma categoria e registrando seus gastos. Para rever este tutorial, é só abrir sua conta pelo ícone no topo.',
     target: null,
   },
 ];
@@ -2379,12 +2430,13 @@ function renderTutStep(){
   overlay.id='tut-overlay';
   overlay.className='tut-overlay';
 
+  const target=step.target?.();
   const backdrop=document.createElement('div');
   backdrop.className='tut-backdrop';
+  if(target) backdrop.style.background='transparent';
   backdrop.onclick=()=>{};
   overlay.appendChild(backdrop);
 
-  const target=step.target?.();
   if(target){
     const r=target.getBoundingClientRect();
     const spot=document.createElement('div');
@@ -2396,8 +2448,14 @@ function renderTutStep(){
   const isLast=tutStep===TUTORIAL_STEPS.length-1;
   const card=document.createElement('div');
   card.className='tut-card';
-  const cardTop=target?Math.min(target.getBoundingClientRect().bottom+18, window.innerHeight-220):window.innerHeight/2-100;
-  card.style.top=`${cardTop}px`;
+  const vh=measuredAppHeight();
+  if(target){
+    const r=target.getBoundingClientRect();
+    if(r.top>vh*0.5){ card.style.bottom=`${vh-r.top+16}px`; card.style.top='auto'; }
+    else{ card.style.top=`${Math.min(r.bottom+18, vh-240)}px`; }
+  }else{
+    card.style.top=`${vh/2-110}px`;
+  }
 
   const dotsHtml=TUTORIAL_STEPS.map((_,i)=>`<div class="tut-dot${i===tutStep?' active':''}"></div>`).join('');
   card.innerHTML=`

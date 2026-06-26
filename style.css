@@ -83,7 +83,7 @@ button{touch-action:manipulation}
 .pin-key.del{font-size:18px;color:var(--text2)}
 .pin-key.empty{border:none;background:transparent;pointer-events:none}
 .pin-error-msg{margin-top:20px;font-size:13px;color:var(--red);min-height:20px;text-align:center}
-#app{display:flex;flex-direction:column;height:100%}
+#app{display:flex;flex-direction:column;height:100%;position:relative}
 .header{padding:calc(var(--safe-top) + clamp(13px,4.2vw,18px)) clamp(15px,4.65vw,20px) clamp(11px,3.26vw,14px);background:var(--bg);position:sticky;top:0;z-index:100;border-bottom:1px solid var(--border)}
 .header-row{display:flex;align-items:center;justify-content:space-between}
 .title-wrap{display:flex;align-items:center;gap:8px;min-width:0;flex-shrink:1}
@@ -113,7 +113,7 @@ button{touch-action:manipulation}
 }
 .month-pill svg{width:14px;height:14px;stroke:var(--text2)}
 .content{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;background:var(--bg)}
-.top-nav{display:flex;gap:4px;padding:6px clamp(12px,4vw,18px) 8px;background:var(--bg);border-bottom:1px solid var(--border);flex-shrink:0}
+.bottom-nav{display:flex;gap:4px;padding:6px clamp(12px,4vw,18px) calc(8px + var(--safe-bot));background:var(--surface);border-top:1px solid var(--border);flex-shrink:0}
 .nav-item{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:3px;background:none;border:none;color:var(--text3);font:600 10.5px var(--font-body);letter-spacing:.01em;cursor:pointer;padding:7px 3px;border-radius:13px;transition:background .15s,color .15s}
 .nav-lbl{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .nav-ico{height:20px;display:flex;align-items:center;justify-content:center;font-size:16px;transition:transform .15s}
@@ -229,7 +229,7 @@ button{touch-action:manipulation}
 .cat-manage-budget{font-size:13px;color:var(--text2);margin-top:2px}
 .icon-btn{width:30px;height:30px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0}
 .icon-btn svg{width:14px;height:14px;stroke:var(--text2)}
-.fab{position:fixed;bottom:calc(24px + var(--safe-bot));right:18px;width:56px;height:56px;border-radius:18px;border:none;background:var(--accent-grad);color:var(--on-accent);font-size:24px;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 8px 24px var(--accent-line),0 2px 6px rgba(0,0,0,.18);z-index:200;transition:transform .15s}
+.fab{position:absolute;bottom:calc(80px + var(--safe-bot));right:18px;width:56px;height:56px;border-radius:18px;border:none;background:var(--accent-grad);color:var(--on-accent);font-size:24px;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 8px 24px var(--accent-line),0 2px 6px rgba(0,0,0,.18);z-index:200;transition:transform .15s}
 .fab:active{transform:scale(.92)}
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:300;display:flex;align-items:flex-end;justify-content:center;opacity:0;pointer-events:none;transition:opacity .25s}
 .modal-overlay.open{opacity:1;pointer-events:all}

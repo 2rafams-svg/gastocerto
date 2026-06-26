@@ -1,4 +1,33 @@
 ﻿(function(){const t=localStorage.getItem('gc-theme')||'light';document.documentElement.setAttribute('data-theme',t);})();
+const IS_STANDALONE=(typeof navigator!=='undefined'&&navigator.standalone===true)||(window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches);
+function measuredAppHeight(){
+  let h=window.innerHeight||document.documentElement.clientHeight||0;
+  if(window.visualViewport&&window.visualViewport.height) h=Math.max(h,Math.round(window.visualViewport.height));
+  if(IS_STANDALONE&&window.screen&&window.screen.height) h=Math.max(h,window.screen.height);
+  return h;
+}
+function fitViewport(){
+  const h=measuredAppHeight();
+  if(!h) return;
+  const de=document.documentElement;
+  de.style.setProperty('--vh',h+'px');
+  de.style.height=h+'px';
+  document.body.style.height=h+'px';
+  const app=document.getElementById('app');
+  if(app) app.style.height=h+'px';
+  const ovs=document.querySelectorAll('.modal-overlay,.dm-overlay,.dm-sheet-overlay,#auth-screen,#pin-screen,.tut-overlay');
+  for(let i=0;i<ovs.length;i++){ ovs[i].style.height=h+'px'; ovs[i].style.top='0'; ovs[i].style.bottom='auto'; }
+}
+(function(){
+  if(IS_STANDALONE) document.documentElement.classList.add('pwa-standalone');
+  fitViewport();
+  window.addEventListener('resize',fitViewport);
+  window.addEventListener('orientationchange',function(){ fitViewport(); setTimeout(fitViewport,300); });
+  window.addEventListener('pageshow',fitViewport);
+  window.addEventListener('load',fitViewport);
+  if(window.visualViewport) window.visualViewport.addEventListener('resize',fitViewport);
+  setTimeout(fitViewport,150); setTimeout(fitViewport,500); setTimeout(fitViewport,1200);
+})();
 function toggleTheme(){
   const isLight=document.documentElement.getAttribute('data-theme')==='light';
   const next=isLight?'dark':'light';
@@ -15,7 +44,7 @@ function syncThemeRow(){
   if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
-const APP_VERSION = '3.33';
+const APP_VERSION = '3.34';
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
 const CORRECT_PIN = () => String(new Date().getFullYear());
@@ -88,6 +117,7 @@ async function bootstrapAuth(){
 function enterApp(){
   document.getElementById('auth-screen').style.display='none';
   document.getElementById('app').style.display='flex';
+  fitViewport();
   const metaTheme=currentUser?.user_metadata?.theme;
   if(metaTheme&&!localStorage.getItem('gc-theme')){
     document.documentElement.setAttribute('data-theme',metaTheme);
@@ -189,6 +219,7 @@ function checkPin(){
     vib(20);
     document.getElementById('pin-screen').style.display='none';
     document.getElementById('app').style.display='flex';
+    fitViewport();
     init();
   } else {
     vib(60);
@@ -826,6 +857,7 @@ function openChat(friendId,label){
       <button class="dm-send" onclick="sendChatMessage('${friendId}','${safe}')" aria-label="Enviar"><i class="fa-solid fa-paper-plane" aria-hidden="true"></i></button>
     </div>`;
   document.body.appendChild(ov);
+  fitViewport();
   loadChat(friendId,label);
 }
 let _dmPoll=null, _dmSig='';
@@ -874,6 +906,7 @@ function dmSheet(html){
   ov.onclick=e=>{ if(e.target===ov) closeDmSheet(); };
   ov.innerHTML=`<div class="dm-sheet"><div class="modal-handle"></div>${html}</div>`;
   document.body.appendChild(ov);
+  fitViewport();
   requestAnimationFrame(()=>ov.classList.add('open'));
 }
 function closeDmSheet(){ document.getElementById('dm-sheet')?.remove(); }
@@ -1031,6 +1064,7 @@ function render(){
   else if(currentTab==='historico') renderHistorico(el);
   else if(currentTab==='amigos') renderFriendsPage(el);
   else renderSplit(el);
+  fitViewport();
 }
 
 function renderHome(el){
@@ -1732,7 +1766,7 @@ async function confirmDeleteSplitGroup(groupId){
   }catch(e){showToast('Erro ao excluir grupo: '+String(e?.message||'').slice(0,50),'error');}
 }
 
-function openModal(html){ document.getElementById('modal-content').innerHTML=html; document.getElementById('modal-overlay').classList.add('open'); }
+function openModal(html){ document.getElementById('modal-content').innerHTML=html; document.getElementById('modal-overlay').classList.add('open'); fitViewport(); }
 function _closeModal(){ document.getElementById('modal-overlay').classList.remove('open'); }
 function closeModalOverlay(e){ if(e.target===document.getElementById('modal-overlay')) _closeModal(); }
 (function(){

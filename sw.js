@@ -1,5 +1,5 @@
-const CACHE = 'gastocerto-v3.33-measured-vh';
-const SHELL = ['./', './index.html', './offline.html', './style.css?v=3.33', './app.js?v=3.33', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
+const CACHE = 'gastocerto-v3.34-js-fit-nav';
+const SHELL = ['./', './index.html', './offline.html', './style.css?v=3.34', './app.js?v=3.34', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));

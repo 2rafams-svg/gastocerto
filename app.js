@@ -44,7 +44,7 @@ function syncThemeRow(){
   if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
-const APP_VERSION = '3.6';
+const APP_VERSION = '3.8';
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
 const CORRECT_PIN = () => String(new Date().getFullYear());
@@ -148,6 +148,7 @@ async function logout(){
   const token=session?.access_token;
   if(token) fetch(`${SUPABASE_URL}/auth/v1/logout`,{method:'POST',headers:{apikey:SUPABASE_KEY,Authorization:`Bearer ${token}`}}).catch(()=>{});
   persistSession(null); categories=[]; months=[]; expenses=[]; expenseNames=[]; acceptedShares=[]; sharedOutMap={}; pendingSplitInvites=[]; acceptedGroupIds=new Set(); friends=[];
+  stopUnreadPoll(); unreadDm={}; updateAmigosBadge();
   document.documentElement.classList.remove('gc-has-session');
   document.getElementById('app').style.display='none';
   document.getElementById('auth-screen').style.display='flex';
@@ -301,6 +302,8 @@ const api={
   getDmEntries:(friendId)=>sbFetch(`dm_entries?or=(and(sender_id.eq.${currentUser.id},recipient_id.eq.${friendId}),and(sender_id.eq.${friendId},recipient_id.eq.${currentUser.id}))&order=created_at.asc`),
   insertDm:(row)=>sbFetch('dm_entries',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify({...row,sender_id:currentUser.id})}),
   deleteDm:(id)=>sbFetch(`dm_entries?id=eq.${id}&select=id`,{method:'DELETE'}),
+  getIncomingDms:()=>sbFetch(`dm_entries?recipient_id=eq.${currentUser.id}&order=created_at.desc&limit=100`),
+  ensureReverseFriend:(targetId,email,username)=>sbFetch('rpc/ensure_reverse_friend',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify({target_id:targetId,my_email:email,my_username:username||null})}),
   getMyProfile:()=>sbFetch(`profiles?id=eq.${currentUser.id}&limit=1`).then(r=>r?.[0]||null),
   checkUsername:(u)=>sbFetch(`profiles?username=ilike.${encodeURIComponent(u)}&id=neq.${currentUser.id}&select=id&limit=1`).then(r=>r?.[0]||null),
   insertProfile:(username)=>sbFetch('profiles',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=representation'},body:JSON.stringify({id:currentUser.id,username:username.toLowerCase(),email:currentUser.email})}),
@@ -316,6 +319,45 @@ let categories=[], months=[], currentMonthKey='', viewMonthKey='', expenses=[], 
 let subscription=null, userPlan='free';
 let splitGroups=[], pendingShares=[], acceptedShares=[], sharedOutMap={}, pendingSplitInvites=[], acceptedGroupIds=new Set(), friends=[];
 let myProfile=null, profilesById={};
+let unreadDm={}, _unreadPoll=null;
+function dmSeenMap(){ try{ return JSON.parse(localStorage.getItem('gc-dm-seen')||'{}'); }catch{ return {}; } }
+function markDmSeen(friendId){ if(!friendId) return; const m=dmSeenMap(); m[friendId]=new Date().toISOString(); try{ localStorage.setItem('gc-dm-seen',JSON.stringify(m)); }catch{} }
+function unreadTotal(){ return Object.values(unreadDm).reduce((a,b)=>a+b,0); }
+function updateAmigosBadge(){
+  const total=unreadTotal();
+  const nav=document.querySelector('.nav-item[data-tab="amigos"]'); if(!nav) return;
+  const ico=nav.querySelector('.nav-ico')||nav;
+  let b=ico.querySelector('.nav-badge');
+  if(total>0){ if(!b){ b=document.createElement('span'); b.className='nav-badge'; ico.appendChild(b); } b.textContent=total>9?'9+':String(total); }
+  else if(b){ b.remove(); }
+}
+async function refreshUnread(notify){
+  if(!currentUser) return;
+  let incoming=[]; try{ incoming=await api.getIncomingDms()||[]; }catch{ return; }
+  const seen=dmSeenMap();
+  const prev=unreadTotal();
+  const bySender={};
+  for(const e of incoming){ const s=seen[e.sender_id]; if(!s||new Date(e.created_at)>new Date(s)) bySender[e.sender_id]=(bySender[e.sender_id]||0)+1; }
+  unreadDm=bySender;
+  updateAmigosBadge();
+  if(notify&&unreadTotal()>prev) maybeNotify(incoming);
+  if(currentTab==='amigos'&&!document.getElementById('dm-chat')) render();
+}
+function maybeNotify(incoming){
+  if(!('Notification'in window)||Notification.permission!=='granted') return;
+  const seen=dmSeenMap();
+  const fresh=(incoming||[]).filter(e=>{ const s=seen[e.sender_id]; return !s||new Date(e.created_at)>new Date(s); });
+  if(!fresh.length) return;
+  const latest=fresh[0];
+  const f=friends.find(x=>x.friend_user_id===latest.sender_id);
+  const who=f?friendLabel(f):'Alguém';
+  const kind=latest.type==='expense'?'registrou um gasto para dividir':latest.type==='payment'?'registrou um pagamento':'te enviou uma mensagem';
+  try{ new Notification('GastoCerto',{body:`${who} ${kind}`,icon:'./icon-192.png',tag:'gc-dm'}); }catch{}
+}
+function requestNotifPerm(){ try{ if('Notification'in window&&Notification.permission==='default') Notification.requestPermission().catch(()=>{}); }catch{} }
+function startUnreadPoll(){ stopUnreadPoll(); refreshUnread(false); _unreadPoll=setInterval(()=>{ if(!document.hidden) refreshUnread(true); },25000); }
+function stopUnreadPoll(){ if(_unreadPoll){ clearInterval(_unreadPoll); _unreadPoll=null; } }
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden&&currentUser) refreshUnread(true); });
 function resolveUserPlan(sub, now=new Date()){
   if(!sub) return 'free';
   if(sub.billing_cycle==='lifetime') return 'pro';
@@ -551,6 +593,7 @@ async function init(){
     }).catch(()=>{});
     autoCreateRecurring();
     loadPendingShares();
+    startUnreadPoll();
   }catch(e){
     document.getElementById('sync-dot')?.remove();
     if(!hadCache){
@@ -705,18 +748,20 @@ async function openFriends(){
 }
 function friendsListHtml(){
   if(!friends.length) return `<p class="modal-note">Você ainda não adicionou amigos. Adicione alguém abaixo para compartilhar categorias, dividir gastos ou abrir um chat de gastos.</p>`;
-  return `<div class="friend-cards">${friends.map(f=>`
+  return `<div class="friend-cards">${friends.map(f=>{
+    const un=f.friend_user_id?unreadDm[f.friend_user_id]:0;
+    return `
     <div class="friend-swipe" data-id="${f.id}">
       <div class="friend-swipe-del"><i class="fa-solid fa-trash" aria-hidden="true"></i><span>Excluir</span></div>
-      <div class="friend-card" role="button" tabindex="0">
+      <div class="friend-card${un?' has-unread':''}" role="button" tabindex="0">
         <div class="friend-avatar">${escapeHtml(friendInitial(f))}</div>
         <div class="friend-card-main">
           <div class="friend-card-name">${escapeHtml(friendLabel(f))}</div>
-          <div class="friend-card-sub">${f.username?escapeHtml(f.email):'Toque para abrir o chat de gastos'}</div>
+          <div class="friend-card-sub">${un?`${un} ${un===1?'nova mensagem':'novas mensagens'}`:(f.username?escapeHtml(f.email):'Toque para abrir o chat de gastos')}</div>
         </div>
-        <span class="friend-card-go" aria-hidden="true"><i class="fa-solid fa-comment-dollar"></i></span>
+        <span class="friend-card-go${un?' unread':''}" aria-hidden="true"><i class="fa-solid fa-comment-dollar"></i></span>
       </div>
-    </div>`).join('')}</div>`;
+    </div>`;}).join('')}</div>`;
 }
 function setupFriendSwipe(){
   document.querySelectorAll('.friend-swipe').forEach(row=>{
@@ -801,6 +846,7 @@ async function saveFriend(){
     else { showToast('Usuário não encontrado. Tente pelo e-mail.','error'); reset(); return; }
     if(email===currentUser.email.toLowerCase()){ showToast('Esse é o seu próprio cadastro.','error'); reset(); return; }
     await api.addFriend(email,username,fid);
+    if(fid) api.ensureReverseFriend(fid,currentUser.email,myProfile?.username).catch(()=>{});
     friends=await api.getFriends()||[];
     friendsViewRefresh();
     showToast('Amigo adicionado!','success');
@@ -821,6 +867,8 @@ async function startChat(friendRowId){
   }
   if(!uid){ showToast(`${friendLabel(f)} ainda não tem conta no GastoCerto — não dá para conversar.`,'error'); return; }
   if(uid===currentUser.id){ showToast('Esse é você mesmo.','error'); return; }
+  api.ensureReverseFriend(uid,currentUser.email,myProfile?.username).catch(()=>{});
+  requestNotifPerm();
   openChat(uid,friendLabel(f));
 }
 function dmBalance(entries,me){
@@ -919,6 +967,7 @@ async function loadChat(friendId,label){
   _dmSig=dmSignature(entries);
   renderChatBody(entries,friendId,label,true);
   startDmPolling(friendId,label);
+  markDmSeen(friendId); delete unreadDm[friendId]; updateAmigosBadge();
 }
 async function refreshChat(friendId,label){
   if(document.hidden||document.getElementById('dm-sheet')||!document.getElementById('dm-chat')) return;
@@ -928,6 +977,7 @@ async function refreshChat(friendId,label){
   if(sig===_dmSig) return;
   _dmSig=sig;
   renderChatBody(entries,friendId,label,false);
+  markDmSeen(friendId); delete unreadDm[friendId]; updateAmigosBadge();
 }
 function startDmPolling(friendId,label){ stopDmPolling(); _dmPoll=setInterval(()=>refreshChat(friendId,label),5000); }
 function stopDmPolling(){ if(_dmPoll){ clearInterval(_dmPoll); _dmPoll=null; } }
@@ -953,8 +1003,8 @@ function dmSheet(html){
 function closeDmSheet(){ document.getElementById('dm-sheet')?.remove(); }
 function dmMenu(friendId,label){
   dmSheet(`<div class="modal-title">O que deseja registrar?</div>
-    <button class="btn-secondary" style="justify-content:flex-start;gap:10px" onclick="openDmExpenseForm('${friendId}','${escapeHtml(label)}')"><i class="fa-solid fa-receipt" style="color:var(--accent-text)"></i> Um gasto para dividir</button>
-    <button class="btn-secondary" style="justify-content:flex-start;gap:10px" onclick="openDmPaymentForm('${friendId}','${escapeHtml(label)}')"><i class="fa-solid fa-money-bill-transfer" style="color:var(--amber-text)"></i> Um pagamento feito</button>
+    <button class="btn-secondary" onclick="openDmExpenseForm('${friendId}','${escapeHtml(label)}')">Um gasto para dividir</button>
+    <button class="btn-secondary" onclick="openDmPaymentForm('${friendId}','${escapeHtml(label)}')">Um pagamento feito</button>
     <button class="btn-secondary" onclick="closeDmSheet()">Cancelar</button>`);
 }
 function dmSeg(btn){ [...btn.parentElement.children].forEach(b=>b.classList.remove('active')); btn.classList.add('active'); }
@@ -1116,8 +1166,11 @@ function renderHome(el){
 
   const pendingSplitHtml=pendingSplitInvites.length>0?`<div style="padding:8px 20px 0;display:flex;flex-direction:column;gap:8px">${pendingSplitInvites.map(inv=>`<div class="share-notification"><div style="font-weight:600;font-size:13px;margin-bottom:3px"><i class="fa-solid fa-user-group" style="margin-right:6px;color:var(--accent)" aria-hidden="true"></i>Convite de divisão</div><div style="font-size:12px;color:var(--text2);margin-bottom:10px">Você foi convidado para o grupo <strong>${escapeHtml(inv.split_groups?.name||'Divisão')}</strong></div><div style="display:flex;gap:8px"><button onclick="respondToSplitInvite('${inv.id}',true)" style="flex:1;padding:8px;border-radius:8px;border:none;background:var(--accent);color:var(--on-accent);font:700 12px 'DM Sans',sans-serif;cursor:pointer">Aceitar</button><button onclick="respondToSplitInvite('${inv.id}',false)" style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text2);font:500 12px 'DM Sans',sans-serif;cursor:pointer">Recusar</button></div></div>`).join('')}</div>`:'';
 
+  const _unread=unreadTotal();
+  const unreadHtml=_unread>0?`<div style="padding:8px 20px 0"><div class="share-notification" onclick="switchTab('amigos')" style="cursor:pointer;display:flex;align-items:center;gap:12px"><span style="width:38px;height:38px;border-radius:50%;background:var(--accent);color:var(--on-accent);display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="fa-solid fa-comment-dollar" aria-hidden="true"></i></span><div style="flex:1;min-width:0"><div style="font-weight:600;font-size:13px">Novas mensagens</div><div style="font-size:12px;color:var(--text2)">Você tem ${_unread} ${_unread===1?'nova mensagem':'novas mensagens'}. Toque para abrir Amigos.</div></div><i class="fa-solid fa-chevron-right" style="color:var(--text3);font-size:12px" aria-hidden="true"></i></div></div>`:'';
+
   if(categories.length===0){
-    el.innerHTML=`<div style="padding:16px 20px">${pendingSharesHtml}${pendingSplitHtml}
+    el.innerHTML=`<div style="padding:16px 20px">${pendingSharesHtml}${pendingSplitHtml}${unreadHtml}
       <div class="welcome-card">
         <div class="welcome-emoji"><i class="fa-solid fa-seedling" aria-hidden="true"></i></div>
         <div class="welcome-title">Vamos organizar seus gastos</div>
@@ -1136,6 +1189,7 @@ function renderHome(el){
   el.innerHTML=`<div id="home-content" style="display:flex;flex-direction:column;height:100%">
     ${pendingSharesHtml}
     ${pendingSplitHtml}
+    ${unreadHtml}
     ${trialBannerHtml}
     <div class="cat-chips" id="cat-chips">
       ${categories.map((c,i)=>`<button class="cat-chip${i===currentCatIdx?' active':''}" data-i="${i}" onclick="goToSlide(${i})">${escapeHtml(c.name)}</button>`).join('')}

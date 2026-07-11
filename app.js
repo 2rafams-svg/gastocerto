@@ -44,7 +44,7 @@ function syncThemeRow(){
   if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
-const APP_VERSION = '3.8';
+const APP_VERSION = '3.10';
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
 const CORRECT_PIN = () => String(new Date().getFullYear());
@@ -388,6 +388,14 @@ const nextMonthKey=key=>{ const[y,m]=key.split('-').map(Number); return monthKey
 const prevMonthKey=key=>{ const[y,m]=key.split('-').map(Number); return monthKeyOf(new Date(y,m-2,1)); };
 const brl=v=>`R$ ${parseFloat(v).toFixed(2).replace('.',',')}`;
 const escapeHtml=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function parseNum(s){
+  if(s==null||s==='') return NaN;
+  s=String(s).trim();
+  if(s.indexOf(',')>-1&&s.indexOf('.')>-1) s=s.replace(/\./g,'').replace(',','.');
+  else s=s.replace(',','.');
+  return parseFloat(s);
+}
+function moneyKey(el){ el.value=el.value.replace(/[^0-9.,]/g,''); }
 
 function effBudget(cat, monthKey){
   const m=months.find(x=>x.key===monthKey);
@@ -637,7 +645,8 @@ async function autoCreateRecurring(){
     const prevKey=prevMonthKey(currentMonthKey);
     const [prevExps,curExps]=await Promise.all([api.getExpenses(prevKey),api.getExpenses(currentMonthKey)]);
     const recurringPrev=prevExps.filter(e=>e.recurring);
-    if(!recurringPrev.length) return;
+    const installmentPrev=prevExps.filter(e=>e.installment_group&&e.installment_no<e.installment_total);
+    if(!recurringPrev.length&&!installmentPrev.length) return;
     let created=false;
     for(const exp of recurringPrev){
       const already=curExps.some(e=>e.recurring&&e.cat_id===exp.cat_id&&e.name===exp.name);
@@ -645,7 +654,13 @@ async function autoCreateRecurring(){
       await api.insertExpense({id:uid(),cat_id:exp.cat_id,month_key:currentMonthKey,name:exp.name,value:exp.value,date:`${currentMonthKey}-01`,recurring:true});
       created=true;
     }
-    if(created){expenses=await api.getExpenses(viewMonthKey);saveCache();render();showToast('Lançamentos recorrentes adicionados.','success');}
+    for(const exp of installmentPrev){
+      const already=curExps.some(e=>e.installment_group===exp.installment_group);
+      if(already) continue;
+      await api.insertExpense({id:uid(),cat_id:exp.cat_id,month_key:currentMonthKey,name:exp.name,value:exp.value,date:`${currentMonthKey}-01`,installment_group:exp.installment_group,installment_no:exp.installment_no+1,installment_total:exp.installment_total});
+      created=true;
+    }
+    if(created){expenses=await api.getExpenses(viewMonthKey);saveCache();render();showToast('Lançamentos recorrentes e parcelas adicionados.','success');}
   }catch{}
 }
 
@@ -1013,7 +1028,7 @@ function dmSplitMode(mode){
   const c=document.getElementById('dm-custom'); if(!c) return;
   if(mode==='custom'){
     c.hidden=false;
-    const total=parseFloat(document.getElementById('dm-exp-amount').value)||0;
+    const total=parseNum(document.getElementById('dm-exp-amount').value)||0;
     const half=Math.round(total/2*100)/100;
     document.getElementById('dm-share-me').value=total?half:'';
     document.getElementById('dm-share-friend').value=total?Math.round((total-half)*100)/100:'';
@@ -1021,18 +1036,18 @@ function dmSplitMode(mode){
   }else{ c.hidden=true; }
 }
 function dmCustomFill(other){
-  const total=parseFloat(document.getElementById('dm-exp-amount').value)||0;
+  const total=parseNum(document.getElementById('dm-exp-amount').value)||0;
   if(total){
-    if(other==='friend'){ const me=parseFloat(document.getElementById('dm-share-me').value)||0; document.getElementById('dm-share-friend').value=Math.round((total-me)*100)/100; }
-    else{ const fr=parseFloat(document.getElementById('dm-share-friend').value)||0; document.getElementById('dm-share-me').value=Math.round((total-fr)*100)/100; }
+    if(other==='friend'){ const me=parseNum(document.getElementById('dm-share-me').value)||0; document.getElementById('dm-share-friend').value=Math.round((total-me)*100)/100; }
+    else{ const fr=parseNum(document.getElementById('dm-share-friend').value)||0; document.getElementById('dm-share-me').value=Math.round((total-fr)*100)/100; }
   }
   dmSplitHint();
 }
 function dmSplitHint(){
   const h=document.getElementById('dm-split-hint'); if(!h) return;
-  const total=parseFloat(document.getElementById('dm-exp-amount').value)||0;
-  const me=parseFloat(document.getElementById('dm-share-me').value)||0;
-  const fr=parseFloat(document.getElementById('dm-share-friend').value)||0;
+  const total=parseNum(document.getElementById('dm-exp-amount').value)||0;
+  const me=parseNum(document.getElementById('dm-share-me').value)||0;
+  const fr=parseNum(document.getElementById('dm-share-friend').value)||0;
   const sum=Math.round((me+fr)*100)/100;
   if(Math.abs(sum-total)<0.01){ h.innerHTML='<i class="fa-solid fa-check" aria-hidden="true"></i> Soma confere'; h.style.color='var(--accent-text)'; }
   else{ h.textContent=`Soma ${brl(sum)} de ${brl(total)}`; h.style.color='var(--red)'; }
@@ -1042,29 +1057,29 @@ function openDmExpenseForm(friendId,label){
   const safe=escapeHtml(label);
   dmSheet(`<div class="modal-title">Registrar gasto</div>
     <div class="form-group"><label class="form-label">Descrição</label><input class="form-input" id="dm-exp-desc" placeholder="Ex: Jantar, Uber…" maxlength="80" autocomplete="off"/></div>
-    <div class="form-group"><label class="form-label">Valor total (R$)</label><input class="form-input" id="dm-exp-amount" type="number" inputmode="decimal" step="0.01" placeholder="0,00" oninput="dmSplitRecalc()"/></div>
+    <div class="form-group"><label class="form-label">Valor total (R$)</label><input class="form-input" id="dm-exp-amount" type="text" inputmode="decimal" placeholder="0,00" oninput="moneyKey(this);dmSplitRecalc()"/></div>
     <div class="form-group"><label class="form-label">Quem pagou?</label>
       <div class="dm-seg" id="dm-payer"><button type="button" class="dm-seg-btn active" data-v="me" onclick="dmSeg(this)">Você</button><button type="button" class="dm-seg-btn" data-v="friend" onclick="dmSeg(this)">${safe}</button></div></div>
     <div class="form-group"><label class="form-label">Como dividir?</label>
       <div class="dm-seg" id="dm-split"><button type="button" class="dm-seg-btn active" data-v="half" onclick="dmSeg(this);dmSplitMode('half')">50 / 50</button><button type="button" class="dm-seg-btn" data-v="custom" onclick="dmSeg(this);dmSplitMode('custom')">Personalizado</button></div></div>
     <div id="dm-custom" hidden>
-      <div class="dm-split-row"><span>Sua parte</span><input class="form-input dm-share" id="dm-share-me" type="number" inputmode="decimal" step="0.01" placeholder="0,00" oninput="dmCustomFill('friend')"/></div>
-      <div class="dm-split-row"><span>${safe}</span><input class="form-input dm-share" id="dm-share-friend" type="number" inputmode="decimal" step="0.01" placeholder="0,00" oninput="dmCustomFill('me')"/></div>
+      <div class="dm-split-row"><span>Sua parte</span><input class="form-input dm-share" id="dm-share-me" type="text" inputmode="decimal" placeholder="0,00" oninput="moneyKey(this);dmCustomFill('friend')"/></div>
+      <div class="dm-split-row"><span>${safe}</span><input class="form-input dm-share" id="dm-share-friend" type="text" inputmode="decimal" placeholder="0,00" oninput="moneyKey(this);dmCustomFill('me')"/></div>
       <div class="dm-split-hint" id="dm-split-hint"></div>
     </div>
     <button class="btn-primary" id="dm-exp-save" onclick="saveDmExpense('${friendId}','${safe}')">Salvar gasto</button>
     <button class="btn-secondary" onclick="closeDmSheet()">Cancelar</button>`);
 }
 async function saveDmExpense(friendId,label){
-  const amount=Math.round((parseFloat(document.getElementById('dm-exp-amount').value)||0)*100)/100;
+  const amount=Math.round((parseNum(document.getElementById('dm-exp-amount').value)||0)*100)/100;
   const desc=(document.getElementById('dm-exp-desc').value||'').trim();
   if(!(amount>0)){ showToast('Informe um valor válido.','error'); return; }
   const payer=dmSegVal('dm-payer');
   const mode=dmSegVal('dm-split');
   let shareMe,shareFriend;
   if(mode==='custom'){
-    shareMe=Math.round((parseFloat(document.getElementById('dm-share-me').value)||0)*100)/100;
-    shareFriend=Math.round((parseFloat(document.getElementById('dm-share-friend').value)||0)*100)/100;
+    shareMe=Math.round((parseNum(document.getElementById('dm-share-me').value)||0)*100)/100;
+    shareFriend=Math.round((parseNum(document.getElementById('dm-share-friend').value)||0)*100)/100;
     if(Math.abs((shareMe+shareFriend)-amount)>0.02){ showToast('A soma das partes deve ser igual ao total.','error'); return; }
   }else{ shareMe=Math.round(amount/2*100)/100; shareFriend=Math.round((amount-shareMe)*100)/100; }
   const payer_id=payer==='me'?currentUser.id:friendId;
@@ -1080,12 +1095,12 @@ function openDmPaymentForm(friendId,label){
     <p class="modal-note">Use quando alguém paga o outro para acertar o saldo.</p>
     <div class="form-group"><label class="form-label">Quem pagou?</label>
       <div class="dm-seg dm-seg-col" id="dm-pay-dir"><button type="button" class="dm-seg-btn active" data-v="me" onclick="dmSeg(this)">Você pagou ${safe}</button><button type="button" class="dm-seg-btn" data-v="friend" onclick="dmSeg(this)">${safe} pagou você</button></div></div>
-    <div class="form-group"><label class="form-label">Valor (R$)</label><input class="form-input" id="dm-pay-amount" type="number" inputmode="decimal" step="0.01" placeholder="0,00"/></div>
+    <div class="form-group"><label class="form-label">Valor (R$)</label><input class="form-input" id="dm-pay-amount" type="text" inputmode="decimal" placeholder="0,00" oninput="moneyKey(this)"/></div>
     <button class="btn-primary" id="dm-pay-save" onclick="saveDmPayment('${friendId}','${safe}')">Registrar pagamento</button>
     <button class="btn-secondary" onclick="closeDmSheet()">Cancelar</button>`);
 }
 async function saveDmPayment(friendId,label){
-  const amount=Math.round((parseFloat(document.getElementById('dm-pay-amount').value)||0)*100)/100;
+  const amount=Math.round((parseNum(document.getElementById('dm-pay-amount').value)||0)*100)/100;
   if(!(amount>0)){ showToast('Informe um valor válido.','error'); return; }
   const payer_id=dmSegVal('dm-pay-dir')==='me'?currentUser.id:friendId;
   const btn=document.getElementById('dm-pay-save'); btn.disabled=true; btn.textContent='Registrando...';
@@ -1236,7 +1251,7 @@ function buildSlide(cat, isNow){
       </div>`:'';
     return `<div class="expense-item">
     <div class="expense-left">
-      <div class="expense-name">${e.recurring?`<i class="fa-solid fa-arrows-rotate" style="font-size:10px;color:var(--accent-text);margin-right:5px" title="Recorrente" aria-hidden="true"></i>`:''}${escapeHtml(e.name)}${byLabel}${e.image_url?`<span class="exp-receipt-dot" onclick="event.stopPropagation();viewReceipt('${e.id}')" title="Ver comprovante"><i class="fa-solid fa-image" aria-hidden="true"></i></span>`:''}</div>
+      <div class="expense-name">${e.recurring?`<i class="fa-solid fa-arrows-rotate" style="font-size:10px;color:var(--accent-text);margin-right:5px" title="Recorrente" aria-hidden="true"></i>`:''}${e.installment_total?`<i class="fa-solid fa-layer-group" style="font-size:10px;color:var(--accent-text);margin-right:5px" title="Parcelado" aria-hidden="true"></i>`:''}${escapeHtml(e.name)}${e.installment_total?`<span style="font-size:10px;color:var(--text3);font-weight:600;margin-left:5px">(${e.installment_no}/${e.installment_total})</span>`:''}${byLabel}${e.image_url?`<span class="exp-receipt-dot" onclick="event.stopPropagation();viewReceipt('${e.id}')" title="Ver comprovante"><i class="fa-solid fa-image" aria-hidden="true"></i></span>`:''}</div>
       <div class="expense-date">${new Date(e.date+'T12:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'})}</div>
     </div>
     <div class="expense-right">
@@ -1326,7 +1341,13 @@ function renderCategorias(el){
     el.innerHTML=`<div class="cat-list"><div class="empty"><div class="empty-icon"><i class="fa-regular fa-folder-open"></i></div><div class="empty-text">Nenhuma categoria ainda.</div></div></div>`;
     return;
   }
+  const totalBudget=categories.reduce((s,c)=>s+parseFloat(c.budget||0),0);
+  const totalHtml=`<div class="cat-total-card">
+    <span class="cat-total-label"><i class="fa-solid fa-wallet" aria-hidden="true"></i> Orçamento total · ${categories.length} ${categories.length===1?'categoria':'categorias'}</span>
+    <span class="cat-total-value">${brl(totalBudget)}/mês</span>
+  </div>`;
   el.innerHTML=`<div class="cat-list" id="cat-list">
+    ${totalHtml}
     ${categories.map(cat=>{
       const owned=cat.user_id===currentUser.id;
       const perm=owned?'owner':sharePerm(cat.id);
@@ -1742,14 +1763,14 @@ async function openAddSplitExpense(groupId){
     <div class="form-group"><label class="form-label">Descrição</label>
       <input class="form-input" id="f-split-desc" maxlength="160" placeholder="Ex: Jantar, Uber, Mercado"></div>
     <div class="form-group"><label class="form-label">Valor total (R$)</label>
-      <input class="form-input" id="f-split-value" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="0,00"></div>
+      <input class="form-input" id="f-split-value" type="text" inputmode="decimal" placeholder="0,00" oninput="moneyKey(this)"></div>
     <div class="form-group"><label class="form-label">Dividir com</label>${memberCheckboxes}</div>
     ${receiptPickerHtml()}
     <button class="btn-primary" id="btn-split-exp" onclick="saveSplitExpense('${groupId}')">Dividir igualmente</button>
     <button class="btn-secondary" onclick="openSplitGroup('${groupId}')">Cancelar</button>`);
 }
 async function saveSplitExpense(groupId){
-  const description=document.getElementById('f-split-desc').value.trim(),total=parseFloat(document.getElementById('f-split-value').value);
+  const description=document.getElementById('f-split-desc').value.trim(),total=parseNum(document.getElementById('f-split-value').value);
   if(!description||!total||total<=0){showToast('Preencha descrição e valor.','error');return;}
   const allMembers=await api.getSplitMembers(groupId);
   const selected=allMembers.filter(m=>document.getElementById('split-m-'+m.id)?.checked);
@@ -1783,7 +1804,7 @@ function openRegisterPayment(fromMemberId){
       <select class="form-input" id="f-pmt-to"><option value="">Selecione...</option>${memberOpts(fromMemberId)}</select>
     </div>
     <div class="form-group"><label class="form-label">Valor (R$)</label>
-      <input class="form-input" id="f-pmt-amount" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="0,00" value="${defaultAmount}"/>
+      <input class="form-input" id="f-pmt-amount" type="text" inputmode="decimal" placeholder="0,00" value="${defaultAmount}" oninput="moneyKey(this)"/>
     </div>
     <div class="form-group"><label class="form-label">Nota <span style="color:var(--text3)">(opcional)</span></label>
       <input class="form-input" id="f-pmt-note" maxlength="100" placeholder="Pix, dinheiro, transferência…"/>
@@ -1813,7 +1834,7 @@ async function savePayment(){
   const {groupId}=state;
   const fromId=document.getElementById('f-pmt-from')?.value;
   const toId=document.getElementById('f-pmt-to')?.value;
-  const amount=parseFloat(document.getElementById('f-pmt-amount')?.value);
+  const amount=parseNum(document.getElementById('f-pmt-amount')?.value);
   const note=(document.getElementById('f-pmt-note')?.value||'').trim();
   if(!fromId||!toId){showToast('Selecione quem pagou e para quem.','error');return;}
   if(fromId===toId){showToast('Quem pagou e quem recebeu devem ser pessoas diferentes.','error');return;}
@@ -1960,17 +1981,40 @@ function openAddExpense(catId){
         <div class="ac-list" id="ac-list"></div>
       </div></div>
     <div class="form-group"><label class="form-label">Valor (R$)</label>
-      <input class="form-input" id="f-value" type="number" inputmode="decimal" placeholder="0,00" step="0.01" min="0"/></div>
+      <input class="form-input" id="f-value" type="text" inputmode="decimal" placeholder="0,00" oninput="moneyKey(this)"/></div>
     <div class="form-group"><label class="form-label">Data</label>
       <input class="form-input" id="f-date" type="date" value="${today}"/></div>
-    <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--surface2);border-radius:10px;margin-bottom:4px">
-      <input type="checkbox" id="f-recurring" style="width:18px;height:18px;accent-color:var(--accent);flex-shrink:0"/>
-      <label for="f-recurring" style="font-size:14px;cursor:pointer;flex:1">Recorrente <span style="color:var(--text2);font-size:12px">(repetir todo mês)</span></label>
-    </div>
+    ${repeatFieldHtml()}
     ${receiptPickerHtml()}
     <button class="btn-primary" id="btn-save-exp" onclick="saveExpense(null)">Salvar</button>
     <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
 }
+function repeatFieldHtml(mode='none',installmentTotal='',installmentNo=1){
+  return `<div class="form-group"><label class="form-label">Repetição</label>
+    <div class="dm-seg" id="f-repeat-seg">
+      <button type="button" class="dm-seg-btn${mode==='none'?' active':''}" data-v="none" onclick="repeatSeg(this)">Única</button>
+      <button type="button" class="dm-seg-btn${mode==='recurring'?' active':''}" data-v="recurring" onclick="repeatSeg(this)">Recorrente</button>
+      <button type="button" class="dm-seg-btn${mode==='installment'?' active':''}" data-v="installment" onclick="repeatSeg(this)">Parcelado</button>
+    </div>
+    <div id="f-installment-wrap" ${mode==='installment'?'':'hidden'} style="margin-top:10px;display:flex;gap:10px">
+      <div style="flex:1"><span class="auth-hint" style="margin-bottom:6px;display:block">Parcela atual</span>
+        <input class="form-input" id="f-installment-no" type="number" inputmode="numeric" min="1" max="60" step="1" value="${installmentNo}"/></div>
+      <div style="flex:1"><span class="auth-hint" style="margin-bottom:6px;display:block">Total de parcelas</span>
+        <input class="form-input" id="f-installment-total" type="number" inputmode="numeric" min="2" max="60" step="1" placeholder="Ex: 12" value="${installmentTotal}"/></div>
+    </div>
+    <span class="auth-hint" id="f-installment-hint" style="${mode==='installment'?'':'display:none'}">Se a compra já começou, informe em qual parcela ela está — ex: parcela 4 de 12.</span>
+  </div>`;
+}
+function repeatSeg(btn){
+  [...btn.parentElement.children].forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  const isInst=btn.dataset.v==='installment';
+  const wrap=document.getElementById('f-installment-wrap');
+  if(wrap) wrap.hidden=!isInst;
+  const hint=document.getElementById('f-installment-hint');
+  if(hint) hint.style.display=isInst?'':'none';
+}
+function repeatSegVal(){ const el=document.querySelector('#f-repeat-seg .dm-seg-btn.active'); return el?el.dataset.v:'none'; }
 
 function openEditExpense(expId){
   const e=expenses.find(x=>x.id===expId); if(!e) return;
@@ -1983,13 +2027,10 @@ function openEditExpense(expId){
         <div class="ac-list" id="ac-list"></div>
       </div></div>
     <div class="form-group"><label class="form-label">Valor (R$)</label>
-      <input class="form-input" id="f-value" type="number" inputmode="decimal" value="${e.value}" step="0.01" min="0"/></div>
+      <input class="form-input" id="f-value" type="text" inputmode="decimal" value="${e.value}" oninput="moneyKey(this)"/></div>
     <div class="form-group"><label class="form-label">Data</label>
       <input class="form-input" id="f-date" type="date" value="${e.date}"/></div>
-    <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--surface2);border-radius:10px;margin-bottom:4px">
-      <input type="checkbox" id="f-recurring" ${e.recurring?'checked':''} style="width:18px;height:18px;accent-color:var(--accent);flex-shrink:0"/>
-      <label for="f-recurring" style="font-size:14px;cursor:pointer;flex:1">Recorrente <span style="color:var(--text2);font-size:12px">(repetir todo mês)</span></label>
-    </div>
+    ${repeatFieldHtml(e.installment_total?'installment':(e.recurring?'recurring':'none'),e.installment_total||'',e.installment_no||1)}
     ${receiptPickerHtml(e.image_url||'')}
     <button class="btn-primary" id="btn-save-exp" onclick="saveExpense('${expId}')">Salvar</button>
     <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
@@ -1998,18 +2039,29 @@ function openEditExpense(expId){
 async function saveExpense(expId){
   const catId=document.getElementById('f-catId').value;
   const name=document.getElementById('f-name').value.trim();
-  const value=parseFloat(document.getElementById('f-value').value);
+  const value=parseNum(document.getElementById('f-value').value);
   const date=document.getElementById('f-date').value;
-  const recurring=document.getElementById('f-recurring')?.checked||false;
+  const repeatMode=repeatSegVal();
+  const recurring=repeatMode==='recurring';
   if(!name||isNaN(value)||value<=0||!date){ showToast('Preencha todos os campos.','error'); return; }
   if(!expId&&!isPro()&&expenses.filter(e=>e.date===date).length>=CONFIG.FREE_DAILY_LAUNCHES){ openPaywall('Limite diário de lançamentos atingido'); return; }
+  const editing=expId?expenses.find(x=>x.id===expId):null;
+  let installment_total=null, installment_no=null, installment_group=null;
+  if(repeatMode==='installment'){
+    installment_total=parseInt(document.getElementById('f-installment-total').value,10);
+    installment_no=parseInt(document.getElementById('f-installment-no').value,10)||1;
+    if(!installment_total||installment_total<2){ showToast('Informe em quantas parcelas (mínimo 2).','error'); return; }
+    if(installment_no<1||installment_no>installment_total){ showToast(`A parcela atual deve estar entre 1 e ${installment_total}.`,'error'); return; }
+    installment_group=editing?.installment_group||uid();
+  }
   const btn=document.getElementById('btn-save-exp'); btn.disabled=true; btn.textContent='Salvando...';
   try{
     let image_url=expId?(expenses.find(x=>x.id===expId)?.image_url||null):null;
     const newFile=document.getElementById('f-receipt')?.files?.[0];
     if(newFile){ btn.textContent='Enviando foto...'; try{ image_url=await getReceiptUrl(); }catch(upErr){ showToast(`Foto não enviada: ${upErr.message}`,'error'); } btn.textContent='Salvando...'; }
-    if(expId) await api.updateExpense(expId,{cat_id:catId,name,value,date,recurring,image_url});
-    else await api.insertExpense({id:uid(),cat_id:catId,month_key:viewMonthKey,name,value,date,recurring,image_url});
+    const payload={cat_id:catId,name,value,date,recurring,image_url,installment_total,installment_no,installment_group};
+    if(expId) await api.updateExpense(expId,payload);
+    else await api.insertExpense({id:uid(),month_key:viewMonthKey,...payload});
     logActivity(catId,expId?'edit':'create',name,value);
     if(name && !expenseNames.includes(name)) expenseNames.unshift(name);
     expenses=await api.getExpenses(viewMonthKey);
@@ -2022,6 +2074,8 @@ async function saveExpense(expId){
       showToast('Falta a coluna no banco: ALTER TABLE expenses ADD COLUMN image_url text','error');
     }else if(/recurring/i.test(msg)){
       showToast('Rode o SQL: ALTER TABLE expenses ADD COLUMN recurring boolean DEFAULT false','error');
+    }else if(/installment/i.test(msg)){
+      showToast('Rode o SQL: ALTER TABLE expenses ADD COLUMN installment_no integer, ADD COLUMN installment_total integer, ADD COLUMN installment_group text','error');
     }else{
       showToast(`Erro ao salvar: ${msg.slice(0,120)}`,'error');
     }
@@ -2195,7 +2249,7 @@ function openAddCategory(){
     <div class="form-group"><label class="form-label">Nome</label>
       <input class="form-input" id="f-cname" placeholder="Ex: Academia" autocomplete="off"/></div>
     <div class="form-group"><label class="form-label">Orçamento mensal (R$)</label>
-      <input class="form-input" id="f-cbudget" type="number" inputmode="decimal" placeholder="0,00" step="0.01" min="0"/></div>
+      <input class="form-input" id="f-cbudget" type="text" inputmode="decimal" placeholder="0,00" oninput="moneyKey(this)"/></div>
     <button class="btn-primary" id="btn-save-cat" onclick="saveCategory(null)">Salvar</button>
     <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
 }
@@ -2206,14 +2260,14 @@ function openEditCategory(catId){
     <div class="form-group"><label class="form-label">Nome</label>
       <input class="form-input" id="f-cname" value="${cat.name}" autocomplete="off"/></div>
     <div class="form-group"><label class="form-label">Orçamento mensal (R$)</label>
-      <input class="form-input" id="f-cbudget" type="number" inputmode="decimal" value="${cat.budget}" step="0.01" min="0"/></div>
+      <input class="form-input" id="f-cbudget" type="text" inputmode="decimal" value="${cat.budget}" oninput="moneyKey(this)"/></div>
     <button class="btn-primary" id="btn-save-cat" onclick="saveCategory('${catId}')">Salvar</button>
     <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
 }
 
 async function saveCategory(catId){
   const name=document.getElementById('f-cname').value.trim();
-  const budget=parseFloat(document.getElementById('f-cbudget').value);
+  const budget=parseNum(document.getElementById('f-cbudget').value);
   if(!name||isNaN(budget)||budget<=0){ showToast('Preencha todos os campos.','error'); return; }
   if(!catId&&!isPro()&&categories.length>=CONFIG.FREE_MAX_CATEGORIES){ openPaywall('Limite de categorias atingido'); return; }
   const btn=document.getElementById('btn-save-cat'); btn.disabled=true; btn.textContent='Salvando...';
@@ -2253,7 +2307,7 @@ function openCloseMonth(){
     ${categories.map(cat=>`<div class="month-adj-item">
       <div class="month-adj-name">${cat.name}</div>
       <div class="month-adj-row"><span style="font-size:12px;color:var(--text3);white-space:nowrap">Orçamento (R$)</span>
-        <input class="form-input" id="adj-${cat.id}" type="number" inputmode="decimal" value="${cat.budget}" step="0.01" min="0"/></div>
+        <input class="form-input" id="adj-${cat.id}" type="text" inputmode="decimal" value="${cat.budget}" oninput="moneyKey(this)"/></div>
     </div>`).join('')}
     <button class="btn-primary" id="btn-close-month" onclick="confirmCloseMonth('${next}')" style="margin-top:8px">Fechar e Abrir ${monthLabel(next)}</button>
     <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
@@ -2262,7 +2316,7 @@ function openCloseMonth(){
 async function confirmCloseMonth(nextKey){
   const btn=document.getElementById('btn-close-month'); btn.disabled=true; btn.textContent='Processando...';
   try{
-    for(const cat of categories){ const inp=document.getElementById(`adj-${cat.id}`); if(inp){const v=parseFloat(inp.value);if(!isNaN(v)&&v>0) await api.updateCategory(cat.id,{budget:v});} }
+    for(const cat of categories){ const inp=document.getElementById(`adj-${cat.id}`); if(inp){const v=parseNum(inp.value);if(!isNaN(v)&&v>0) await api.updateCategory(cat.id,{budget:v});} }
     await api.closeMonth(currentMonthKey);
     if(!months.find(m=>m.key===nextKey)) await api.insertMonth({key:nextKey,closed:false});
     categories=await api.getCategories(); months=await api.getMonths();
@@ -2395,7 +2449,7 @@ function openMonthOverride(catId){
       <div class="info-row"><span><i class="fa-regular fa-calendar" aria-hidden="true"></i> Ajuste vale só para</span><strong>${monthLabel(currentMonthKey)}</strong></div>
     </div>
     <div class="form-group"><label class="form-label">Orçamento de ${monthLabel(currentMonthKey)} (R$)</label>
-      <input class="form-input" id="f-ovbudget" type="number" inputmode="decimal" value="${eff}" step="0.01" min="0"/>
+      <input class="form-input" id="f-ovbudget" type="text" inputmode="decimal" value="${eff}" oninput="moneyKey(this)"/>
       <span class="field-hint">Só este mês passa a usar este valor. ${ov?'Você pode voltar ao padrão a qualquer momento.':''}</span></div>
     <button class="btn-primary" id="btn-ov" onclick="saveMonthOverride('${catId}')">Salvar só para ${monthLabel(currentMonthKey)}</button>
     ${ov?`<button class="btn-secondary" onclick="revertMonthOverride('${catId}')">Voltar ao padrão (${brl(cat.budget)}/mês)</button>`:''}
@@ -2403,7 +2457,7 @@ function openMonthOverride(catId){
 }
 
 async function saveMonthOverride(catId){
-  const v=parseFloat(document.getElementById('f-ovbudget').value);
+  const v=parseNum(document.getElementById('f-ovbudget').value);
   if(isNaN(v)||v<=0){ showToast('Informe um valor válido.','error'); return; }
   const m=months.find(x=>x.key===currentMonthKey); if(!m) return;
   const budgets={...(m.budgets||{}), [catId]:v};
@@ -2453,7 +2507,7 @@ const TUTORIAL_STEPS = [
   },
   {
     title: 'Categorias',
-    body: 'Crie categorias como "Mercado", "Academia" ou "Aluguel", cada uma com seu orçamento mensal. Arraste pela alça para reordenar, toque no lápis para editar e marque um gasto como recorrente para ele se repetir todo mês automaticamente.',
+    body: 'Crie categorias como "Mercado", "Academia" ou "Aluguel", cada uma com seu orçamento mensal — o total orçado de todas aparece no topo da lista. Arraste pela alça para reordenar e toque no lápis para editar. Ao lançar um gasto, escolha "Recorrente" para repetir todo mês ou "Parcelado" para ele aparecer automaticamente pelo número de meses que você definir.',
     target: ()=>tutNav('categorias'),
     action: ()=>tutGo('categorias'),
   },

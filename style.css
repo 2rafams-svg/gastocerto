@@ -215,6 +215,9 @@ button{touch-action:manipulation}
 .chart-val{font-size:9px;color:var(--text3)}
 .chart-label{font-size:10px;color:var(--text2);font-weight:500}
 .cat-list{padding:16px 20px calc(96px + var(--safe-bot))}
+.cat-total-card{display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--accent-soft);border:1px solid var(--accent-line);border-radius:14px;padding:13px 16px;margin-bottom:14px}
+.cat-total-label{font-size:12.5px;color:var(--accent-text);font-weight:600;display:flex;align-items:center;gap:7px}
+.cat-total-value{font-family:var(--font-title);font-size:15px;font-weight:800;color:var(--accent-text);white-space:nowrap}
 .cat-manage-item{
   background:var(--surface);border:1px solid var(--border);border-radius:12px;
   padding:14px 16px;margin-bottom:10px;display:flex;align-items:center;

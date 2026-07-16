@@ -44,7 +44,7 @@ function syncThemeRow(){
   if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
-const APP_VERSION = '3.10';
+const APP_VERSION = '3.11';
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
 const CORRECT_PIN = () => String(new Date().getFullYear());
@@ -1980,7 +1980,7 @@ function openAddExpense(catId){
         <input class="form-input" id="f-name" placeholder="Ex: Gasolina Shell" autocomplete="off" oninput="acFilter(this.value)" onfocus="acFilter(this.value)" onblur="acBlur()"/>
         <div class="ac-list" id="ac-list"></div>
       </div></div>
-    <div class="form-group"><label class="form-label">Valor (R$)</label>
+    <div class="form-group"><label class="form-label" id="f-value-label">Valor (R$)</label>
       <input class="form-input" id="f-value" type="text" inputmode="decimal" placeholder="0,00" oninput="moneyKey(this)"/></div>
     <div class="form-group"><label class="form-label">Data</label>
       <input class="form-input" id="f-date" type="date" value="${today}"/></div>
@@ -1989,20 +1989,26 @@ function openAddExpense(catId){
     <button class="btn-primary" id="btn-save-exp" onclick="saveExpense(null)">Salvar</button>
     <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
 }
-function repeatFieldHtml(mode='none',installmentTotal='',installmentNo=1){
+function repeatFieldHtml(mode='none',installmentTotal='',installmentNo=1,valueMode='compra'){
   return `<div class="form-group"><label class="form-label">Repetição</label>
     <div class="dm-seg" id="f-repeat-seg">
       <button type="button" class="dm-seg-btn${mode==='none'?' active':''}" data-v="none" onclick="repeatSeg(this)">Única</button>
       <button type="button" class="dm-seg-btn${mode==='recurring'?' active':''}" data-v="recurring" onclick="repeatSeg(this)">Recorrente</button>
       <button type="button" class="dm-seg-btn${mode==='installment'?' active':''}" data-v="installment" onclick="repeatSeg(this)">Parcelado</button>
     </div>
-    <div id="f-installment-wrap" ${mode==='installment'?'':'hidden'} style="margin-top:10px;display:flex;gap:10px">
-      <div style="flex:1"><span class="auth-hint" style="margin-bottom:6px;display:block">Parcela atual</span>
-        <input class="form-input" id="f-installment-no" type="number" inputmode="numeric" min="1" max="60" step="1" value="${installmentNo}"/></div>
-      <div style="flex:1"><span class="auth-hint" style="margin-bottom:6px;display:block">Total de parcelas</span>
-        <input class="form-input" id="f-installment-total" type="number" inputmode="numeric" min="2" max="60" step="1" placeholder="Ex: 12" value="${installmentTotal}"/></div>
+    <div id="f-installment-wrap" ${mode==='installment'?'':'hidden'} style="margin-top:10px">
+      <div class="dm-seg" id="f-installment-vmode" style="margin-bottom:10px">
+        <button type="button" class="dm-seg-btn${valueMode==='parcela'?'':' active'}" data-v="compra" onclick="instVModeSeg(this)">Valor da compra</button>
+        <button type="button" class="dm-seg-btn${valueMode==='parcela'?' active':''}" data-v="parcela" onclick="instVModeSeg(this)">Valor da parcela</button>
+      </div>
+      <div style="display:flex;gap:10px">
+        <div style="flex:1"><span class="auth-hint" style="margin-bottom:6px;display:block">Parcela atual</span>
+          <input class="form-input" id="f-installment-no" type="number" inputmode="numeric" min="1" max="60" step="1" value="${installmentNo}"/></div>
+        <div style="flex:1"><span class="auth-hint" style="margin-bottom:6px;display:block">Total de parcelas</span>
+          <input class="form-input" id="f-installment-total" type="number" inputmode="numeric" min="2" max="60" step="1" placeholder="Ex: 12" value="${installmentTotal}"/></div>
+      </div>
     </div>
-    <span class="auth-hint" id="f-installment-hint" style="${mode==='installment'?'':'display:none'}">Se a compra já começou, informe em qual parcela ela está — ex: parcela 4 de 12.</span>
+    <span class="auth-hint" id="f-installment-hint" style="${mode==='installment'?'':'display:none'}">Se a compra já começou, informe em qual parcela ela está — ex: parcela 4 de 12. Em "Valor da compra", o total é dividido pelas parcelas.</span>
   </div>`;
 }
 function repeatSeg(btn){
@@ -2013,8 +2019,20 @@ function repeatSeg(btn){
   if(wrap) wrap.hidden=!isInst;
   const hint=document.getElementById('f-installment-hint');
   if(hint) hint.style.display=isInst?'':'none';
+  updateValueFieldLabel();
 }
 function repeatSegVal(){ const el=document.querySelector('#f-repeat-seg .dm-seg-btn.active'); return el?el.dataset.v:'none'; }
+function instVModeSeg(btn){
+  [...btn.parentElement.children].forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  updateValueFieldLabel();
+}
+function instValueMode(){ const el=document.querySelector('#f-installment-vmode .dm-seg-btn.active'); return el?el.dataset.v:'compra'; }
+function updateValueFieldLabel(){
+  const label=document.getElementById('f-value-label'); if(!label) return;
+  if(repeatSegVal()!=='installment'){ label.textContent='Valor (R$)'; return; }
+  label.textContent=instValueMode()==='parcela'?'Valor de cada parcela (R$)':'Valor total da compra (R$)';
+}
 
 function openEditExpense(expId){
   const e=expenses.find(x=>x.id===expId); if(!e) return;
@@ -2026,11 +2044,11 @@ function openEditExpense(expId){
         <input class="form-input" id="f-name" value="${escapeHtml(e.name)}" autocomplete="off" oninput="acFilter(this.value)" onfocus="acFilter(this.value)" onblur="acBlur()"/>
         <div class="ac-list" id="ac-list"></div>
       </div></div>
-    <div class="form-group"><label class="form-label">Valor (R$)</label>
+    <div class="form-group"><label class="form-label" id="f-value-label">Valor (R$)</label>
       <input class="form-input" id="f-value" type="text" inputmode="decimal" value="${e.value}" oninput="moneyKey(this)"/></div>
     <div class="form-group"><label class="form-label">Data</label>
       <input class="form-input" id="f-date" type="date" value="${e.date}"/></div>
-    ${repeatFieldHtml(e.installment_total?'installment':(e.recurring?'recurring':'none'),e.installment_total||'',e.installment_no||1)}
+    ${repeatFieldHtml(e.installment_total?'installment':(e.recurring?'recurring':'none'),e.installment_total||'',e.installment_no||1,'parcela')}
     ${receiptPickerHtml(e.image_url||'')}
     <button class="btn-primary" id="btn-save-exp" onclick="saveExpense('${expId}')">Salvar</button>
     <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
@@ -2039,7 +2057,7 @@ function openEditExpense(expId){
 async function saveExpense(expId){
   const catId=document.getElementById('f-catId').value;
   const name=document.getElementById('f-name').value.trim();
-  const value=parseNum(document.getElementById('f-value').value);
+  let value=parseNum(document.getElementById('f-value').value);
   const date=document.getElementById('f-date').value;
   const repeatMode=repeatSegVal();
   const recurring=repeatMode==='recurring';
@@ -2053,6 +2071,7 @@ async function saveExpense(expId){
     if(!installment_total||installment_total<2){ showToast('Informe em quantas parcelas (mínimo 2).','error'); return; }
     if(installment_no<1||installment_no>installment_total){ showToast(`A parcela atual deve estar entre 1 e ${installment_total}.`,'error'); return; }
     installment_group=editing?.installment_group||uid();
+    if(instValueMode()==='compra') value=Math.round((value/installment_total)*100)/100;
   }
   const btn=document.getElementById('btn-save-exp'); btn.disabled=true; btn.textContent='Salvando...';
   try{

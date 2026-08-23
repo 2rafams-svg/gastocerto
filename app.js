@@ -44,7 +44,7 @@ function syncThemeRow(){
   if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
-const APP_VERSION = '3.13';
+const APP_VERSION = '3.14';
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
 const CORRECT_PIN = () => String(new Date().getFullYear());
@@ -147,7 +147,7 @@ function userTag(uid){
 async function logout(){
   const token=session?.access_token;
   if(token) fetch(`${SUPABASE_URL}/auth/v1/logout`,{method:'POST',headers:{apikey:SUPABASE_KEY,Authorization:`Bearer ${token}`}}).catch(()=>{});
-  persistSession(null); categories=[]; months=[]; expenses=[]; expenseNames=[]; acceptedShares=[]; sharedOutMap={}; pendingSplitInvites=[]; acceptedGroupIds=new Set(); friends=[]; budgetTransfers=[];
+  persistSession(null); categories=[]; months=[]; expenses=[]; expenseNames=[]; acceptedShares=[]; sharedOutMap={}; pendingSplitInvites=[]; acceptedGroupIds=new Set(); friends=[]; budgetTransfers=[]; cards=[]; rollovers=[]; futureMonthKeys=[];
   stopUnreadPoll(); unreadDm={}; updateAmigosBadge();
   document.documentElement.classList.remove('gc-has-session');
   document.getElementById('app').style.display='none';
@@ -269,7 +269,16 @@ const api={
   insertActivity:(d)=>sbFetch('activity_log',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify({...d,actor_user_id:currentUser.id,actor_email:currentUser.email})}),
   setMonthBudgets:(key,budgets)=>sbFetch(`months?key=eq.${key}`,{method:'PATCH',body:JSON.stringify({budgets})}),
   getBudgetTransfers:(monthKey)=>sbFetch(`budget_transfers?month_key=eq.${monthKey}&order=created_at.desc`),
-  insertBudgetTransfer:(d)=>sbFetch('budget_transfers',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify({...d,user_id:currentUser.id})}),
+  insertBudgetTransfer:(d)=>sbFetch('budget_transfers',{method:'POST',body:JSON.stringify({...d,user_id:currentUser.id})}),
+  getCards:()=>sbFetch(`cards?user_id=eq.${currentUser.id}&order=name.asc`),
+  insertCard:(d)=>sbFetch('cards',{method:'POST',body:JSON.stringify({...d,user_id:currentUser.id})}),
+  updateCard:(id,d)=>sbFetch(`cards?id=eq.${id}`,{method:'PATCH',body:JSON.stringify(d)}),
+  deleteCard:(id)=>sbFetch(`cards?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
+  getRollovers:(monthKey)=>sbFetch(`budget_rollovers?to_month=eq.${monthKey}&order=created_at.desc`),
+  insertRollover:(d)=>sbFetch('budget_rollovers',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=representation'},body:JSON.stringify({...d,user_id:currentUser.id})}),
+  deleteRollover:(id)=>sbFetch(`budget_rollovers?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
+  getExpensesFrom:(monthKey)=>sbFetch(`expenses?month_key=gte.${monthKey}&order=month_key.asc`),
+  deleteInstallmentsAfter:(group,afterNo)=>sbFetch(`expenses?installment_group=eq.${group}&installment_no=gt.${afterNo}&select=id`,{method:'DELETE'}),
   getSplitGroups:()=>sbFetch('split_groups?order=id.desc'),
   insertSplitGroup:(name)=>sbFetch('split_groups',{method:'POST',body:JSON.stringify({name,created_by:currentUser.id})}),
   updateSplitGroup:(id,name)=>sbFetch(`split_groups?id=eq.${id}`,{method:'PATCH',body:JSON.stringify({name})}),
@@ -317,7 +326,7 @@ const api={
   updateUserMeta:(data)=>fetch(`${SUPABASE_URL}/auth/v1/user`,{method:'PUT',headers:{apikey:SUPABASE_KEY,Authorization:`Bearer ${session.access_token}`,'Content-Type':'application/json'},body:JSON.stringify({data})}).then(r=>r.json()),
 };
 
-let categories=[], months=[], currentMonthKey='', viewMonthKey='', expenses=[], currentTab='home', currentCatIdx=0, budgetTransfers=[];
+let categories=[], months=[], currentMonthKey='', viewMonthKey='', expenses=[], currentTab='home', currentCatIdx=0, budgetTransfers=[], cards=[], rollovers=[], futureMonthKeys=[];
 let subscription=null, userPlan='free';
 let splitGroups=[], pendingShares=[], acceptedShares=[], sharedOutMap={}, pendingSplitInvites=[], acceptedGroupIds=new Set(), friends=[];
 let myProfile=null, profilesById={};
@@ -400,10 +409,17 @@ function parseNum(s){
 }
 function moneyKey(el){ el.value=el.value.replace(/[^0-9.,]/g,''); }
 
-function effBudget(cat, monthKey){
+function baseBudget(cat, monthKey){
   const m=months.find(x=>x.key===monthKey);
   const ov=m&&m.budgets?m.budgets[cat.id]:null;
   return (ov!=null&&!isNaN(parseFloat(ov)))?parseFloat(ov):parseFloat(cat.budget);
+}
+function rolloverAmount(catId, monthKey){
+  return rollovers.filter(r=>r.cat_id===catId&&r.to_month===monthKey)
+    .reduce((s,r)=>s+parseFloat(r.amount||0),0);
+}
+function effBudget(cat, monthKey){
+  return Math.round((baseBudget(cat,monthKey)+rolloverAmount(cat.id,monthKey))*100)/100;
 }
 function hasOverride(cat, monthKey){
   const m=months.find(x=>x.key===monthKey);
@@ -441,6 +457,7 @@ function openAccountModal(){
       <span class="theme-row-label"><i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}</span>
       <label class="switch"><input type="checkbox" id="theme-switch" ${isLight?'checked':''} onchange="toggleTheme();syncThemeRow()"><span class="switch-track"><span class="switch-thumb"></span></span></label>
     </div>
+    <button class="btn-secondary" onclick="openCards()"><i class="fa-solid fa-credit-card" aria-hidden="true"></i> Meus cartões</button>
     <button class="btn-secondary" onclick="openPaywall('Planos e assinatura')"><i class="fa-solid fa-crown" aria-hidden="true"></i> Ver planos</button>
     <button class="btn-secondary" onclick="_closeModal();showTutorial(true)"><i class="fa-solid fa-circle-question" aria-hidden="true"></i> Ver tutorial</button>
     ${isAdmin?`<button class="btn-secondary" style="border-color:var(--accent-line);color:var(--accent-text)" onclick="openAdminPanel()"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> Painel Admin</button>`:''}
@@ -593,6 +610,10 @@ async function init(){
     if(!hadCache || !months.find(m=>m.key===viewMonthKey)) viewMonthKey=now;
     expenses=await api.getExpenses(viewMonthKey);
     budgetTransfers=await api.getBudgetTransfers(currentMonthKey).catch(()=>[]);
+    rollovers=await api.getRollovers(viewMonthKey).catch(()=>[]);
+    cards=await api.getCards().catch(()=>[]);
+    refreshFutureMonths();
+    applyAutoRollover();
     saveCache();
     document.getElementById('sync-dot')?.remove();
     render();
@@ -1203,12 +1224,16 @@ function renderHome(el){
   const days=trialDaysRemaining();
   const trialBannerHtml=days>0&&days<=3?`<div style="padding:8px 20px 0"><div class="trial-banner" style="margin:0"><span>Seu acesso completo termina em <strong>${days} ${days===1?'dia':'dias'}</strong>.</span><button onclick="openPaywall('Continue com seus relatórios')">Ver Pro</button></div></div>`:'';
 
+  const isPast=viewMonthKey<currentMonthKey;
+  const rolloverBannerHtml=isPast?`<div style="padding:8px 20px 0"><div class="trial-banner" style="margin:0;border-color:var(--accent-line);background:var(--accent-soft)"><span>Mês encerrado. Levar as sobras e estouros para <strong>${monthLabel(nextMonthKey(viewMonthKey))}</strong>?</span><button onclick="openRolloverMonth()">Levar</button></div></div>`:'';
+
   const slidesHtml = categories.map((cat,i)=>buildSlide(cat,isNow)).join('');
 
   el.innerHTML=`<div id="home-content" style="display:flex;flex-direction:column;height:100%">
     ${pendingSharesHtml}
     ${pendingSplitHtml}
     ${unreadHtml}
+    ${rolloverBannerHtml}
     ${trialBannerHtml}
     <div class="cat-chips" id="cat-chips">
       ${categories.map((c,i)=>`<button class="cat-chip${i===currentCatIdx?' active':''}" data-i="${i}" onclick="goToSlide(${i})">${escapeHtml(c.name)}</button>`).join('')}
@@ -1255,7 +1280,7 @@ function buildSlide(cat, isNow){
       </div>`:'';
     return `<div class="expense-item">
     <div class="expense-left">
-      <div class="expense-name">${e.recurring?`<i class="fa-solid fa-arrows-rotate" style="font-size:10px;color:var(--accent-text);margin-right:5px" title="Recorrente" aria-hidden="true"></i>`:''}${e.installment_total?`<i class="fa-solid fa-credit-card" style="font-size:10px;color:var(--accent-text);margin-right:5px" title="Cartão" aria-hidden="true"></i>`:''}${escapeHtml(e.name)}${e.installment_total>1?`<span style="font-size:10px;color:var(--text3);font-weight:600;margin-left:5px">(${e.installment_no}/${e.installment_total})</span>`:''}${byLabel}${e.image_url?`<span class="exp-receipt-dot" onclick="event.stopPropagation();viewReceipt('${e.id}')" title="Ver comprovante"><i class="fa-solid fa-image" aria-hidden="true"></i></span>`:''}</div>
+      <div class="expense-name">${e.recurring?`<i class="fa-solid fa-arrows-rotate" style="font-size:10px;color:var(--accent-text);margin-right:5px" title="Recorrente" aria-hidden="true"></i>`:''}${e.installment_total?`<i class="fa-solid fa-credit-card" style="font-size:10px;color:var(--accent-text);margin-right:5px" title="Cartão" aria-hidden="true"></i>`:''}${escapeHtml(e.name)}${e.installment_total>1?`<span style="font-size:10px;color:var(--text3);font-weight:600;margin-left:5px">(${e.installment_no}/${e.installment_total})</span>`:''}${e.card_id&&cardLabel(e.card_id)?`<span style="font-size:10px;color:var(--text2);background:var(--surface2);border-radius:100px;padding:1px 7px;margin-left:5px;white-space:nowrap;display:inline-block">${escapeHtml(cardLabel(e.card_id))}</span>`:''}${byLabel}${e.image_url?`<span class="exp-receipt-dot" onclick="event.stopPropagation();viewReceipt('${e.id}')" title="Ver comprovante"><i class="fa-solid fa-image" aria-hidden="true"></i></span>`:''}</div>
       <div class="expense-date">${new Date(e.date+'T12:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'})}</div>
     </div>
     <div class="expense-right">
@@ -1267,6 +1292,17 @@ function buildSlide(cat, isNow){
 
   const transfersOut=isNow?budgetTransfers.filter(t=>t.from_cat_id===cat.id):[];
   const transfersIn=isNow?budgetTransfers.filter(t=>t.to_cat_id===cat.id):[];
+  const catRolls=rollovers.filter(r=>r.cat_id===cat.id&&r.to_month===viewMonthKey);
+  const rolloverHtml=catRolls.map(r=>{
+    const amt=parseFloat(r.amount||0), pos=amt>=0;
+    return `<div class="expense-item">
+      <div class="expense-left">
+        <div class="expense-name"><i class="fa-solid fa-arrow-right-arrow-left fa-rotate-90" style="font-size:10px;color:${pos?'var(--accent-text)':'var(--red)'};margin-right:5px" aria-hidden="true"></i>${pos?'Sobra do mês anterior':'Estouro do mês anterior'}</div>
+        <div class="expense-date">Vindo de <strong>${monthLabel(r.from_month)}</strong>${r.auto?' · automático':''}</div>
+      </div>
+      <div class="expense-right"><div class="expense-value" style="color:${pos?'var(--accent-text)':'var(--red)'}">${pos?'+':'-'}${brl(Math.abs(amt))}</div></div>
+    </div>`;
+  }).join('');
   const transferHtml=[
     ...transfersOut.map(t=>{
       const toName=escapeHtml(categories.find(c=>c.id===t.to_cat_id)?.name||'outra categoria');
@@ -1320,7 +1356,7 @@ function buildSlide(cat, isNow){
       <span class="section-label" style="margin:0">Lançamentos${catExps.length?` · ${catExps.length}`:''}</span>
       <button class="act-log-btn" onclick="openActivityLog('${cat.id}')" title="Histórico de atividades" aria-label="Histórico de atividades"><i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i></button>
     </div>
-    ${(catExps.length||transferHtml)?`<div class="exp-list">${transferHtml}${expHtml}</div>`:`<div class="exp-empty"><i class="fa-regular fa-receipt" aria-hidden="true"></i><span>Nenhum gasto ${isNow?'este mês':'neste período'}.</span></div>`}
+    ${(catExps.length||transferHtml||rolloverHtml)?`<div class="exp-list">${rolloverHtml}${transferHtml}${expHtml}</div>`:`<div class="exp-empty"><i class="fa-regular fa-receipt" aria-hidden="true"></i><span>Nenhum gasto ${isNow?'este mês':'neste período'}.</span></div>`}
 
     ${isOwned?`<div class="cat-actions">
       <button class="ghost-btn" onclick="openShareCategory('${cat.id}')"><i class="fa-solid fa-user-plus" aria-hidden="true"></i> Compartilhar</button>
@@ -2015,17 +2051,24 @@ function openAddExpense(catId){
     <div class="form-group"><label class="form-label" id="f-value-label">Valor (R$)</label>
       <input class="form-input" id="f-value" type="text" inputmode="decimal" placeholder="0,00" oninput="moneyKey(this)"/></div>
     <div class="form-group"><label class="form-label">Data</label>
-      <input class="form-input" id="f-date" type="date" value="${today}"/></div>
+      <input class="form-input" id="f-date" type="date" value="${today}" onchange="onExpenseDateChange()"/></div>
     ${repeatFieldHtml()}
     ${receiptPickerHtml()}
     <button class="btn-primary" id="btn-save-exp" onclick="saveExpense(null)">Salvar</button>
     <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
 }
-function repeatFieldHtml(mode='none',installmentTotal='',installmentNo=1,valueMode='compra',isEdit=false){
-  const thisMonthRow=isEdit?'':`<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--surface2);border-radius:10px;margin-bottom:10px">
-      <input type="checkbox" id="f-installment-thismonth" checked style="width:18px;height:18px;accent-color:var(--accent);flex-shrink:0"/>
+function repeatFieldHtml(mode='none',installmentTotal='',installmentNo=1,valueMode='compra',isEdit=false,cardId=''){
+  const thisMonthRow=isEdit?'':`<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--surface2);border-radius:10px;margin-bottom:6px">
+      <input type="checkbox" id="f-installment-thismonth" checked onchange="onThisMonthToggle()" style="width:18px;height:18px;accent-color:var(--accent);flex-shrink:0"/>
       <label for="f-installment-thismonth" style="font-size:13px;cursor:pointer;flex:1">Cai já neste mês <span style="color:var(--text2);font-size:12px">(desmarque se a fatura já fechou e a cobrança só chega no mês que vem)</span></label>
-    </div>`;
+    </div>
+    <span class="auth-hint" id="f-invoice-hint" style="display:none;margin-bottom:10px"></span>`;
+  const cardRow=`<div class="form-group"><label class="form-label">Cartão</label>
+      <select class="form-input" id="f-card" onchange="onCardChange()">
+        <option value="">Sem cartão específico</option>
+        ${cards.map(c=>`<option value="${c.id}"${c.id===cardId?' selected':''}>${escapeHtml(c.name)} · fecha dia ${c.closing_day}</option>`).join('')}
+      </select>
+      <span class="field-hint">Com um cartão escolhido, o app calcula sozinho em qual fatura a compra entra.</span></div>`;
   return `<div class="form-group"><label class="form-label">Repetição</label>
     <div class="dm-seg" id="f-repeat-seg">
       <button type="button" class="dm-seg-btn${mode==='none'?' active':''}" data-v="none" onclick="repeatSeg(this)">Única</button>
@@ -2033,6 +2076,7 @@ function repeatFieldHtml(mode='none',installmentTotal='',installmentNo=1,valueMo
       <button type="button" class="dm-seg-btn${mode==='installment'?' active':''}" data-v="installment" onclick="repeatSeg(this)">Cartão</button>
     </div>
     <div id="f-installment-wrap" ${mode==='installment'?'':'hidden'} style="margin-top:10px">
+      ${cards.length?cardRow:''}
       <div class="dm-seg" id="f-installment-vmode" style="margin-bottom:10px">
         <button type="button" class="dm-seg-btn${valueMode==='parcela'?'':' active'}" data-v="compra" onclick="instVModeSeg(this)">Valor da compra</button>
         <button type="button" class="dm-seg-btn${valueMode==='parcela'?' active':''}" data-v="parcela" onclick="instVModeSeg(this)">Valor da parcela</button>
@@ -2057,8 +2101,25 @@ function repeatSeg(btn){
   const hint=document.getElementById('f-installment-hint');
   if(hint) hint.style.display=isInst?'':'none';
   updateValueFieldLabel();
+  if(isInst) syncInvoiceHint(true);
 }
 function repeatSegVal(){ const el=document.querySelector('#f-repeat-seg .dm-seg-btn.active'); return el?el.dataset.v:'none'; }
+function onCardChange(){ syncInvoiceHint(true); }
+function onThisMonthToggle(){ syncInvoiceHint(false); }
+function onExpenseDateChange(){ if(repeatSegVal()==='installment') syncInvoiceHint(true); }
+function syncInvoiceHint(applyCard){
+  const cb=document.getElementById('f-installment-thismonth'); if(!cb) return;
+  const hint=document.getElementById('f-invoice-hint'); if(!hint) return;
+  const sel=document.getElementById('f-card');
+  const card=sel&&sel.value?cards.find(c=>c.id===sel.value):null;
+  const date=document.getElementById('f-date')?.value;
+  if(card&&date&&applyCard) cb.checked=(cardInvoiceMonth(card,date)===viewMonthKey);
+  const target=cb.checked?viewMonthKey:nextMonthKey(viewMonthKey);
+  hint.style.display='';
+  hint.innerHTML=card
+    ? `<i class="fa-solid fa-receipt" aria-hidden="true"></i> Entra na fatura de <strong>${monthLabel(target)}</strong> — ${escapeHtml(card.name)} fecha dia ${card.closing_day}.`
+    : `<i class="fa-regular fa-calendar-check" aria-hidden="true"></i> Vai contar no orçamento de <strong>${monthLabel(target)}</strong>.`;
+}
 function instVModeSeg(btn){
   [...btn.parentElement.children].forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');
@@ -2124,12 +2185,25 @@ async function saveExpense(expId){
     let image_url=expId?(expenses.find(x=>x.id===expId)?.image_url||null):null;
     const newFile=document.getElementById('f-receipt')?.files?.[0];
     if(newFile){ btn.textContent='Enviando foto...'; try{ image_url=await getReceiptUrl(); }catch(upErr){ showToast(`Foto não enviada: ${upErr.message}`,'error'); } btn.textContent='Salvando...'; }
-    const payload={cat_id:catId,name,value,date:targetDate,recurring,image_url,installment_total,installment_no,installment_group};
+    const card_id=repeatMode==='installment'?(document.getElementById('f-card')?.value||null):null;
+    const payload={cat_id:catId,name,value,date:targetDate,recurring,image_url,installment_total,installment_no,installment_group,card_id};
     if(expId) await api.updateExpense(expId,payload);
-    else await api.insertExpense({id:uid(),month_key:targetMonthKey,...payload});
+    else{
+      await api.insertExpense({id:uid(),month_key:targetMonthKey,...payload});
+      if(repeatMode==='installment'&&installment_total>installment_no){
+        btn.textContent='Criando parcelas...';
+        let mk=targetMonthKey;
+        for(let n=installment_no+1;n<=installment_total;n++){
+          mk=nextMonthKey(mk);
+          await api.insertExpense({id:uid(),month_key:mk,...payload,date:`${mk}-01`,installment_no:n});
+        }
+        await ensureMonthsExist(targetMonthKey,mk);
+      }
+    }
     logActivity(catId,expId?'edit':'create',name,value);
     if(name && !expenseNames.includes(name)) expenseNames.unshift(name);
     expenses=await api.getExpenses(viewMonthKey);
+    await refreshFutureMonths();
     saveCache();
     vib(15);
     _closeModal(); render(); showToast(skippedToNextMonth?`Salvo! ${installment_total>1?'A 1ª parcela cai':'A cobrança cai'} em ${monthLabel(targetMonthKey)}.`:'Salvo!','success');
@@ -2260,13 +2334,23 @@ async function deleteReceipt(id,isSplit){
   }catch(err){ showToast(`Erro ao excluir: ${String(err?.message||'').slice(0,90)}`,'error'); }
 }
 async function confirmDeleteExpense(expId){
-  if(!confirm('Deletar este gasto?')) return;
+  const target=expenses.find(e=>e.id===expId);
+  let alsoFuture=false;
+  if(target?.installment_group&&target.installment_total>1){
+    if(!confirm('Deletar esta parcela?')) return;
+    alsoFuture=confirm(`Deletar também as parcelas seguintes de "${target.name}"?\n\nOK = apaga esta e as futuras.\nCancelar = apaga só esta.`);
+  }else if(!confirm('Deletar este gasto?')) return;
   try{
-    const target=expenses.find(e=>e.id===expId);
     const res=await api.deleteExpense(expId);
     if(!res||!res.length){ showToast('Você não tem permissão para excluir este gasto.','error'); return; }
     if(target) logActivity(target.cat_id,'delete',target.name,target.value);
-    expenses=expenses.filter(e=>e.id!==expId); saveCache(); render(); showToast('Removido.','success');
+    let removed=1;
+    if(alsoFuture){
+      try{ const r=await api.deleteInstallmentsAfter(target.installment_group,target.installment_no); removed+=(r?.length||0); }catch{}
+      await refreshFutureMonths();
+    }
+    expenses=expenses.filter(e=>e.id!==expId); saveCache(); render();
+    showToast(removed>1?`${removed} parcelas removidas.`:'Removido.','success');
   }
   catch{ showToast('Erro ao deletar.','error'); }
 }
@@ -2308,6 +2392,19 @@ async function openActivityLog(catId){
     <button class="btn-secondary" onclick="_closeModal()">Fechar</button>`;
 }
 
+function rolloverFieldsHtml(cat){
+  const pos=cat?.rollover_positive, neg=cat?.rollover_negative;
+  return `<div class="form-group"><label class="form-label">Saldo do mês anterior</label>
+    <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--surface2);border-radius:10px;margin-bottom:6px">
+      <input type="checkbox" id="f-roll-pos" ${pos?'checked':''} style="width:18px;height:18px;accent-color:var(--accent);flex-shrink:0"/>
+      <label for="f-roll-pos" style="font-size:13px;cursor:pointer;flex:1">Levar a sobra <span style="color:var(--text2);font-size:12px">(o que não gastou vira limite extra no mês seguinte)</span></label>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--surface2);border-radius:10px">
+      <input type="checkbox" id="f-roll-neg" ${neg?'checked':''} style="width:18px;height:18px;accent-color:var(--accent);flex-shrink:0"/>
+      <label for="f-roll-neg" style="font-size:13px;cursor:pointer;flex:1">Levar o estouro <span style="color:var(--text2);font-size:12px">(o que passou do limite é descontado do mês seguinte)</span></label>
+    </div>
+    <span class="field-hint">Deixe os dois desmarcados para decidir mês a mês, na mão, quando o mês fechar.</span></div>`;
+}
 function openAddCategory(){
   if(!isPro()&&categories.length>=CONFIG.FREE_MAX_CATEGORIES){ openPaywall('Crie categorias ilimitadas'); return; }
   openModal(`<div class="modal-title">Nova Categoria</div>
@@ -2315,6 +2412,7 @@ function openAddCategory(){
       <input class="form-input" id="f-cname" placeholder="Ex: Academia" autocomplete="off"/></div>
     <div class="form-group"><label class="form-label">Orçamento mensal (R$)</label>
       <input class="form-input" id="f-cbudget" type="text" inputmode="decimal" placeholder="0,00" oninput="moneyKey(this)"/></div>
+    ${rolloverFieldsHtml(null)}
     <button class="btn-primary" id="btn-save-cat" onclick="saveCategory(null)">Salvar</button>
     <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
 }
@@ -2326,6 +2424,7 @@ function openEditCategory(catId){
       <input class="form-input" id="f-cname" value="${cat.name}" autocomplete="off"/></div>
     <div class="form-group"><label class="form-label">Orçamento mensal (R$)</label>
       <input class="form-input" id="f-cbudget" type="text" inputmode="decimal" value="${cat.budget}" oninput="moneyKey(this)"/></div>
+    ${rolloverFieldsHtml(cat)}
     <button class="btn-primary" id="btn-save-cat" onclick="saveCategory('${catId}')">Salvar</button>
     <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
 }
@@ -2333,12 +2432,14 @@ function openEditCategory(catId){
 async function saveCategory(catId){
   const name=document.getElementById('f-cname').value.trim();
   const budget=parseNum(document.getElementById('f-cbudget').value);
+  const rollover_positive=!!document.getElementById('f-roll-pos')?.checked;
+  const rollover_negative=!!document.getElementById('f-roll-neg')?.checked;
   if(!name||isNaN(budget)||budget<=0){ showToast('Preencha todos os campos.','error'); return; }
   if(!catId&&!isPro()&&categories.length>=CONFIG.FREE_MAX_CATEGORIES){ openPaywall('Limite de categorias atingido'); return; }
   const btn=document.getElementById('btn-save-cat'); btn.disabled=true; btn.textContent='Salvando...';
   try{
-    if(catId){ await api.updateCategory(catId,{name,budget}); logActivity(catId,'cat_edit',name,budget); }
-    else{ const nid=uid(); await api.insertCategory({id:nid,name,budget,position:categories.length}); logActivity(nid,'cat_create',name,budget); }
+    if(catId){ await api.updateCategory(catId,{name,budget,rollover_positive,rollover_negative}); logActivity(catId,'cat_edit',name,budget); }
+    else{ const nid=uid(); await api.insertCategory({id:nid,name,budget,position:categories.length,rollover_positive,rollover_negative}); logActivity(nid,'cat_create',name,budget); }
     categories=await api.getCategories();
     saveCache();
     vib(15);
@@ -2393,18 +2494,43 @@ async function confirmCloseMonth(nextKey){
   }catch{ showToast('Erro ao fechar mês.','error'); btn.disabled=false; btn.textContent='Tentar novamente'; }
 }
 
+async function ensureMonthsExist(fromKey,toKey){
+  let k=fromKey;
+  const wanted=[];
+  while(k<=toKey){ wanted.push(k); k=nextMonthKey(k); if(wanted.length>70) break; }
+  const missing=wanted.filter(mk=>!months.find(m=>m.key===mk));
+  for(const mk of missing){ try{ await api.insertMonth({key:mk,closed:false}); }catch{} }
+  if(missing.length){ try{ months=await api.getMonths(); }catch{} }
+}
+async function refreshFutureMonths(){
+  try{
+    const rows=await api.getExpensesFrom(nextMonthKey(currentMonthKey))||[];
+    const by={};
+    rows.forEach(e=>{ const k=e.month_key; (by[k]=by[k]||{key:k,total:0,count:0}); by[k].total+=parseFloat(e.value||0); by[k].count++; });
+    futureMonthKeys=Object.values(by).sort((a,b)=>a.key.localeCompare(b.key));
+  }catch{ futureMonthKeys=[]; }
+}
 function openMonthPicker(){
   if(!isPro()){ openPaywall('Histórico de meses anteriores'); return; }
+  const past=months.filter(m=>m.key<=currentMonthKey).sort((a,b)=>b.key.localeCompare(a.key));
+  const row=(key,extra,closed)=>`<div onclick="selectMonth('${key}')" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 16px;border-radius:10px;margin-bottom:8px;background:${key===viewMonthKey?'var(--accent)':'var(--surface2)'};color:${key===viewMonthKey?'var(--on-accent)':'var(--text)'};font-weight:${key===viewMonthKey?600:400};cursor:pointer">
+      <span>${monthLabel(key)} ${closed?'<span style="font-size:11px;opacity:.6">Fechado</span>':''}</span>
+      ${extra?`<span style="font-size:11.5px;opacity:.75;white-space:nowrap">${extra}</span>`:''}
+    </div>`;
+  const futureHtml=futureMonthKeys.length?`
+    <div class="cons-section" style="margin:18px 0 8px">Próximos meses · já comprometido</div>
+    <p class="modal-note" style="margin-bottom:12px">Parcelas e recorrências que já estão lançadas para frente.</p>
+    ${futureMonthKeys.map(f=>row(f.key,`${brl(f.total)} · ${f.count} ${f.count===1?'lançamento':'lançamentos'}`,false)).join('')}`:'';
   openModal(`<div class="modal-title">Selecionar Mês</div>
-    ${months.map(m=>`<div onclick="selectMonth('${m.key}')" style="padding:14px 16px;border-radius:10px;margin-bottom:8px;background:${m.key===viewMonthKey?'var(--accent)':'var(--surface2)'};color:${m.key===viewMonthKey?'var(--on-accent)':'var(--text)'};font-weight:${m.key===viewMonthKey?600:400};cursor:pointer">
-      ${monthLabel(m.key)} ${m.closed?'<span style="font-size:11px;opacity:.6">Fechado</span>':''}
-    </div>`).join('')}`);
+    ${past.map(m=>row(m.key,'',m.closed)).join('')}
+    ${futureHtml}`);
 }
 
 async function selectMonth(key){
   viewMonthKey=key; currentCatIdx=0;
   _closeModal();
   expenses=await api.getExpenses(viewMonthKey);
+  rollovers=await api.getRollovers(viewMonthKey).catch(()=>[]);
   render();
 }
 
@@ -2505,7 +2631,7 @@ async function openConsolidado(){
 
 function openMonthOverride(catId){
   const cat=categories.find(c=>c.id===catId); if(!cat) return;
-  const eff=effBudget(cat,currentMonthKey);
+  const eff=baseBudget(cat,currentMonthKey);
   const ov=hasOverride(cat,currentMonthKey);
   openModal(`<div class="modal-title">Ajustar orçamento · ${escapeHtml(cat.name)}</div>
     <p class="modal-note">Teve um mês fora da rotina (festas, viagem, uma compra grande)? Defina um orçamento só para <strong>${monthLabel(currentMonthKey)}</strong>. O valor padrão dos outros meses <strong>não muda</strong>.</p>
@@ -2599,8 +2725,8 @@ async function saveTransferBudget(){
   const avail=transferAvailable(fromId);
   if(amount>avail+0.005){ showToast(`Só há ${brl(avail)} disponível nessa categoria.`,'error'); return; }
   const fromCat=categories.find(c=>c.id===fromId), toCat=categories.find(c=>c.id===toId);
-  const newFromBudget=Math.round((effBudget(fromCat,currentMonthKey)-amount)*100)/100;
-  const newToBudget=Math.round((effBudget(toCat,currentMonthKey)+amount)*100)/100;
+  const newFromBudget=Math.round((baseBudget(fromCat,currentMonthKey)-amount)*100)/100;
+  const newToBudget=Math.round((baseBudget(toCat,currentMonthKey)+amount)*100)/100;
   const m=months.find(x=>x.key===currentMonthKey); if(!m) return;
   const budgets={...(m.budgets||{}),[fromId]:newFromBudget,[toId]:newToBudget};
   const btn=document.getElementById('btn-transfer'); btn.disabled=true; btn.textContent='Transferindo...';
@@ -2626,6 +2752,130 @@ function showToast(msg,type=''){
   setTimeout(()=>t.classList.remove('show'),2500);
 }
 
+function monthBalance(cat,monthKey,exps,rolls){
+  const spent=exps.filter(e=>e.cat_id===cat.id).reduce((s,e)=>s+parseFloat(e.value||0),0);
+  const roll=(rolls||[]).filter(r=>r.cat_id===cat.id&&r.to_month===monthKey).reduce((s,r)=>s+parseFloat(r.amount||0),0);
+  return Math.round((baseBudget(cat,monthKey)+roll-spent)*100)/100;
+}
+async function applyAutoRollover(){
+  const flagged=categories.filter(c=>c.user_id===currentUser.id&&(c.rollover_positive||c.rollover_negative));
+  if(!flagged.length) return;
+  const prevKey=prevMonthKey(currentMonthKey);
+  const pending=flagged.filter(c=>!rollovers.some(r=>r.cat_id===c.id&&r.from_month===prevKey&&r.to_month===currentMonthKey));
+  if(!pending.length) return;
+  let prevExps=[],prevRolls=[];
+  try{ [prevExps,prevRolls]=await Promise.all([api.getExpenses(prevKey),api.getRollovers(prevKey).catch(()=>[])]); }catch{ return; }
+  let created=false;
+  for(const c of pending){
+    const bal=monthBalance(c,prevKey,prevExps||[],prevRolls||[]);
+    if(Math.abs(bal)<0.005) continue;
+    if(bal>0&&!c.rollover_positive) continue;
+    if(bal<0&&!c.rollover_negative) continue;
+    try{
+      const row=await api.insertRollover({cat_id:c.id,from_month:prevKey,to_month:currentMonthKey,amount:bal,auto:true});
+      if(row&&row[0]) rollovers.push(row[0]);
+      created=true;
+    }catch{}
+  }
+  if(created&&viewMonthKey===currentMonthKey){ saveCache(); render(); }
+}
+async function openRolloverMonth(){
+  const fromKey=viewMonthKey, toKey=nextMonthKey(fromKey);
+  openModal(`<div class="modal-title">Levar saldos para ${monthLabel(toKey)}</div><div class="loading"><div class="spinner"></div></div>`);
+  let exps=[],rolls=[],existing=[];
+  try{ [exps,rolls,existing]=await Promise.all([api.getExpenses(fromKey),api.getRollovers(fromKey).catch(()=>[]),api.getRollovers(toKey).catch(()=>[])]); }
+  catch{ document.getElementById('modal-content').innerHTML=`<div class="modal-title">Saldos</div><p class="modal-note">Erro ao carregar.</p><button class="btn-secondary" onclick="_closeModal()">Fechar</button>`; return; }
+  const owned=categories.filter(c=>c.user_id===currentUser.id);
+  const rows=owned.map(c=>({cat:c,bal:monthBalance(c,fromKey,exps||[],rolls||[]),done:(existing||[]).some(r=>r.cat_id===c.id&&r.from_month===fromKey)})).filter(r=>Math.abs(r.bal)>=0.005);
+  if(!rows.length){
+    document.getElementById('modal-content').innerHTML=`<div class="modal-title">Levar saldos para ${monthLabel(toKey)}</div>
+      <p class="modal-note">Nenhuma categoria de ${monthLabel(fromKey)} tem sobra ou estouro para levar.</p>
+      <button class="btn-secondary" onclick="_closeModal()">Fechar</button>`;
+    return;
+  }
+  document.getElementById('modal-content').innerHTML=`<div class="modal-title">Levar saldos para ${monthLabel(toKey)}</div>
+    <p class="modal-note">Escolha o que levar de <strong>${monthLabel(fromKey)}</strong>. A sobra vira limite extra; o estouro é descontado.</p>
+    <div class="friend-check-list" style="max-height:320px">
+      ${rows.map(r=>`<label class="friend-check">
+        <input type="checkbox" class="roll-cb" data-cat="${r.cat.id}" data-amount="${r.bal}" ${r.done?'disabled':'checked'}/>
+        <span class="friend-check-main">${escapeHtml(r.cat.name)}
+          <span class="friend-check-sub" style="color:${r.bal>=0?'var(--accent-text)':'var(--red)'}">${r.bal>=0?'sobra':'estouro'} ${brl(Math.abs(r.bal))}${r.done?' · já levado':''}</span>
+        </span>
+      </label>`).join('')}
+    </div>
+    <button class="btn-primary" id="btn-roll" onclick="saveRolloverMonth('${fromKey}','${toKey}')">Levar selecionados</button>
+    <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`;
+}
+async function saveRolloverMonth(fromKey,toKey){
+  const picks=[...document.querySelectorAll('.roll-cb')].filter(cb=>cb.checked&&!cb.disabled)
+    .map(cb=>({cat_id:cb.dataset.cat,amount:parseFloat(cb.dataset.amount)}));
+  if(!picks.length){ showToast('Selecione ao menos uma categoria.','error'); return; }
+  const btn=document.getElementById('btn-roll'); btn.disabled=true; btn.textContent='Levando...';
+  try{
+    for(const p of picks) await api.insertRollover({cat_id:p.cat_id,from_month:fromKey,to_month:toKey,amount:p.amount,auto:false});
+    if(toKey===viewMonthKey) rollovers=await api.getRollovers(viewMonthKey).catch(()=>rollovers);
+    vib(15); saveCache(); _closeModal(); render();
+    showToast(`Saldos levados para ${monthLabel(toKey)}.`,'success');
+  }catch{
+    btn.disabled=false; btn.textContent='Levar selecionados';
+    showToast('Erro — confira se a tabela budget_rollovers existe no Supabase.','error');
+  }
+}
+function cardInvoiceMonth(card,dateStr){
+  if(!card||!dateStr) return null;
+  const [y,m,d]=dateStr.split('-').map(Number);
+  const closing=parseInt(card.closing_day,10)||1;
+  return d<=closing?monthKeyOf(new Date(y,m-1,1)):monthKeyOf(new Date(y,m,1));
+}
+function cardLabel(id){ const c=cards.find(x=>x.id===id); return c?c.name:null; }
+async function openCards(){
+  openModal(`<div class="modal-title">Meus cartões</div><div class="loading"><div class="spinner"></div></div>`);
+  try{ cards=await api.getCards()||[]; }catch{}
+  renderCardsModal();
+}
+function renderCardsModal(){
+  const list=cards.length?cards.map(c=>`
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 0;border-bottom:1px solid var(--border)">
+      <div style="min-width:0">
+        <div style="font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><i class="fa-solid fa-credit-card" style="color:var(--accent-text);margin-right:7px" aria-hidden="true"></i>${escapeHtml(c.name)}</div>
+        <div style="font-size:12px;color:var(--text3);margin-top:2px">Fecha dia ${c.closing_day}${c.due_day?` · vence dia ${c.due_day}`:''}</div>
+      </div>
+      <div class="icon-btn" style="border-color:#ff4f4f44;color:var(--red)" onclick="removeCard('${c.id}')" aria-label="Remover cartão"><i class="fa-solid fa-trash" aria-hidden="true"></i></div>
+    </div>`).join(''):`<p class="modal-note">Nenhum cartão cadastrado. Ao cadastrar, o app calcula sozinho em qual fatura cada compra entra.</p>`;
+  document.getElementById('modal-content').innerHTML=`<div class="modal-title">Meus cartões</div>
+    <div style="margin-bottom:16px">${list}</div>
+    <div class="form-group"><label class="form-label">Nome do cartão</label>
+      <input class="form-input" id="f-card-name" placeholder="Ex: Nubank" maxlength="40" autocomplete="off"/></div>
+    <div style="display:flex;gap:10px">
+      <div class="form-group" style="flex:1"><label class="form-label">Fecha dia</label>
+        <input class="form-input" id="f-card-closing" type="number" inputmode="numeric" min="1" max="31" placeholder="3"/></div>
+      <div class="form-group" style="flex:1"><label class="form-label">Vence dia</label>
+        <input class="form-input" id="f-card-due" type="number" inputmode="numeric" min="1" max="31" placeholder="10"/></div>
+    </div>
+    <button class="btn-primary" id="btn-save-card" onclick="saveCard()">Adicionar cartão</button>
+    <button class="btn-secondary" onclick="openAccountModal()">Voltar</button>`;
+}
+async function saveCard(){
+  const name=(document.getElementById('f-card-name').value||'').trim();
+  const closing_day=parseInt(document.getElementById('f-card-closing').value,10);
+  const dueRaw=parseInt(document.getElementById('f-card-due').value,10);
+  const due_day=isNaN(dueRaw)?null:dueRaw;
+  if(!name){ showToast('Informe o nome do cartão.','error'); return; }
+  if(!closing_day||closing_day<1||closing_day>31){ showToast('Informe o dia de fechamento (1 a 31).','error'); return; }
+  if(due_day!=null&&(due_day<1||due_day>31)){ showToast('Dia de vencimento inválido.','error'); return; }
+  const btn=document.getElementById('btn-save-card'); btn.disabled=true; btn.textContent='Salvando...';
+  try{
+    await api.insertCard({name,closing_day,due_day});
+    cards=await api.getCards()||[];
+    vib(12); renderCardsModal(); showToast('Cartão adicionado!','success');
+  }catch{ showToast('Erro ao salvar. Confira se a tabela cards existe no Supabase.','error'); btn.disabled=false; btn.textContent='Adicionar cartão'; }
+}
+async function removeCard(id){
+  if(!confirm('Remover este cartão? Os lançamentos existentes continuam, apenas sem o cartão vinculado.')) return;
+  try{ await api.deleteCard(id); cards=cards.filter(c=>c.id!==id); renderCardsModal(); showToast('Cartão removido.','success'); }
+  catch{ showToast('Erro ao remover.','error'); }
+}
+
 const TUTORIAL_KEY = 'gc-tutorial-v2';
 const tutNav=(tab)=>document.querySelector(`.nav-item[data-tab="${tab}"]`);
 const tutGo=(tab)=>{ const t=tutNav(tab); if(t) t.click(); };
@@ -2643,7 +2893,7 @@ const TUTORIAL_STEPS = [
   },
   {
     title: 'Categorias',
-    body: 'Crie categorias como "Mercado", "Academia" ou "Aluguel", cada uma com seu orçamento mensal — o total orçado de todas aparece no topo da lista. Arraste pela alça para reordenar e toque no lápis para editar. Ao lançar um gasto, escolha "Recorrente" para repetir todo mês ou "Cartão" para compras na fatura — parceladas (aparecem sozinhas mês a mês) ou à vista, com a opção de jogar a cobrança para o mês seguinte se a fatura já fechou. No ícone <i class="fa-solid fa-right-left"></i> do topo do card dá para transferir um pedaço do limite disponível de uma categoria para outra, só neste mês.',
+    body: 'Crie categorias como "Mercado", "Academia" ou "Aluguel", cada uma com seu orçamento mensal — o total orçado de todas aparece no topo da lista. Arraste pela alça para reordenar e toque no lápis para editar. Ao lançar um gasto, escolha "Recorrente" para repetir todo mês ou "Cartão" para compras na fatura. Cadastre seus cartões em <strong>Sua conta › Meus cartões</strong> com o dia de fechamento e o app calcula sozinho em qual fatura cada compra cai — você também pode não escolher cartão nenhum e decidir na mão. Ao editar a categoria dá para mandar a sobra e/ou o estouro do mês seguirem automaticamente para o mês seguinte. E no ícone <i class="fa-solid fa-right-left"></i> do topo do card você transfere um pedaço do limite de uma categoria para outra, só neste mês.',
     target: ()=>tutNav('categorias'),
     action: ()=>tutGo('categorias'),
   },
@@ -2655,7 +2905,7 @@ const TUTORIAL_STEPS = [
   },
   {
     title: 'Histórico',
-    body: 'Acompanhe sua média de gasto por dia, a projeção do mês, a variação em relação ao mês anterior e a distribuição dos gastos por categoria. Tem ainda o gráfico de evolução por mês e o consolidado. Ao virar o mês, o anterior é fechado automaticamente e guardado aqui.',
+    body: 'Acompanhe sua média de gasto por dia, a projeção do mês, a variação em relação ao mês anterior e a distribuição dos gastos por categoria. Tem ainda o gráfico de evolução por mês e o consolidado. Pelo seletor de mês, no topo, você também navega para os <strong>próximos meses</strong> e vê quanto já está comprometido com parcelas antes mesmo de o mês começar.',
     target: ()=>tutNav('historico'),
     action: ()=>tutGo('historico'),
   },

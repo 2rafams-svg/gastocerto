@@ -1,5 +1,5 @@
-const CACHE = 'gastocerto-v3.13-cartao-transferlog';
-const SHELL = ['./', './index.html', './offline.html', './style.css?v=3.13', './app.js?v=3.13', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
+const CACHE = 'gastocerto-v3.14-cards-rollover';
+const SHELL = ['./', './index.html', './offline.html', './style.css?v=3.14', './app.js?v=3.14', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));

@@ -44,7 +44,7 @@ function syncThemeRow(){
   if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
-const APP_VERSION = '3.12';
+const APP_VERSION = '3.13';
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
 const CORRECT_PIN = () => String(new Date().getFullYear());
@@ -147,7 +147,7 @@ function userTag(uid){
 async function logout(){
   const token=session?.access_token;
   if(token) fetch(`${SUPABASE_URL}/auth/v1/logout`,{method:'POST',headers:{apikey:SUPABASE_KEY,Authorization:`Bearer ${token}`}}).catch(()=>{});
-  persistSession(null); categories=[]; months=[]; expenses=[]; expenseNames=[]; acceptedShares=[]; sharedOutMap={}; pendingSplitInvites=[]; acceptedGroupIds=new Set(); friends=[];
+  persistSession(null); categories=[]; months=[]; expenses=[]; expenseNames=[]; acceptedShares=[]; sharedOutMap={}; pendingSplitInvites=[]; acceptedGroupIds=new Set(); friends=[]; budgetTransfers=[];
   stopUnreadPoll(); unreadDm={}; updateAmigosBadge();
   document.documentElement.classList.remove('gc-has-session');
   document.getElementById('app').style.display='none';
@@ -268,6 +268,8 @@ const api={
   getAllActivity:()=>sbFetch('activity_log?order=created_at.desc&limit=80'),
   insertActivity:(d)=>sbFetch('activity_log',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify({...d,actor_user_id:currentUser.id,actor_email:currentUser.email})}),
   setMonthBudgets:(key,budgets)=>sbFetch(`months?key=eq.${key}`,{method:'PATCH',body:JSON.stringify({budgets})}),
+  getBudgetTransfers:(monthKey)=>sbFetch(`budget_transfers?month_key=eq.${monthKey}&order=created_at.desc`),
+  insertBudgetTransfer:(d)=>sbFetch('budget_transfers',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify({...d,user_id:currentUser.id})}),
   getSplitGroups:()=>sbFetch('split_groups?order=id.desc'),
   insertSplitGroup:(name)=>sbFetch('split_groups',{method:'POST',body:JSON.stringify({name,created_by:currentUser.id})}),
   updateSplitGroup:(id,name)=>sbFetch(`split_groups?id=eq.${id}`,{method:'PATCH',body:JSON.stringify({name})}),
@@ -315,7 +317,7 @@ const api={
   updateUserMeta:(data)=>fetch(`${SUPABASE_URL}/auth/v1/user`,{method:'PUT',headers:{apikey:SUPABASE_KEY,Authorization:`Bearer ${session.access_token}`,'Content-Type':'application/json'},body:JSON.stringify({data})}).then(r=>r.json()),
 };
 
-let categories=[], months=[], currentMonthKey='', viewMonthKey='', expenses=[], currentTab='home', currentCatIdx=0;
+let categories=[], months=[], currentMonthKey='', viewMonthKey='', expenses=[], currentTab='home', currentCatIdx=0, budgetTransfers=[];
 let subscription=null, userPlan='free';
 let splitGroups=[], pendingShares=[], acceptedShares=[], sharedOutMap={}, pendingSplitInvites=[], acceptedGroupIds=new Set(), friends=[];
 let myProfile=null, profilesById={};
@@ -590,6 +592,7 @@ async function init(){
     if(prevMon&&!prevMon.closed) api.closeMonth(prevKey).then(()=>{if(prevMon)prevMon.closed=true;}).catch(()=>{});
     if(!hadCache || !months.find(m=>m.key===viewMonthKey)) viewMonthKey=now;
     expenses=await api.getExpenses(viewMonthKey);
+    budgetTransfers=await api.getBudgetTransfers(currentMonthKey).catch(()=>[]);
     saveCache();
     document.getElementById('sync-dot')?.remove();
     render();
@@ -1252,7 +1255,7 @@ function buildSlide(cat, isNow){
       </div>`:'';
     return `<div class="expense-item">
     <div class="expense-left">
-      <div class="expense-name">${e.recurring?`<i class="fa-solid fa-arrows-rotate" style="font-size:10px;color:var(--accent-text);margin-right:5px" title="Recorrente" aria-hidden="true"></i>`:''}${e.installment_total?`<i class="fa-solid fa-layer-group" style="font-size:10px;color:var(--accent-text);margin-right:5px" title="Parcelado" aria-hidden="true"></i>`:''}${escapeHtml(e.name)}${e.installment_total?`<span style="font-size:10px;color:var(--text3);font-weight:600;margin-left:5px">(${e.installment_no}/${e.installment_total})</span>`:''}${byLabel}${e.image_url?`<span class="exp-receipt-dot" onclick="event.stopPropagation();viewReceipt('${e.id}')" title="Ver comprovante"><i class="fa-solid fa-image" aria-hidden="true"></i></span>`:''}</div>
+      <div class="expense-name">${e.recurring?`<i class="fa-solid fa-arrows-rotate" style="font-size:10px;color:var(--accent-text);margin-right:5px" title="Recorrente" aria-hidden="true"></i>`:''}${e.installment_total?`<i class="fa-solid fa-credit-card" style="font-size:10px;color:var(--accent-text);margin-right:5px" title="Cartão" aria-hidden="true"></i>`:''}${escapeHtml(e.name)}${e.installment_total>1?`<span style="font-size:10px;color:var(--text3);font-weight:600;margin-left:5px">(${e.installment_no}/${e.installment_total})</span>`:''}${byLabel}${e.image_url?`<span class="exp-receipt-dot" onclick="event.stopPropagation();viewReceipt('${e.id}')" title="Ver comprovante"><i class="fa-solid fa-image" aria-hidden="true"></i></span>`:''}</div>
       <div class="expense-date">${new Date(e.date+'T12:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'})}</div>
     </div>
     <div class="expense-right">
@@ -1261,6 +1264,31 @@ function buildSlide(cat, isNow){
     </div>
   </div>`;
   }).join('');
+
+  const transfersOut=isNow?budgetTransfers.filter(t=>t.from_cat_id===cat.id):[];
+  const transfersIn=isNow?budgetTransfers.filter(t=>t.to_cat_id===cat.id):[];
+  const transferHtml=[
+    ...transfersOut.map(t=>{
+      const toName=escapeHtml(categories.find(c=>c.id===t.to_cat_id)?.name||'outra categoria');
+      return `<div class="expense-item">
+        <div class="expense-left">
+          <div class="expense-name"><i class="fa-solid fa-right-left" style="font-size:10px;color:var(--red);margin-right:5px" aria-hidden="true"></i>Limite transferido</div>
+          <div class="expense-date">Enviado para <strong>${toName}</strong></div>
+        </div>
+        <div class="expense-right"><div class="expense-value" style="color:var(--red)">-${brl(t.amount)}</div></div>
+      </div>`;
+    }),
+    ...transfersIn.map(t=>{
+      const fromName=escapeHtml(categories.find(c=>c.id===t.from_cat_id)?.name||'outra categoria');
+      return `<div class="expense-item">
+        <div class="expense-left">
+          <div class="expense-name"><i class="fa-solid fa-right-left" style="font-size:10px;color:var(--accent-text);margin-right:5px" aria-hidden="true"></i>Limite recebido</div>
+          <div class="expense-date">Vindo de <strong>${fromName}</strong></div>
+        </div>
+        <div class="expense-right"><div class="expense-value" style="color:var(--accent-text)">+${brl(t.amount)}</div></div>
+      </div>`;
+    })
+  ].join('');
 
   const sharedBadge=sharedWith?`<div style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--accent-text);background:var(--accent-soft);border:1px solid var(--accent-line);border-radius:100px;padding:3px 10px;margin-bottom:10px"><i class="fa-solid ${perm==='edit'?'fa-pen-to-square':'fa-eye'}" aria-hidden="true"></i> ${perm==='edit'?'Compartilhada · pode editar':'Compartilhada · somente leitura'}</div>`:'';
 
@@ -1292,7 +1320,7 @@ function buildSlide(cat, isNow){
       <span class="section-label" style="margin:0">Lançamentos${catExps.length?` · ${catExps.length}`:''}</span>
       <button class="act-log-btn" onclick="openActivityLog('${cat.id}')" title="Histórico de atividades" aria-label="Histórico de atividades"><i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i></button>
     </div>
-    ${catExps.length?`<div class="exp-list">${expHtml}</div>`:`<div class="exp-empty"><i class="fa-regular fa-receipt" aria-hidden="true"></i><span>Nenhum gasto ${isNow?'este mês':'neste período'}.</span></div>`}
+    ${(catExps.length||transferHtml)?`<div class="exp-list">${transferHtml}${expHtml}</div>`:`<div class="exp-empty"><i class="fa-regular fa-receipt" aria-hidden="true"></i><span>Nenhum gasto ${isNow?'este mês':'neste período'}.</span></div>`}
 
     ${isOwned?`<div class="cat-actions">
       <button class="ghost-btn" onclick="openShareCategory('${cat.id}')"><i class="fa-solid fa-user-plus" aria-hidden="true"></i> Compartilhar</button>
@@ -1996,13 +2024,13 @@ function openAddExpense(catId){
 function repeatFieldHtml(mode='none',installmentTotal='',installmentNo=1,valueMode='compra',isEdit=false){
   const thisMonthRow=isEdit?'':`<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--surface2);border-radius:10px;margin-bottom:10px">
       <input type="checkbox" id="f-installment-thismonth" checked style="width:18px;height:18px;accent-color:var(--accent);flex-shrink:0"/>
-      <label for="f-installment-thismonth" style="font-size:13px;cursor:pointer;flex:1">Já entra neste mês <span style="color:var(--text2);font-size:12px">(desmarque se o cartão já fechou e essa parcela só cai no mês que vem)</span></label>
+      <label for="f-installment-thismonth" style="font-size:13px;cursor:pointer;flex:1">Cai já neste mês <span style="color:var(--text2);font-size:12px">(desmarque se a fatura já fechou e a cobrança só chega no mês que vem)</span></label>
     </div>`;
   return `<div class="form-group"><label class="form-label">Repetição</label>
     <div class="dm-seg" id="f-repeat-seg">
       <button type="button" class="dm-seg-btn${mode==='none'?' active':''}" data-v="none" onclick="repeatSeg(this)">Única</button>
       <button type="button" class="dm-seg-btn${mode==='recurring'?' active':''}" data-v="recurring" onclick="repeatSeg(this)">Recorrente</button>
-      <button type="button" class="dm-seg-btn${mode==='installment'?' active':''}" data-v="installment" onclick="repeatSeg(this)">Parcelado</button>
+      <button type="button" class="dm-seg-btn${mode==='installment'?' active':''}" data-v="installment" onclick="repeatSeg(this)">Cartão</button>
     </div>
     <div id="f-installment-wrap" ${mode==='installment'?'':'hidden'} style="margin-top:10px">
       <div class="dm-seg" id="f-installment-vmode" style="margin-bottom:10px">
@@ -2013,11 +2041,11 @@ function repeatFieldHtml(mode='none',installmentTotal='',installmentNo=1,valueMo
         <div style="flex:1"><span class="auth-hint" style="margin-bottom:6px;display:block">Parcela atual</span>
           <input class="form-input" id="f-installment-no" type="number" inputmode="numeric" min="1" max="60" step="1" value="${installmentNo}"/></div>
         <div style="flex:1"><span class="auth-hint" style="margin-bottom:6px;display:block">Total de parcelas</span>
-          <input class="form-input" id="f-installment-total" type="number" inputmode="numeric" min="2" max="60" step="1" placeholder="Ex: 12" value="${installmentTotal}"/></div>
+          <input class="form-input" id="f-installment-total" type="number" inputmode="numeric" min="1" max="60" step="1" placeholder="Ex: 12" value="${installmentTotal}"/></div>
       </div>
       ${thisMonthRow}
     </div>
-    <span class="auth-hint" id="f-installment-hint" style="${mode==='installment'?'':'display:none'}">Se a compra já começou, informe em qual parcela ela está — ex: parcela 4 de 12. Em "Valor da compra", o total é dividido pelas parcelas.</span>
+    <span class="auth-hint" id="f-installment-hint" style="${mode==='installment'?'':'display:none'}">Use 1 parcela para uma compra à vista no cartão. Se a compra já começou, informe em qual parcela ela está — ex: 4 de 12. Em "Valor da compra", o total é dividido pelas parcelas.</span>
   </div>`;
 }
 function repeatSeg(btn){
@@ -2077,7 +2105,7 @@ async function saveExpense(expId){
   if(repeatMode==='installment'){
     installment_total=parseInt(document.getElementById('f-installment-total').value,10);
     installment_no=parseInt(document.getElementById('f-installment-no').value,10)||1;
-    if(!installment_total||installment_total<2){ showToast('Informe em quantas parcelas (mínimo 2).','error'); return; }
+    if(!installment_total||installment_total<1){ showToast('Informe o número de parcelas (mínimo 1).','error'); return; }
     if(installment_no<1||installment_no>installment_total){ showToast(`A parcela atual deve estar entre 1 e ${installment_total}.`,'error'); return; }
     installment_group=editing?.installment_group||uid();
     if(instValueMode()==='compra') value=Math.round((value/installment_total)*100)/100;
@@ -2104,7 +2132,7 @@ async function saveExpense(expId){
     expenses=await api.getExpenses(viewMonthKey);
     saveCache();
     vib(15);
-    _closeModal(); render(); showToast(skippedToNextMonth?`Salvo! A 1ª parcela entra em ${monthLabel(targetMonthKey)}.`:'Salvo!','success');
+    _closeModal(); render(); showToast(skippedToNextMonth?`Salvo! ${installment_total>1?'A 1ª parcela cai':'A cobrança cai'} em ${monthLabel(targetMonthKey)}.`:'Salvo!','success');
   }catch(err){
     const msg=String(err?.message||'');
     if(/image_url/i.test(msg)){
@@ -2579,6 +2607,10 @@ async function saveTransferBudget(){
   try{
     await api.setMonthBudgets(currentMonthKey,budgets);
     m.budgets=budgets;
+    try{
+      const row=await api.insertBudgetTransfer({month_key:currentMonthKey,from_cat_id:fromId,to_cat_id:toId,amount});
+      budgetTransfers.unshift(row?.[0]||{month_key:currentMonthKey,from_cat_id:fromId,to_cat_id:toId,amount,created_at:new Date().toISOString()});
+    }catch{}
     saveCache(); vib(15);
     _closeModal(); render();
     showToast(`${brl(amount)} transferido de ${fromCat.name} para ${toCat.name}.`,'success');
@@ -2611,7 +2643,7 @@ const TUTORIAL_STEPS = [
   },
   {
     title: 'Categorias',
-    body: 'Crie categorias como "Mercado", "Academia" ou "Aluguel", cada uma com seu orçamento mensal — o total orçado de todas aparece no topo da lista. Arraste pela alça para reordenar e toque no lápis para editar. Ao lançar um gasto, escolha "Recorrente" para repetir todo mês ou "Parcelado" para ele aparecer automaticamente pelo número de meses que você definir. No ícone <i class="fa-solid fa-right-left"></i> do topo do card dá para transferir um pedaço do limite disponível de uma categoria para outra, só neste mês.',
+    body: 'Crie categorias como "Mercado", "Academia" ou "Aluguel", cada uma com seu orçamento mensal — o total orçado de todas aparece no topo da lista. Arraste pela alça para reordenar e toque no lápis para editar. Ao lançar um gasto, escolha "Recorrente" para repetir todo mês ou "Cartão" para compras na fatura — parceladas (aparecem sozinhas mês a mês) ou à vista, com a opção de jogar a cobrança para o mês seguinte se a fatura já fechou. No ícone <i class="fa-solid fa-right-left"></i> do topo do card dá para transferir um pedaço do limite disponível de uma categoria para outra, só neste mês.',
     target: ()=>tutNav('categorias'),
     action: ()=>tutGo('categorias'),
   },

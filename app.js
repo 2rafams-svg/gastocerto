@@ -44,7 +44,7 @@ function syncThemeRow(){
   if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
-const APP_VERSION = '3.14';
+const APP_VERSION = '3.15';
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
 const CORRECT_PIN = () => String(new Date().getFullYear());
@@ -147,7 +147,7 @@ function userTag(uid){
 async function logout(){
   const token=session?.access_token;
   if(token) fetch(`${SUPABASE_URL}/auth/v1/logout`,{method:'POST',headers:{apikey:SUPABASE_KEY,Authorization:`Bearer ${token}`}}).catch(()=>{});
-  persistSession(null); categories=[]; months=[]; expenses=[]; expenseNames=[]; acceptedShares=[]; sharedOutMap={}; pendingSplitInvites=[]; acceptedGroupIds=new Set(); friends=[]; budgetTransfers=[]; cards=[]; rollovers=[]; futureMonthKeys=[];
+  persistSession(null); categories=[]; months=[]; expenses=[]; expenseNames=[]; acceptedShares=[]; sharedOutMap={}; pendingSplitInvites=[]; acceptedGroupIds=new Set(); friends=[]; budgetTransfers=[]; cards=[]; rollovers=[]; futureMonthKeys=[]; incomes=[]; anchors=[]; histView='hist'; document.body.classList.remove('plan-wide');
   stopUnreadPoll(); unreadDm={}; updateAmigosBadge();
   document.documentElement.classList.remove('gc-has-session');
   document.getElementById('app').style.display='none';
@@ -278,6 +278,13 @@ const api={
   insertRollover:(d)=>sbFetch('budget_rollovers',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=representation'},body:JSON.stringify({...d,user_id:currentUser.id})}),
   deleteRollover:(id)=>sbFetch(`budget_rollovers?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
   getExpensesFrom:(monthKey)=>sbFetch(`expenses?month_key=gte.${monthKey}&order=month_key.asc`),
+  getIncomes:()=>sbFetch(`incomes?user_id=eq.${currentUser.id}&order=start_month.asc`),
+  insertIncome:(d)=>sbFetch('incomes',{method:'POST',body:JSON.stringify({...d,user_id:currentUser.id})}),
+  updateIncome:(id,d)=>sbFetch(`incomes?id=eq.${id}`,{method:'PATCH',body:JSON.stringify(d)}),
+  deleteIncome:(id)=>sbFetch(`incomes?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
+  getAnchors:()=>sbFetch(`balance_anchors?user_id=eq.${currentUser.id}&order=month_key.asc`),
+  upsertAnchor:(d)=>sbFetch('balance_anchors',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=representation'},body:JSON.stringify({...d,user_id:currentUser.id})}),
+  deleteAnchor:(id)=>sbFetch(`balance_anchors?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
   deleteInstallmentsAfter:(group,afterNo)=>sbFetch(`expenses?installment_group=eq.${group}&installment_no=gt.${afterNo}&select=id`,{method:'DELETE'}),
   getSplitGroups:()=>sbFetch('split_groups?order=id.desc'),
   insertSplitGroup:(name)=>sbFetch('split_groups',{method:'POST',body:JSON.stringify({name,created_by:currentUser.id})}),
@@ -327,6 +334,7 @@ const api={
 };
 
 let categories=[], months=[], currentMonthKey='', viewMonthKey='', expenses=[], currentTab='home', currentCatIdx=0, budgetTransfers=[], cards=[], rollovers=[], futureMonthKeys=[];
+let incomes=[], anchors=[], histView='hist', planHorizon=12, planScale='month', planOpenGroups={};
 let subscription=null, userPlan='free';
 let splitGroups=[], pendingShares=[], acceptedShares=[], sharedOutMap={}, pendingSplitInvites=[], acceptedGroupIds=new Set(), friends=[];
 let myProfile=null, profilesById={};
@@ -457,6 +465,7 @@ function openAccountModal(){
       <span class="theme-row-label"><i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}</span>
       <label class="switch"><input type="checkbox" id="theme-switch" ${isLight?'checked':''} onchange="toggleTheme();syncThemeRow()"><span class="switch-track"><span class="switch-thumb"></span></span></label>
     </div>
+    <button class="btn-secondary" onclick="openIncomes()"><i class="fa-solid fa-arrow-trend-up" aria-hidden="true"></i> Minhas receitas</button>
     <button class="btn-secondary" onclick="openCards()"><i class="fa-solid fa-credit-card" aria-hidden="true"></i> Meus cartões</button>
     <button class="btn-secondary" onclick="openPaywall('Planos e assinatura')"><i class="fa-solid fa-crown" aria-hidden="true"></i> Ver planos</button>
     <button class="btn-secondary" onclick="_closeModal();showTutorial(true)"><i class="fa-solid fa-circle-question" aria-hidden="true"></i> Ver tutorial</button>
@@ -612,6 +621,8 @@ async function init(){
     budgetTransfers=await api.getBudgetTransfers(currentMonthKey).catch(()=>[]);
     rollovers=await api.getRollovers(viewMonthKey).catch(()=>[]);
     cards=await api.getCards().catch(()=>[]);
+    incomes=await api.getIncomes().catch(()=>[]);
+    anchors=await api.getAnchors().catch(()=>[]);
     refreshFutureMonths();
     applyAutoRollover();
     saveCache();
@@ -1190,6 +1201,7 @@ function render(){
   const isNow=viewMonthKey===currentMonthKey;
   document.getElementById('fab').style.display=(currentTab==='home'||currentTab==='categorias')?'flex':'none';
   const el=document.getElementById('content');
+  if(currentTab!=='historico') document.body.classList.remove('plan-wide');
   if(currentTab==='home') renderHome(el);
   else if(currentTab==='categorias') renderCategorias(el);
   else if(currentTab==='historico') renderHistorico(el);
@@ -1280,7 +1292,7 @@ function buildSlide(cat, isNow){
       </div>`:'';
     return `<div class="expense-item">
     <div class="expense-left">
-      <div class="expense-name">${e.recurring?`<i class="fa-solid fa-arrows-rotate" style="font-size:10px;color:var(--accent-text);margin-right:5px" title="Recorrente" aria-hidden="true"></i>`:''}${e.installment_total?`<i class="fa-solid fa-credit-card" style="font-size:10px;color:var(--accent-text);margin-right:5px" title="Cartão" aria-hidden="true"></i>`:''}${escapeHtml(e.name)}${e.installment_total>1?`<span style="font-size:10px;color:var(--text3);font-weight:600;margin-left:5px">(${e.installment_no}/${e.installment_total})</span>`:''}${e.card_id&&cardLabel(e.card_id)?`<span style="font-size:10px;color:var(--text2);background:var(--surface2);border-radius:100px;padding:1px 7px;margin-left:5px;white-space:nowrap;display:inline-block">${escapeHtml(cardLabel(e.card_id))}</span>`:''}${byLabel}${e.image_url?`<span class="exp-receipt-dot" onclick="event.stopPropagation();viewReceipt('${e.id}')" title="Ver comprovante"><i class="fa-solid fa-image" aria-hidden="true"></i></span>`:''}</div>
+      <div class="expense-name">${e.recurring?`<i class="fa-solid fa-arrows-rotate" style="font-size:10px;color:var(--accent-text);margin-right:5px" title="Recorrente" aria-hidden="true"></i>`:''}${e.installment_total?`<i class="fa-solid fa-credit-card" style="font-size:10px;color:var(--accent-text);margin-right:5px" title="Cartão" aria-hidden="true"></i>`:''}${escapeHtml(e.name)}${e.installment_total>1?`<span style="font-size:10px;color:var(--text3);font-weight:600;margin-left:5px">(${e.installment_no}/${e.installment_total})</span>`:''}${e.card_id&&cardLabel(e.card_id)?`<span style="font-size:10px;color:var(--text2);background:var(--surface2);border-radius:100px;padding:1px 7px;margin-left:5px;white-space:nowrap;display:inline-block">${escapeHtml(cardLabel(e.card_id))}</span>`:''}${byLabel}${e.image_url?`<span class="exp-receipt-dot" onclick="event.stopPropagation();viewReceipt('${e.id}')" title="Ver comprovante"><i class="fa-solid fa-image" aria-hidden="true"></i></span>`:''}${e.notes?`<span class="exp-receipt-dot" onclick="event.stopPropagation();openExpenseNote('${e.id}')" title="Ver observações"><i class="fa-solid fa-barcode" aria-hidden="true"></i></span>`:''}</div>
       <div class="expense-date">${new Date(e.date+'T12:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'})}</div>
     </div>
     <div class="expense-right">
@@ -1424,7 +1436,7 @@ function renderCategorias(el){
       ${owned?'<div class="drag-handle" title="Arrastar"><i class="fa-solid fa-grip-vertical" aria-hidden="true"></i></div>':'<div class="drag-handle" style="opacity:.25;cursor:default" title="Compartilhada"><i class="fa-solid fa-grip-vertical" aria-hidden="true"></i></div>'}
       <div class="cat-manage-info">
         <div class="cat-manage-name">${escapeHtml(cat.name)}${!owned?`<span style="font-size:10px;color:var(--accent-text);background:var(--accent-soft);border-radius:100px;padding:1px 7px;margin-left:6px;font-weight:600">${perm==='edit'?'editar':'leitura'}</span>`:''}</div>
-        <div class="cat-manage-budget">${brl(cat.budget)}/mês</div>
+        <div class="cat-manage-budget">${brl(cat.budget)}/mês${cat.group_name?` · ${escapeHtml(cat.group_name)}`:''}</div>
       </div>
       <div style="display:flex;gap:8px">
         ${owned?`<div class="icon-btn" onclick="openEditCategory('${cat.id}')"><i class="fa-solid fa-pen" aria-label="Editar"></i></div>`:''}
@@ -1499,13 +1511,175 @@ async function reorderCats(srcId, targetId){
   renderCategorias(document.getElementById('content'));
 }
 
+async function renderPlanning(el){
+  el.innerHTML=`<div class="plan-wrap">${histSegHtml()}<div class="loading"><div class="spinner"></div>Montando projeção...</div></div>`;
+  let allExps=[];
+  try{ allExps=await api.getExpensesFrom(projectionStart())||[]; }catch{}
+  const rows=projectMonths(planHorizon,projectionStart(),allExps);
+  const shown=planScale==='year'?aggregateByYear(rows):rows;
+  const last=rows[rows.length-1];
+  const first=rows[0];
+  el.innerHTML=`<div class="plan-wrap">
+    ${histSegHtml()}
+    ${!incomes.length?`<div class="plan-warn"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> Cadastre sua receita em <strong>Sua conta › Minhas receitas</strong> para o saldo projetado fazer sentido.</div>`:''}
+    <div class="plan-head">
+      <div>
+        <div class="plan-head-label">Saldo em ${monthLabel(first.mk)}</div>
+        <div class="plan-head-value">${brl(first.saldoIni)}</div>
+      </div>
+      <button class="plan-head-btn" onclick="openBalanceAnchor('${first.mk}')"><i class="fa-solid fa-sliders" aria-hidden="true"></i> Ajustar</button>
+    </div>
+    <div class="plan-controls">
+      <div class="dm-seg" style="flex:1">
+        <button type="button" class="dm-seg-btn${planScale==='month'?' active':''}" onclick="setPlanScale('month')">Mensal</button>
+        <button type="button" class="dm-seg-btn${planScale==='year'?' active':''}" onclick="setPlanScale('year')">Anual</button>
+      </div>
+      <select class="form-input plan-horizon" onchange="setPlanHorizon(this.value)">
+        ${[6,12,24,36].map(n=>`<option value="${n}"${n===planHorizon?' selected':''}>${n} meses</option>`).join('')}
+      </select>
+    </div>
+    <div class="plan-summary">
+      <span>Em <strong>${planScale==='year'?last.mk.split('-')[0]:monthLabel(last.mk)}</strong> seu saldo projetado é</span>
+      <strong class="${last.saldoFim>=0?'pos':'neg'}">${brl(last.saldoFim)}</strong>
+    </div>
+    ${planCardsHtml(shown)}
+    ${planTableHtml(shown)}
+  </div>`;
+}
+function setPlanScale(v){ planScale=v; vib(5); render(); }
+function setPlanHorizon(v){ planHorizon=parseInt(v,10)||12; render(); }
+function togglePlanGroup(key){ planOpenGroups[key]=!planOpenGroups[key]; render(); }
+function planGroupNames(rows){
+  const set=[];
+  rows.forEach(r=>Object.keys(r.porGrupo).forEach(g=>{ if(!set.includes(g)) set.push(g); }));
+  return set.sort((a,b)=>a===NO_GROUP?1:b===NO_GROUP?-1:a.localeCompare(b));
+}
+function planCardsHtml(rows){
+  return `<div class="proj-cards">${rows.map(r=>{
+    const open=!!planOpenGroups[r.mk];
+    const label=planScale==='year'?r.mk:monthLabel(r.mk);
+    return `<div class="proj-card${r.isPast?' past':''}">
+      <div class="proj-card-head" onclick="togglePlanGroup('${r.mk}')">
+        <span class="proj-card-month">${label}${r.anchored?' <i class="fa-solid fa-thumbtack" style="font-size:9px;opacity:.7" title="Saldo ajustado"></i>':''}</span>
+        <i class="fa-solid fa-chevron-${open?'up':'down'}" style="font-size:11px;color:var(--text3)" aria-hidden="true"></i>
+      </div>
+      <div class="plan-row"><span>Saldo inicial</span><span>${brl(r.saldoIni)}</span></div>
+      <div class="plan-row"><span>+ Receitas</span><span class="pos">${brl(r.receitas)}</span></div>
+      <div class="plan-row"><span>− Despesas</span><span class="neg">${brl(r.despesas)}</span></div>
+      <div class="plan-row"><span>= Sobra do mês</span><span class="${r.sobra>=0?'pos':'neg'}">${brl(r.sobra)}</span></div>
+      <div class="plan-row total"><span>Saldo acumulado</span><span class="${r.saldoFim>=0?'pos':'neg'}">${brl(r.saldoFim)}</span></div>
+      ${open?`<div class="plan-groups">${Object.entries(r.porGrupo).sort((a,b)=>b[1]-a[1]).map(([g,v])=>`<div class="plan-row sub"><span>${escapeHtml(g)}</span><span>${brl(v)}</span></div>`).join('')}</div>`:''}
+    </div>`;
+  }).join('')}</div>`;
+}
+function planTableHtml(rows){
+  const groups=planGroupNames(rows);
+  const cell=(v,cls)=>`<td class="${cls||''}">${brl(v)}</td>`;
+  const owned=categories.filter(c=>c.user_id===currentUser.id);
+  return `<div class="plan-table-wrap">
+    <table class="plan-table">
+      <thead><tr><th class="sticky-col">&nbsp;</th>${rows.map(r=>`<th>${planScale==='year'?r.mk:monthLabel(r.mk)}</th>`).join('')}</tr></thead>
+      <tbody>
+        <tr><td class="sticky-col">Saldo inicial</td>${rows.map(r=>cell(r.saldoIni)).join('')}</tr>
+        <tr><td class="sticky-col">Receitas</td>${rows.map(r=>cell(r.receitas,'pos')).join('')}</tr>
+        ${groups.map(g=>{
+          const open=!!planOpenGroups['g:'+g];
+          const cats=owned.filter(c=>catGroup(c)===g);
+          return `<tr class="grp" onclick="togglePlanGroup('g:${escapeHtml(g).replace(/'/g,'')}')">
+            <td class="sticky-col"><i class="fa-solid fa-caret-${open?'down':'right'}" style="width:10px" aria-hidden="true"></i> ${escapeHtml(g)}</td>
+            ${rows.map(r=>cell(r.porGrupo[g]||0,'neg')).join('')}
+          </tr>
+          ${open&&planScale==='month'?cats.map(c=>`<tr class="sub">
+            <td class="sticky-col">${escapeHtml(c.name)}</td>
+            ${rows.map(r=>{
+              const pc=r.porCategoria?r.porCategoria[c.id]:null;
+              if(!pc) return `<td></td>`;
+              const editable=!r.isPast;
+              return `<td class="${editable?'editable':''}" ${editable?`onclick="editPlanCell('${c.id}','${r.mk}')" title="Clique para planejar"`:''}>${brl(pc.val)}${pc.real>0&&pc.real<pc.plan?`<span class="cell-real">${brl(pc.real)} usado</span>`:''}</td>`;
+            }).join('')}
+          </tr>`).join(''):''}`;
+        }).join('')}
+        <tr class="sep"><td class="sticky-col">Total despesas</td>${rows.map(r=>cell(r.despesas,'neg')).join('')}</tr>
+        <tr><td class="sticky-col">Sobra do mês</td>${rows.map(r=>cell(r.sobra,r.sobra>=0?'pos':'neg')).join('')}</tr>
+        <tr class="accum"><td class="sticky-col">Saldo acumulado</td>${rows.map(r=>cell(r.saldoFim,r.saldoFim>=0?'pos':'neg')).join('')}</tr>
+      </tbody>
+    </table>
+  </div>`;
+}
+function editPlanCell(catId,mk){
+  const cat=categories.find(c=>c.id===catId); if(!cat) return;
+  const cur=plannedFor(cat,mk);
+  openModal(`<div class="modal-title">Planejar ${escapeHtml(cat.name)}</div>
+    <p class="modal-note">Quanto você espera gastar em <strong>${monthLabel(mk)}</strong>. O que for lançado vai consumindo esse valor.</p>
+    <div class="form-group"><label class="form-label">Valor planejado (R$)</label>
+      <input class="form-input" id="f-plan-val" type="text" inputmode="decimal" value="${cur}" oninput="moneyKey(this)"/></div>
+    <button class="btn-primary" id="btn-plan-val" onclick="savePlanCell('${catId}','${mk}')">Salvar</button>
+    <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
+}
+async function savePlanCell(catId,mk){
+  const v=parseNum(document.getElementById('f-plan-val').value);
+  if(isNaN(v)||v<0){ showToast('Informe um valor válido.','error'); return; }
+  const btn=document.getElementById('btn-plan-val'); btn.disabled=true; btn.textContent='Salvando...';
+  try{
+    if(!months.find(m=>m.key===mk)){ await api.insertMonth({key:mk,closed:false}); months=await api.getMonths(); }
+    const m=months.find(x=>x.key===mk);
+    const budgets={...(m.budgets||{}),[catId]:v};
+    await api.setMonthBudgets(mk,budgets);
+    m.budgets=budgets;
+    saveCache(); vib(12); _closeModal(); render();
+    showToast('Planejamento atualizado.','success');
+  }catch{ btn.disabled=false; btn.textContent='Salvar'; showToast('Erro ao salvar.','error'); }
+}
+function openBalanceAnchor(mk){
+  const anc=anchorFor(mk);
+  openModal(`<div class="modal-title">Ajustar saldo</div>
+    <p class="modal-note">Fixa o saldo geral em <strong>${monthLabel(mk)}</strong>. Use quando um valor pago foi diferente do previsto ou houve gasto fora do app. Os meses seguintes recalculam a partir daqui.</p>
+    <div class="form-group"><label class="form-label">Saldo em ${monthLabel(mk)} (R$)</label>
+      <input class="form-input" id="f-anchor-val" type="text" inputmode="decimal" value="${anc?anc.balance:''}" placeholder="0,00" oninput="moneyKey(this)"/></div>
+    <div class="form-group"><label class="form-label">Observação <span style="color:var(--text3);text-transform:none;letter-spacing:0">(opcional)</span></label>
+      <input class="form-input" id="f-anchor-note" maxlength="120" placeholder="Ex: conferido no extrato" value="${anc&&anc.note?escapeHtml(anc.note):''}"/></div>
+    <button class="btn-primary" id="btn-anchor" onclick="saveBalanceAnchor('${mk}')">Salvar saldo</button>
+    ${anc?`<button class="btn-secondary" onclick="removeBalanceAnchor('${anc.id}')">Remover ajuste</button>`:''}
+    <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
+}
+async function saveBalanceAnchor(mk){
+  const v=parseNum(document.getElementById('f-anchor-val').value);
+  const note=(document.getElementById('f-anchor-note').value||'').trim()||null;
+  if(isNaN(v)){ showToast('Informe um valor válido.','error'); return; }
+  const btn=document.getElementById('btn-anchor'); btn.disabled=true; btn.textContent='Salvando...';
+  try{
+    await api.upsertAnchor({month_key:mk,balance:v,note});
+    anchors=await api.getAnchors()||[];
+    vib(12); _closeModal(); render(); showToast('Saldo ajustado.','success');
+  }catch{ btn.disabled=false; btn.textContent='Salvar saldo'; showToast('Erro — confira se a tabela balance_anchors existe no Supabase.','error'); }
+}
+async function removeBalanceAnchor(id){
+  try{ await api.deleteAnchor(id); anchors=anchors.filter(a=>a.id!==id); _closeModal(); render(); showToast('Ajuste removido.','success'); }
+  catch{ showToast('Erro ao remover.','error'); }
+}
+function histSegHtml(){
+  return `<div class="dm-seg" id="hist-seg" style="margin-bottom:16px">
+    <button type="button" class="dm-seg-btn${histView==='hist'?' active':''}" onclick="setHistView('hist')">Histórico</button>
+    <button type="button" class="dm-seg-btn${histView==='plan'?' active':''}" onclick="setHistView('plan')">Planejamento</button>
+  </div>`;
+}
+function setHistView(v){
+  histView=v; vib(5);
+  render();
+}
+function syncPlanWide(){
+  document.body.classList.toggle('plan-wide',currentTab==='historico'&&histView==='plan');
+}
 function renderHistorico(el){
+  syncPlanWide();
+  if(histView==='plan'){ renderPlanning(el); return; }
   if(!isPro()){
     const current=expenses.reduce((s,e)=>s+parseFloat(e.value),0);
     const totalBudget=categories.reduce((s,c)=>s+effBudget(c,currentMonthKey),0);
     const totalAvail=totalBudget-current;
     const totalPct=totalBudget>0?Math.min((current/totalBudget)*100,100):0;
     el.innerHTML=`<div style="padding:16px 20px calc(28px + var(--safe-bot))">
+      ${histSegHtml()}
       <div class="month-title">${monthLabel(currentMonthKey)}</div>
       <div class="summary-card" style="margin:0 0 12px">
         <div class="summary-grid">
@@ -1519,13 +1693,13 @@ function renderHistorico(el){
     </div>`;
     return;
   }
-  el.innerHTML=`<div style="padding:16px 20px calc(28px + var(--safe-bot))"><div class="loading"><div class="spinner"></div>Carregando...</div></div>`;
+  el.innerHTML=`<div style="padding:16px 20px calc(28px + var(--safe-bot))">${histSegHtml()}<div class="loading"><div class="spinner"></div>Carregando...</div></div>`;
   renderHistoricoAsync(el);
 }
 async function renderHistoricoAsync(el){
   let allExps=[];
   try{ allExps=await api.getAllExpenses(); }
-  catch{ el.innerHTML=`<div class="empty"><div class="empty-icon"><i class="fa-solid fa-triangle-exclamation"></i></div><div class="empty-text">Erro ao carregar histórico.</div></div>`; return; }
+  catch{ el.innerHTML=`<div style="padding:16px 20px calc(28px + var(--safe-bot))">${histSegHtml()}<div class="empty"><div class="empty-icon"><i class="fa-solid fa-triangle-exclamation"></i></div><div class="empty-text">Erro ao carregar histórico.</div></div></div>`; return; }
 
   const byMonth={};
   allExps.forEach(e=>{ (byMonth[e.month_key]=byMonth[e.month_key]||[]).push(e); });
@@ -1633,7 +1807,7 @@ async function renderHistoricoAsync(el){
     });
     html+=`</div>`;
   }
-  el.innerHTML=`<div style="padding:16px 20px calc(28px + var(--safe-bot))">${html||'<div class="empty"><div class="empty-icon"><i class="fa-regular fa-calendar-xmark"></i></div><div class="empty-text">Nenhum gasto registrado ainda.</div></div>'}</div>`;
+  el.innerHTML=`<div style="padding:16px 20px calc(28px + var(--safe-bot))">${histSegHtml()}${html||'<div class="empty"><div class="empty-icon"><i class="fa-regular fa-calendar-xmark"></i></div><div class="empty-text">Nenhum gasto registrado ainda.</div></div>'}</div>`;
 }
 
 async function renderSplit(el){
@@ -2053,9 +2227,38 @@ function openAddExpense(catId){
     <div class="form-group"><label class="form-label">Data</label>
       <input class="form-input" id="f-date" type="date" value="${today}" onchange="onExpenseDateChange()"/></div>
     ${repeatFieldHtml()}
+    ${notesFieldHtml('')}
     ${receiptPickerHtml()}
     <button class="btn-primary" id="btn-save-exp" onclick="saveExpense(null)">Salvar</button>
     <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
+}
+function notesFieldHtml(val){
+  return `<div class="form-group"><label class="form-label">Observações <span style="color:var(--text3);text-transform:none;letter-spacing:0">(opcional)</span></label>
+    <textarea class="form-input" id="f-notes" rows="2" maxlength="600" placeholder="Código de barras do boleto, número do pedido, anotações…" style="resize:vertical;font-family:var(--font-body)">${escapeHtml(val||'')}</textarea>
+    <span class="field-hint">Fica salvo no lançamento e você copia com um toque depois.</span></div>`;
+}
+function openExpenseNote(expId){
+  const e=expenses.find(x=>x.id===expId); if(!e||!e.notes) return;
+  openModal(`<div class="modal-title">${escapeHtml(e.name)}</div>
+    <p class="modal-note">Observações deste lançamento.</p>
+    <div id="note-box" style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:14px;font-size:14px;line-height:1.5;word-break:break-all;white-space:pre-wrap;margin-bottom:16px">${escapeHtml(e.notes)}</div>
+    <button class="btn-primary" id="btn-copy-note" onclick="copyExpenseNote('${expId}')"><i class="fa-regular fa-copy" aria-hidden="true"></i> Copiar</button>
+    <button class="btn-secondary" onclick="_closeModal()">Fechar</button>`);
+}
+async function copyExpenseNote(expId){
+  const e=expenses.find(x=>x.id===expId); if(!e||!e.notes) return;
+  let ok=false;
+  try{ await navigator.clipboard.writeText(e.notes); ok=true; }
+  catch{
+    try{
+      const ta=document.createElement('textarea');
+      ta.value=e.notes; ta.style.cssText='position:fixed;opacity:0';
+      document.body.appendChild(ta); ta.select();
+      ok=document.execCommand('copy'); ta.remove();
+    }catch{}
+  }
+  vib(8);
+  showToast(ok?'Copiado!':'Não foi possível copiar.',ok?'success':'error');
 }
 function repeatFieldHtml(mode='none',installmentTotal='',installmentNo=1,valueMode='compra',isEdit=false,cardId=''){
   const thisMonthRow=isEdit?'':`<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--surface2);border-radius:10px;margin-bottom:6px">
@@ -2147,6 +2350,7 @@ function openEditExpense(expId){
     <div class="form-group"><label class="form-label">Data</label>
       <input class="form-input" id="f-date" type="date" value="${e.date}"/></div>
     ${repeatFieldHtml(e.installment_total?'installment':(e.recurring?'recurring':'none'),e.installment_total||'',e.installment_no||1,'parcela',true)}
+    ${notesFieldHtml(e.notes||'')}
     ${receiptPickerHtml(e.image_url||'')}
     <button class="btn-primary" id="btn-save-exp" onclick="saveExpense('${expId}')">Salvar</button>
     <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
@@ -2186,7 +2390,8 @@ async function saveExpense(expId){
     const newFile=document.getElementById('f-receipt')?.files?.[0];
     if(newFile){ btn.textContent='Enviando foto...'; try{ image_url=await getReceiptUrl(); }catch(upErr){ showToast(`Foto não enviada: ${upErr.message}`,'error'); } btn.textContent='Salvando...'; }
     const card_id=repeatMode==='installment'?(document.getElementById('f-card')?.value||null):null;
-    const payload={cat_id:catId,name,value,date:targetDate,recurring,image_url,installment_total,installment_no,installment_group,card_id};
+    const notes=(document.getElementById('f-notes')?.value||'').trim()||null;
+    const payload={cat_id:catId,name,value,date:targetDate,recurring,image_url,installment_total,installment_no,installment_group,card_id,notes};
     if(expId) await api.updateExpense(expId,payload);
     else{
       await api.insertExpense({id:uid(),month_key:targetMonthKey,...payload});
@@ -2213,6 +2418,8 @@ async function saveExpense(expId){
       showToast('Falta a coluna no banco: ALTER TABLE expenses ADD COLUMN image_url text','error');
     }else if(/recurring/i.test(msg)){
       showToast('Rode o SQL: ALTER TABLE expenses ADD COLUMN recurring boolean DEFAULT false','error');
+    }else if(/notes/i.test(msg)){
+      showToast('Rode o SQL: ALTER TABLE expenses ADD COLUMN notes text','error');
     }else if(/installment/i.test(msg)){
       showToast('Rode o SQL: ALTER TABLE expenses ADD COLUMN installment_no integer, ADD COLUMN installment_total integer, ADD COLUMN installment_group text','error');
     }else{
@@ -2392,6 +2599,21 @@ async function openActivityLog(catId){
     <button class="btn-secondary" onclick="_closeModal()">Fechar</button>`;
 }
 
+const NO_GROUP='Sem grupo';
+function catGroup(cat){ return (cat&&cat.group_name&&String(cat.group_name).trim())||NO_GROUP; }
+function allGroups(){
+  const seen=[];
+  categories.forEach(c=>{ const g=catGroup(c); if(g!==NO_GROUP&&!seen.includes(g)) seen.push(g); });
+  return seen.sort((a,b)=>a.localeCompare(b));
+}
+function groupFieldHtml(cat){
+  const cur=cat&&cat.group_name?String(cat.group_name):'';
+  const sugg=[...new Set([...allGroups(),'Contábeis','Cartões','Negociações','Gastos gerais'])];
+  return `<div class="form-group"><label class="form-label">Grupo <span style="color:var(--text3);text-transform:none;letter-spacing:0">(opcional)</span></label>
+    <input class="form-input" id="f-cgroup" list="cgroup-list" maxlength="40" autocomplete="off" placeholder="Ex: Gastos gerais" value="${escapeHtml(cur)}"/>
+    <datalist id="cgroup-list">${sugg.map(g=>`<option value="${escapeHtml(g)}"></option>`).join('')}</datalist>
+    <span class="field-hint">Usado para somar as categorias por bloco no Planejamento.</span></div>`;
+}
 function rolloverFieldsHtml(cat){
   const pos=cat?.rollover_positive, neg=cat?.rollover_negative;
   return `<div class="form-group"><label class="form-label">Saldo do mês anterior</label>
@@ -2412,6 +2634,7 @@ function openAddCategory(){
       <input class="form-input" id="f-cname" placeholder="Ex: Academia" autocomplete="off"/></div>
     <div class="form-group"><label class="form-label">Orçamento mensal (R$)</label>
       <input class="form-input" id="f-cbudget" type="text" inputmode="decimal" placeholder="0,00" oninput="moneyKey(this)"/></div>
+    ${groupFieldHtml(null)}
     ${rolloverFieldsHtml(null)}
     <button class="btn-primary" id="btn-save-cat" onclick="saveCategory(null)">Salvar</button>
     <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
@@ -2424,6 +2647,7 @@ function openEditCategory(catId){
       <input class="form-input" id="f-cname" value="${cat.name}" autocomplete="off"/></div>
     <div class="form-group"><label class="form-label">Orçamento mensal (R$)</label>
       <input class="form-input" id="f-cbudget" type="text" inputmode="decimal" value="${cat.budget}" oninput="moneyKey(this)"/></div>
+    ${groupFieldHtml(cat)}
     ${rolloverFieldsHtml(cat)}
     <button class="btn-primary" id="btn-save-cat" onclick="saveCategory('${catId}')">Salvar</button>
     <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
@@ -2432,14 +2656,15 @@ function openEditCategory(catId){
 async function saveCategory(catId){
   const name=document.getElementById('f-cname').value.trim();
   const budget=parseNum(document.getElementById('f-cbudget').value);
+  const group_name=(document.getElementById('f-cgroup')?.value||'').trim()||null;
   const rollover_positive=!!document.getElementById('f-roll-pos')?.checked;
   const rollover_negative=!!document.getElementById('f-roll-neg')?.checked;
   if(!name||isNaN(budget)||budget<=0){ showToast('Preencha todos os campos.','error'); return; }
   if(!catId&&!isPro()&&categories.length>=CONFIG.FREE_MAX_CATEGORIES){ openPaywall('Limite de categorias atingido'); return; }
   const btn=document.getElementById('btn-save-cat'); btn.disabled=true; btn.textContent='Salvando...';
   try{
-    if(catId){ await api.updateCategory(catId,{name,budget,rollover_positive,rollover_negative}); logActivity(catId,'cat_edit',name,budget); }
-    else{ const nid=uid(); await api.insertCategory({id:nid,name,budget,position:categories.length,rollover_positive,rollover_negative}); logActivity(nid,'cat_create',name,budget); }
+    if(catId){ await api.updateCategory(catId,{name,budget,group_name,rollover_positive,rollover_negative}); logActivity(catId,'cat_edit',name,budget); }
+    else{ const nid=uid(); await api.insertCategory({id:nid,name,budget,position:categories.length,group_name,rollover_positive,rollover_negative}); logActivity(nid,'cat_create',name,budget); }
     categories=await api.getCategories();
     saveCache();
     vib(15);
@@ -2828,6 +3053,173 @@ function cardInvoiceMonth(card,dateStr){
   return d<=closing?monthKeyOf(new Date(y,m-1,1)):monthKeyOf(new Date(y,m,1));
 }
 function cardLabel(id){ const c=cards.find(x=>x.id===id); return c?c.name:null; }
+
+function monthInputHtml(id,val){ return `<input class="form-input" id="${id}" type="month" value="${val||''}"/>`; }
+
+function anchorFor(mk){ return anchors.find(a=>a.month_key===mk)||null; }
+function plannedFor(cat,mk){
+  const m=months.find(x=>x.key===mk);
+  const ov=m&&m.budgets?m.budgets[cat.id]:null;
+  const base=(ov!=null&&!isNaN(parseFloat(ov)))?parseFloat(ov):parseFloat(cat.budget||0);
+  return Math.round(base*100)/100;
+}
+function projectMonths(n,startKey,allExps){
+  const start=startKey||projectionStart();
+  const rows=[];
+  const byMonthCat={};
+  (allExps||[]).forEach(e=>{
+    const k=e.month_key; if(!k) return;
+    (byMonthCat[k]=byMonthCat[k]||{});
+    byMonthCat[k][e.cat_id]=(byMonthCat[k][e.cat_id]||0)+parseFloat(e.value||0);
+  });
+  const owned=categories.filter(c=>c.user_id===currentUser.id);
+  let carry=0, mk=start;
+  for(let i=0;i<n;i++){
+    const anc=anchorFor(mk);
+    const saldoIni=anc?parseFloat(anc.balance):(i===0?0:carry);
+    const receitas=Math.round(incomesForMonth(mk)*100)/100;
+    const isPast=mk<currentMonthKey;
+    const porCategoria={}, porGrupo={};
+    let despesas=0, realizado=0;
+    owned.forEach(c=>{
+      const real=Math.round((byMonthCat[mk]?.[c.id]||0)*100)/100;
+      const plan=plannedFor(c,mk);
+      const val=isPast?real:Math.max(plan,real);
+      realizado+=real;
+      despesas+=val;
+      porCategoria[c.id]={real,plan,val,name:c.name,group:catGroup(c)};
+      const g=catGroup(c);
+      porGrupo[g]=Math.round(((porGrupo[g]||0)+val)*100)/100;
+    });
+    despesas=Math.round(despesas*100)/100;
+    realizado=Math.round(realizado*100)/100;
+    const saldoFim=Math.round((saldoIni+receitas-despesas)*100)/100;
+    rows.push({mk,saldoIni,receitas,despesas,realizado,porCategoria,porGrupo,
+      sobra:Math.round((receitas-despesas)*100)/100,
+      saldoRealizado:Math.round((saldoIni+receitas-realizado)*100)/100,
+      saldoFim,anchored:!!anc,isPast});
+    carry=saldoFim; mk=nextMonthKey(mk);
+  }
+  return rows;
+}
+function projectionStart(){
+  const past=anchors.map(a=>a.month_key).filter(k=>k<=currentMonthKey).sort();
+  return past.length?past[past.length-1]:currentMonthKey;
+}
+function aggregateByYear(rows){
+  const years={};
+  rows.forEach(r=>{
+    const y=r.mk.split('-')[0];
+    if(!years[y]){ years[y]={mk:y,saldoIni:r.saldoIni,receitas:0,despesas:0,porGrupo:{},saldoFim:r.saldoFim,isPast:r.isPast}; }
+    const a=years[y];
+    a.receitas=Math.round((a.receitas+r.receitas)*100)/100;
+    a.despesas=Math.round((a.despesas+r.despesas)*100)/100;
+    Object.entries(r.porGrupo).forEach(([g,v])=>{ a.porGrupo[g]=Math.round(((a.porGrupo[g]||0)+v)*100)/100; });
+    a.saldoFim=r.saldoFim;
+  });
+  return Object.values(years).map(a=>({...a,sobra:Math.round((a.receitas-a.despesas)*100)/100}));
+}
+function incomeAppliesTo(inc,mk){
+  if(!inc) return false;
+  if(inc.recurring) return mk>=inc.start_month&&(!inc.end_month||mk<=inc.end_month);
+  return inc.start_month===mk;
+}
+function incomesForMonth(mk){
+  return incomes.filter(i=>incomeAppliesTo(i,mk)).reduce((s,i)=>s+parseFloat(i.value||0),0);
+}
+async function openIncomes(){
+  openModal(`<div class="modal-title">Minhas receitas</div><div class="loading"><div class="spinner"></div></div>`);
+  try{ incomes=await api.getIncomes()||[]; }catch{}
+  renderIncomesModal();
+}
+function renderIncomesModal(){
+  const list=incomes.length?incomes.map(i=>{
+    const period=i.recurring
+      ? `Todo mês desde ${monthLabel(i.start_month)}${i.end_month?` até ${monthLabel(i.end_month)}`:''}`
+      : `Só em ${monthLabel(i.start_month)}`;
+    const ended=i.end_month&&i.end_month<currentMonthKey;
+    return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 0;border-bottom:1px solid var(--border);${ended?'opacity:.5':''}">
+      <div style="min-width:0">
+        <div style="font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><i class="fa-solid fa-arrow-trend-up" style="color:var(--accent-text);margin-right:7px" aria-hidden="true"></i>${escapeHtml(i.name)}</div>
+        <div style="font-size:12px;color:var(--text3);margin-top:2px">${brl(i.value)} · ${period}</div>
+      </div>
+      <div style="display:flex;gap:6px;flex-shrink:0">
+        ${i.recurring?`<div class="icon-btn" style="border-color:var(--accent-line);color:var(--accent-text)" onclick="openChangeIncome('${i.id}')" title="Alterar valor a partir de um mês"><i class="fa-solid fa-pen" aria-hidden="true"></i></div>`:''}
+        <div class="icon-btn" style="border-color:#ff4f4f44;color:var(--red)" onclick="removeIncome('${i.id}')" aria-label="Remover receita"><i class="fa-solid fa-trash" aria-hidden="true"></i></div>
+      </div>
+    </div>`;}).join(''):`<p class="modal-note">Nenhuma receita cadastrada. Cadastre seu salário para o app projetar seu saldo mês a mês.</p>`;
+  document.getElementById('modal-content').innerHTML=`<div class="modal-title">Minhas receitas</div>
+    <div style="margin-bottom:16px">${list}</div>
+    <div class="form-group"><label class="form-label">Nome</label>
+      <input class="form-input" id="f-inc-name" placeholder="Ex: Salário" maxlength="60" autocomplete="off"/></div>
+    <div class="form-group"><label class="form-label">Valor (R$)</label>
+      <input class="form-input" id="f-inc-value" type="text" inputmode="decimal" placeholder="0,00" oninput="moneyKey(this)"/></div>
+    <div class="form-group"><label class="form-label">Tipo</label>
+      <div class="dm-seg" id="f-inc-type">
+        <button type="button" class="dm-seg-btn active" data-v="recurring" onclick="incTypeSeg(this)">Todo mês</button>
+        <button type="button" class="dm-seg-btn" data-v="once" onclick="incTypeSeg(this)">Só um mês</button>
+      </div></div>
+    <div class="form-group"><label class="form-label" id="f-inc-month-label">A partir de</label>
+      ${monthInputHtml('f-inc-start',currentMonthKey)}</div>
+    <button class="btn-primary" id="btn-save-inc" onclick="saveIncome()">Adicionar receita</button>
+    <button class="btn-secondary" onclick="openAccountModal()">Voltar</button>`;
+}
+function incTypeSeg(btn){
+  [...btn.parentElement.children].forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  const lbl=document.getElementById('f-inc-month-label');
+  if(lbl) lbl.textContent=btn.dataset.v==='recurring'?'A partir de':'Mês';
+}
+function incTypeVal(){ const el=document.querySelector('#f-inc-type .dm-seg-btn.active'); return el?el.dataset.v:'recurring'; }
+async function saveIncome(){
+  const name=(document.getElementById('f-inc-name').value||'').trim();
+  const value=parseNum(document.getElementById('f-inc-value').value);
+  const start_month=document.getElementById('f-inc-start').value;
+  const recurring=incTypeVal()==='recurring';
+  if(!name){ showToast('Informe o nome da receita.','error'); return; }
+  if(isNaN(value)||value<=0){ showToast('Informe um valor válido.','error'); return; }
+  if(!start_month){ showToast('Informe o mês.','error'); return; }
+  const btn=document.getElementById('btn-save-inc'); btn.disabled=true; btn.textContent='Salvando...';
+  try{
+    await api.insertIncome({name,value,recurring,start_month,end_month:null});
+    incomes=await api.getIncomes()||[];
+    vib(12); renderIncomesModal(); showToast('Receita adicionada!','success');
+  }catch{ showToast('Erro ao salvar. Confira se a tabela incomes existe no Supabase.','error'); btn.disabled=false; btn.textContent='Adicionar receita'; }
+}
+async function removeIncome(id){
+  if(!confirm('Remover esta receita?')) return;
+  try{ await api.deleteIncome(id); incomes=incomes.filter(i=>i.id!==id); renderIncomesModal(); showToast('Receita removida.','success'); }
+  catch{ showToast('Erro ao remover.','error'); }
+}
+function openChangeIncome(id){
+  const inc=incomes.find(i=>i.id===id); if(!inc) return;
+  openModal(`<div class="modal-title">Alterar ${escapeHtml(inc.name)}</div>
+    <p class="modal-note">Use quando o valor muda a partir de um mês — um aumento de salário, por exemplo. O valor antigo continua valendo nos meses anteriores.</p>
+    <div class="info-rows">
+      <div class="info-row"><span><i class="fa-solid fa-arrow-trend-up" aria-hidden="true"></i> Valor atual</span><strong>${brl(inc.value)}</strong></div>
+    </div>
+    <div class="form-group"><label class="form-label">Novo valor (R$)</label>
+      <input class="form-input" id="f-chg-value" type="text" inputmode="decimal" placeholder="0,00" oninput="moneyKey(this)"/></div>
+    <div class="form-group"><label class="form-label">A partir de</label>
+      ${monthInputHtml('f-chg-from',nextMonthKey(currentMonthKey))}</div>
+    <button class="btn-primary" id="btn-chg-inc" onclick="changeIncomeFrom('${id}')">Aplicar mudança</button>
+    <button class="btn-secondary" onclick="openIncomes()">Cancelar</button>`);
+}
+async function changeIncomeFrom(id){
+  const inc=incomes.find(i=>i.id===id); if(!inc) return;
+  const value=parseNum(document.getElementById('f-chg-value').value);
+  const from=document.getElementById('f-chg-from').value;
+  if(isNaN(value)||value<=0){ showToast('Informe um valor válido.','error'); return; }
+  if(!from){ showToast('Informe o mês.','error'); return; }
+  if(from<=inc.start_month){ showToast('O mês precisa ser depois do início da receita atual.','error'); return; }
+  const btn=document.getElementById('btn-chg-inc'); btn.disabled=true; btn.textContent='Aplicando...';
+  try{
+    await api.updateIncome(id,{end_month:prevMonthKey(from)});
+    await api.insertIncome({name:inc.name,value,recurring:true,start_month:from,end_month:inc.end_month||null});
+    incomes=await api.getIncomes()||[];
+    vib(12); openIncomes(); showToast(`${inc.name} passa a ${brl(value)} em ${monthLabel(from)}.`,'success');
+  }catch{ showToast('Erro ao aplicar.','error'); btn.disabled=false; btn.textContent='Aplicar mudança'; }
+}
 async function openCards(){
   openModal(`<div class="modal-title">Meus cartões</div><div class="loading"><div class="spinner"></div></div>`);
   try{ cards=await api.getCards()||[]; }catch{}

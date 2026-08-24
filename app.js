@@ -44,7 +44,7 @@ function syncThemeRow(){
   if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
-const APP_VERSION = '4.1';
+const APP_VERSION = '4.2';
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
 const CORRECT_PIN = () => String(new Date().getFullYear());
@@ -123,6 +123,8 @@ function enterApp(){
     document.documentElement.setAttribute('data-theme',metaTheme);
     localStorage.setItem('gc-theme',metaTheme);
   }
+  const metaPlan=currentUser?.user_metadata?.planning_enabled;
+  if(metaPlan!=null) localStorage.setItem('gc-planning',metaPlan?'1':'0');
   init();
 }
 function updatePlanBadge(isAdminPro,trialDays){

@@ -44,7 +44,7 @@ function syncThemeRow(){
   if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
-const APP_VERSION = '3.16';
+const APP_VERSION = '4.0';
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
 const CORRECT_PIN = () => String(new Date().getFullYear());
@@ -147,7 +147,7 @@ function userTag(uid){
 async function logout(){
   const token=session?.access_token;
   if(token) fetch(`${SUPABASE_URL}/auth/v1/logout`,{method:'POST',headers:{apikey:SUPABASE_KEY,Authorization:`Bearer ${token}`}}).catch(()=>{});
-  persistSession(null); categories=[]; months=[]; expenses=[]; expenseNames=[]; acceptedShares=[]; sharedOutMap={}; pendingSplitInvites=[]; acceptedGroupIds=new Set(); friends=[]; budgetTransfers=[]; cards=[]; rollovers=[]; futureMonthKeys=[]; incomes=[]; anchors=[]; plannedItems=[]; histView='hist'; document.body.classList.remove('plan-wide');
+  persistSession(null); categories=[]; months=[]; expenses=[]; expenseNames=[]; acceptedShares=[]; sharedOutMap={}; pendingSplitInvites=[]; acceptedGroupIds=new Set(); friends=[]; budgetTransfers=[]; cards=[]; rollovers=[]; futureMonthKeys=[]; anchors=[]; planEntries=[]; histView='hist'; planUntilYear=0; document.body.classList.remove('plan-wide');
   stopUnreadPoll(); unreadDm={}; updateAmigosBadge();
   document.documentElement.classList.remove('gc-has-session');
   document.getElementById('app').style.display='none';
@@ -282,10 +282,10 @@ const api={
   insertIncome:(d)=>sbFetch('incomes',{method:'POST',body:JSON.stringify({...d,user_id:currentUser.id})}),
   updateIncome:(id,d)=>sbFetch(`incomes?id=eq.${id}`,{method:'PATCH',body:JSON.stringify(d)}),
   deleteIncome:(id)=>sbFetch(`incomes?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
-  getPlannedItems:()=>sbFetch(`planned_items?user_id=eq.${currentUser.id}&order=position.asc,name.asc`),
-  insertPlannedItem:(d)=>sbFetch('planned_items',{method:'POST',body:JSON.stringify({...d,user_id:currentUser.id})}),
-  updatePlannedItem:(id,d)=>sbFetch(`planned_items?id=eq.${id}`,{method:'PATCH',body:JSON.stringify(d)}),
-  deletePlannedItem:(id)=>sbFetch(`planned_items?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
+  getPlanEntries:()=>sbFetch(`plan_entries?user_id=eq.${currentUser.id}&order=position.asc,name.asc`),
+  insertPlanEntry:(d)=>sbFetch('plan_entries',{method:'POST',body:JSON.stringify({...d,user_id:currentUser.id})}),
+  updatePlanEntry:(id,d)=>sbFetch(`plan_entries?id=eq.${id}`,{method:'PATCH',body:JSON.stringify(d)}),
+  deletePlanEntry:(id)=>sbFetch(`plan_entries?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
   getAnchors:()=>sbFetch(`balance_anchors?user_id=eq.${currentUser.id}&order=month_key.asc`),
   upsertAnchor:(d)=>sbFetch('balance_anchors',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=representation'},body:JSON.stringify({...d,user_id:currentUser.id})}),
   deleteAnchor:(id)=>sbFetch(`balance_anchors?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
@@ -338,7 +338,8 @@ const api={
 };
 
 let categories=[], months=[], currentMonthKey='', viewMonthKey='', expenses=[], currentTab='home', currentCatIdx=0, budgetTransfers=[], cards=[], rollovers=[], futureMonthKeys=[];
-let incomes=[], anchors=[], plannedItems=[], histView='hist', planHorizon=12, planScale='month', planOpenGroups={};
+let anchors=[], planEntries=[], histView='hist', planUntilYear=0, planScale='month', planOpenGroups={}, planView='table', planStmtMonths=12;
+function isPlanningOn(){ return localStorage.getItem('gc-planning')==='1'; }
 let subscription=null, userPlan='free';
 let splitGroups=[], pendingShares=[], acceptedShares=[], sharedOutMap={}, pendingSplitInvites=[], acceptedGroupIds=new Set(), friends=[];
 let myProfile=null, profilesById={};
@@ -469,7 +470,11 @@ function openAccountModal(){
       <span class="theme-row-label"><i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}</span>
       <label class="switch"><input type="checkbox" id="theme-switch" ${isLight?'checked':''} onchange="toggleTheme();syncThemeRow()"><span class="switch-track"><span class="switch-thumb"></span></span></label>
     </div>
-    <button class="btn-secondary" onclick="openIncomes()"><i class="fa-solid fa-arrow-trend-up" aria-hidden="true"></i> Minhas receitas</button>
+    <div class="theme-row">
+      <span class="theme-row-label"><i class="fa-solid fa-chart-line" aria-hidden="true"></i> Planejamento futuro</span>
+      <label class="switch"><input type="checkbox" id="planning-switch" ${isPlanningOn()?'checked':''} onchange="togglePlanning()"><span class="switch-track"><span class="switch-thumb"></span></span></label>
+    </div>
+    ${isPlanningOn()?`<button class="btn-secondary" onclick="openPlanEntries()"><i class="fa-solid fa-calendar-check" aria-hidden="true"></i> Meus compromissos</button>`:''}
     <button class="btn-secondary" onclick="openCards()"><i class="fa-solid fa-credit-card" aria-hidden="true"></i> Meus cartões</button>
     <button class="btn-secondary" onclick="openPaywall('Planos e assinatura')"><i class="fa-solid fa-crown" aria-hidden="true"></i> Ver planos</button>
     <button class="btn-secondary" onclick="_closeModal();showTutorial(true)"><i class="fa-solid fa-circle-question" aria-hidden="true"></i> Ver tutorial</button>
@@ -625,9 +630,8 @@ async function init(){
     budgetTransfers=await api.getBudgetTransfers(currentMonthKey).catch(()=>[]);
     rollovers=await api.getRollovers(viewMonthKey).catch(()=>[]);
     cards=await api.getCards().catch(()=>[]);
-    incomes=await api.getIncomes().catch(()=>[]);
     anchors=await api.getAnchors().catch(()=>[]);
-    plannedItems=await api.getPlannedItems().catch(()=>[]);
+    if(isPlanningOn()) planEntries=await api.getPlanEntries().catch(()=>[]);
     refreshFutureMonths();
     applyAutoRollover();
     saveCache();
@@ -1520,13 +1524,14 @@ async function renderPlanning(el){
   el.innerHTML=`<div class="plan-wrap">${histSegHtml()}<div class="loading"><div class="spinner"></div>Montando projeção...</div></div>`;
   let allExps=[];
   try{ allExps=await api.getExpensesFrom(projectionStart())||[]; }catch{}
-  const rows=projectMonths(planHorizon,projectionStart(),allExps);
+  const n=planHorizonMonths();
+  const rows=projectMonths(n,projectionStart(),allExps);
   const shown=planScale==='year'?aggregateByYear(rows):rows;
   const last=rows[rows.length-1];
   const first=rows[0];
   el.innerHTML=`<div class="plan-wrap">
     ${histSegHtml()}
-    ${!incomes.length?`<div class="plan-warn"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> Cadastre sua receita em <strong>Sua conta › Minhas receitas</strong> para o saldo projetado fazer sentido.</div>`:''}
+    ${!planEntries.some(e=>e.kind==='in')?`<div class="plan-warn"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> Cadastre seu salario em <strong>Sua conta › Meus compromissos</strong> para o saldo projetado fazer sentido.</div>`:''}
     <div class="plan-head">
       <div>
         <div class="plan-head-label">Saldo em ${monthLabel(first.mk)}</div>
@@ -1536,23 +1541,96 @@ async function renderPlanning(el){
     </div>
     <div class="plan-controls">
       <div class="dm-seg" style="flex:1">
+        <button type="button" class="dm-seg-btn${planView==='stmt'?' active':''}" onclick="setPlanView('stmt')">Extrato</button>
+        <button type="button" class="dm-seg-btn${planView==='table'?' active':''}" onclick="setPlanView('table')">Tabela</button>
+      </div>
+      ${planView==='table'?`<div class="dm-seg" style="flex:1">
         <button type="button" class="dm-seg-btn${planScale==='month'?' active':''}" onclick="setPlanScale('month')">Mensal</button>
         <button type="button" class="dm-seg-btn${planScale==='year'?' active':''}" onclick="setPlanScale('year')">Anual</button>
-      </div>
-      <select class="form-input plan-horizon" onchange="setPlanHorizon(this.value)">
-        ${[6,12,24,36].map(n=>`<option value="${n}"${n===planHorizon?' selected':''}>${n} meses</option>`).join('')}
+      </div>`:''}
+      <select class="form-input plan-horizon" onchange="setPlanUntil(this.value)">
+        ${planYearOptions()}
       </select>
     </div>
     <div class="plan-two">
       <div class="plan-two-box"><div class="plan-two-lbl">Projetado em ${planScale==='year'?last.mk.split('-')[0]:monthLabel(last.mk)}</div><div class="plan-two-val ${last.saldoFim>=0?'pos':'neg'}">${brl(last.saldoFim)}</div></div>
       <div class="plan-two-box"><div class="plan-two-lbl">Realizado em ${monthLabel(rows[0].mk)}</div><div class="plan-two-val ${rows[0].saldoRealizado>=0?'pos':'neg'}">${brl(rows[0].saldoRealizado)}</div></div>
     </div>
-    ${planCardsHtml(shown)}
-    ${planTableHtml(shown)}
+    ${planView==='stmt'?planStatementHtml(rows):`${planCardsHtml(shown)}${planTableHtml(shown)}`}
   </div>`;
 }
+function planStatementHtml(rows){
+  const win=rows.slice(0,planStmtMonths);
+  const body=win.map(r=>{
+    const evs=[];
+    planEntries.filter(e=>e.kind==='in'&&entryAppliesTo(e,r.mk)).forEach(e=>{
+      evs.push({day:e.due_day||1,name:e.name,val:entryValueFor(e,r.mk),kind:'in',id:e.id,mk:r.mk});
+    });
+    Object.keys(r.porCategoria).forEach(cid=>{
+      const pc=r.porCategoria[cid];
+      pc.itens.forEach(it=>evs.push({day:it.dueDay||1,name:it.name,val:-it.value,kind:'out',
+        itemId:it.itemId,paid:it.paid,expenseId:it.expenseId,barcode:it.barcode,inst:it.inst,mk:r.mk}));
+      pc.avulsos.forEach(a=>evs.push({day:1,name:a.name,val:-a.value,kind:'out',paid:a.paid,fixed:true,mk:r.mk}));
+      if(!pc.driven&&pc.val>0){
+        const rest=Math.round((pc.val-pc.pago)*100)/100;
+        if(rest>0.004) evs.push({day:28,name:`${pc.name} (previsto)`,val:-rest,kind:'est',fixed:true,mk:r.mk});
+      }
+    });
+    evs.sort((a,b)=>a.day-b.day||(b.kind==='in')-(a.kind==='in'));
+    let run=r.saldoIni;
+    const lines=evs.map(ev=>{
+      run=Math.round((run+ev.val)*100)/100;
+      const act=ev.itemId?`<button class="pay-chk${ev.paid?' on':''}" onclick="togglePlannedPaid('${ev.itemId}','${ev.mk}',${ev.expenseId?`'${ev.expenseId}'`:'null'})" title="${ev.paid?'Desmarcar':'Marcar como pago'}"><i class="fa-solid fa-${ev.paid?'check':'circle-notch'}" aria-hidden="true"></i></button>`:'<span class="stmt-nodot"></span>';
+      const bc=ev.barcode?`<button class="stmt-bar" onclick="copyPlanBarcode('${ev.itemId}')" title="Copiar codigo de barras"><i class="fa-solid fa-barcode" aria-hidden="true"></i></button>`:'';
+      return `<div class="stmt-line${ev.paid?' paid':''}${ev.kind==='est'?' est':''}">
+        <span class="stmt-day">${String(ev.day).padStart(2,'0')}</span>
+        <span class="stmt-name">${act}${escapeHtml(ev.name)}${ev.inst?`<span class="stmt-inst">${ev.inst}</span>`:''}${bc}</span>
+        <span class="stmt-val ${ev.val>=0?'pos':'neg'}">${ev.val>=0?'+':''}${brl(Math.abs(ev.val))}</span>
+        <span class="stmt-run">${brl(run)}</span>
+      </div>`;
+    }).join('');
+    return `<div class="stmt-month">
+      <div class="stmt-head"><span>${monthLabel(r.mk)}</span><span class="${r.saldoFim>=0?'pos':'neg'}">${brl(r.saldoFim)}</span></div>
+      ${lines||'<div class="stmt-empty">Nada previsto neste mes.</div>'}
+    </div>`;
+  }).join('');
+  const more=rows.length>planStmtMonths?`<button class="btn-secondary" onclick="planStmtMore()">Carregar mais meses</button>`:'';
+  return `<div class="stmt-wrap">${body}${more}</div>`;
+}
+function planStmtMore(){ planStmtMonths+=12; render(); }
+async function copyPlanBarcode(id){
+  const e=planEntries.find(x=>x.id===id); if(!e||!e.barcode) return;
+  let ok=false;
+  try{ await navigator.clipboard.writeText(e.barcode); ok=true; }
+  catch{
+    try{ const ta=document.createElement('textarea'); ta.value=e.barcode;
+      ta.style.cssText='position:fixed;opacity:0'; document.body.appendChild(ta); ta.select();
+      ok=document.execCommand('copy'); ta.remove(); }catch{}
+  }
+  vib(8); showToast(ok?'Codigo copiado!':'Nao foi possivel copiar.',ok?'success':'error');
+}
 function setPlanScale(v){ planScale=v; vib(5); render(); }
-function setPlanHorizon(v){ planHorizon=parseInt(v,10)||12; render(); }
+function planTargetYear(){
+  const cy=parseInt(projectionStart().split('-')[0],10);
+  return planUntilYear&&planUntilYear>=cy?planUntilYear:cy+1;
+}
+function planHorizonMonths(){
+  const [sy,sm]=projectionStart().split('-').map(Number);
+  return Math.max(1,(planTargetYear()-sy)*12+(12-sm+1));
+}
+function planYearOptions(){
+  const cy=parseInt(projectionStart().split('-')[0],10);
+  const tgt=planTargetYear();
+  let out='';
+  for(let y=cy;y<=cy+20;y++) out+=`<option value="${y}"${y===tgt?' selected':''}>ate ${y}</option>`;
+  return out;
+}
+function setPlanUntil(v){
+  planUntilYear=parseInt(v,10)||0;
+  if(planHorizonMonths()>24) planScale='year';
+  render();
+}
+function setPlanView(v){ planView=v; vib(5); render(); }
 function togglePlanGroup(key){ planOpenGroups[key]=!planOpenGroups[key]; render(); }
 function planGroupNames(rows){
   const set=[];
@@ -1597,7 +1675,7 @@ function planTableHtml(rows){
           const open=merged?!!planOpenGroups['c:'+cats[0].id]:!!planOpenGroups['g:'+g];
           const gKey=merged?('c:'+cats[0].id):('g:'+escapeHtml(g).replace(/'/g,''));
           return `<tr class="grp" onclick="togglePlanGroup('${gKey}')">
-            <td class="sticky-col"><i class="fa-solid fa-caret-${open?'down':'right'}" style="width:10px" aria-hidden="true"></i> ${escapeHtml(g)}${merged?`<button class="plan-item-btn" onclick="event.stopPropagation();openPlannedItems('${cats[0].id}')" title="Gerenciar itens"><i class="fa-solid fa-list-ul" aria-hidden="true"></i></button>`:''}</td>
+            <td class="sticky-col"><i class="fa-solid fa-caret-${open?'down':'right'}" style="width:10px" aria-hidden="true"></i> ${escapeHtml(g)}${merged?`<button class="plan-item-btn" onclick="event.stopPropagation();openPlanEntries('${cats[0].id}')" title="Gerenciar compromissos"><i class="fa-solid fa-list-ul" aria-hidden="true"></i></button>`:''}</td>
             ${rows.map(r=>cell(r.porGrupo[g]||0,'neg')).join('')}
           </tr>
           ${open&&planScale==='month'?cats.map(c=>{
@@ -1607,7 +1685,7 @@ function planTableHtml(rows){
               if(pc) pc.itens.forEach(it=>{ if(!itemIds.some(x=>x.id===it.itemId)) itemIds.push({id:it.itemId,name:it.name}); }); });
             return `${merged?'':`<tr class="sub cat" onclick="togglePlanGroup('c:${c.id}')">
             <td class="sticky-col"><i class="fa-solid fa-caret-${copen?'down':'right'}" style="width:10px;opacity:${itemIds.length?1:.25}" aria-hidden="true"></i> ${escapeHtml(c.name)}
-              <button class="plan-item-btn" onclick="event.stopPropagation();openPlannedItems('${c.id}')" title="Gerenciar itens"><i class="fa-solid fa-list-ul" aria-hidden="true"></i></button></td>
+              <button class="plan-item-btn" onclick="event.stopPropagation();openPlanEntries('${c.id}')" title="Gerenciar compromissos"><i class="fa-solid fa-list-ul" aria-hidden="true"></i></button></td>
             ${rows.map(r=>{
               const pc=r.porCategoria?r.porCategoria[c.id]:null;
               if(!pc) return `<td></td>`;
@@ -1636,7 +1714,7 @@ function planTableHtml(rows){
   </div>`;
 }
 async function togglePlannedPaid(itemId,mk,expenseId){
-  const item=plannedItems.find(i=>i.id===itemId); if(!item) return;
+  const item=planEntries.find(i=>i.id===itemId); if(!item) return;
   try{
     if(expenseId){
       const res=await api.deleteExpense(expenseId);
@@ -1644,7 +1722,7 @@ async function togglePlannedPaid(itemId,mk,expenseId){
       showToast('Desmarcado.','success');
     }else{
       await api.insertExpense({id:uid(),cat_id:item.cat_id,month_key:mk,name:item.name,
-        value:itemValueFor(item,mk),date:`${mk}-01`,paid:true,planned_item_id:item.id});
+        value:entryValueFor(item,mk),date:`${mk}-01`,paid:true,plan_entry_id:item.id,notes:item.barcode||null});
       showToast('Marcado como pago.','success');
     }
     vib(10);
@@ -1652,104 +1730,40 @@ async function togglePlannedPaid(itemId,mk,expenseId){
     render();
   }catch(err){
     const msg=String(err?.message||'');
-    if(/paid|planned_item_id/i.test(msg)) showToast('Rode o SQL: ALTER TABLE expenses ADD COLUMN paid boolean, ADD COLUMN planned_item_id uuid','error');
+    if(/paid|plan_entry_id/i.test(msg)) showToast('Rode o SQL: ALTER TABLE expenses ADD COLUMN paid boolean, ADD COLUMN plan_entry_id uuid','error');
     else showToast('Erro ao atualizar.','error');
   }
 }
 function editItemMonthValue(itemId,mk){
-  const item=plannedItems.find(i=>i.id===itemId); if(!item) return;
+  const item=planEntries.find(i=>i.id===itemId); if(!item) return;
   openModal(`<div class="modal-title">${escapeHtml(item.name)}</div>
     <p class="modal-note">Valor previsto em <strong>${monthLabel(mk)}</strong>. Muda só neste mês — os outros seguem com o valor padrão de ${brl(item.value)}.</p>
     <div class="form-group"><label class="form-label">Valor em ${monthLabel(mk)} (R$)</label>
-      <input class="form-input" id="f-item-mv" type="text" inputmode="decimal" value="${itemValueFor(item,mk)}" oninput="moneyKey(this)"/></div>
+      <input class="form-input" id="f-item-mv" type="text" inputmode="decimal" value="${entryValueFor(item,mk)}" oninput="moneyKey(this)"/></div>
     <button class="btn-primary" id="btn-item-mv" onclick="saveItemMonthValue('${itemId}','${mk}')">Salvar</button>
     ${item.month_values&&item.month_values[mk]!=null?`<button class="btn-secondary" onclick="clearItemMonthValue('${itemId}','${mk}')">Voltar ao padrão (${brl(item.value)})</button>`:''}
     <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
 }
 async function saveItemMonthValue(itemId,mk){
-  const item=plannedItems.find(i=>i.id===itemId); if(!item) return;
+  const item=planEntries.find(i=>i.id===itemId); if(!item) return;
   const v=parseNum(document.getElementById('f-item-mv').value);
   if(isNaN(v)||v<0){ showToast('Informe um valor válido.','error'); return; }
   const btn=document.getElementById('btn-item-mv'); btn.disabled=true; btn.textContent='Salvando...';
   try{
     const mv={...(item.month_values||{}),[mk]:v};
-    await api.updatePlannedItem(itemId,{month_values:mv});
+    await api.updatePlanEntry(itemId,{month_values:mv});
     item.month_values=mv;
     vib(10); _closeModal(); render(); showToast('Valor atualizado.','success');
   }catch{ btn.disabled=false; btn.textContent='Salvar'; showToast('Erro ao salvar.','error'); }
 }
 async function clearItemMonthValue(itemId,mk){
-  const item=plannedItems.find(i=>i.id===itemId); if(!item) return;
+  const item=planEntries.find(i=>i.id===itemId); if(!item) return;
   try{
     const mv={...(item.month_values||{})}; delete mv[mk];
-    await api.updatePlannedItem(itemId,{month_values:mv});
+    await api.updatePlanEntry(itemId,{month_values:mv});
     item.month_values=mv;
     _closeModal(); render(); showToast('Voltou ao valor padrão.','success');
   }catch{ showToast('Erro ao atualizar.','error'); }
-}
-async function openPlannedItems(catId){
-  const cat=categories.find(c=>c.id===catId); if(!cat) return;
-  openModal(`<div class="modal-title">Itens de ${escapeHtml(cat.name)}</div><div class="loading"><div class="spinner"></div></div>`);
-  try{ plannedItems=await api.getPlannedItems()||[]; }catch{}
-  renderPlannedItemsModal(catId);
-}
-function renderPlannedItemsModal(catId){
-  const cat=categories.find(c=>c.id===catId);
-  const mine=plannedItems.filter(i=>i.cat_id===catId);
-  const list=mine.length?mine.map(i=>{
-    const period=i.recurring
-      ? `Todo mês desde ${monthLabel(i.start_month)}${i.end_month?` até ${monthLabel(i.end_month)}`:''}`
-      : `Só em ${monthLabel(i.start_month)}`;
-    const nOv=Object.keys(i.month_values||{}).length;
-    return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 0;border-bottom:1px solid var(--border)">
-      <div style="min-width:0">
-        <div style="font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(i.name)}</div>
-        <div style="font-size:12px;color:var(--text3);margin-top:2px">${brl(i.value)} · ${period}${nOv?` · ${nOv} ${nOv===1?'mês ajustado':'meses ajustados'}`:''}</div>
-      </div>
-      <div class="icon-btn" style="border-color:#ff4f4f44;color:var(--red)" onclick="removePlannedItem('${i.id}','${catId}')" aria-label="Remover item"><i class="fa-solid fa-trash" aria-hidden="true"></i></div>
-    </div>`;}).join(''):`<p class="modal-note">Nenhum item ainda. Itens são despesas previstas desta categoria — ex: Nubank, Smiles, Aluguel — que aparecem na projeção e você marca como pagas.</p>`;
-  document.getElementById('modal-content').innerHTML=`<div class="modal-title">Itens de ${escapeHtml(cat.name)}</div>
-    <div style="margin-bottom:16px">${list}</div>
-    <div class="form-group"><label class="form-label">Nome do item</label>
-      <input class="form-input" id="f-pi-name" placeholder="Ex: Nubank" maxlength="60" autocomplete="off"/></div>
-    <div class="form-group"><label class="form-label">Valor previsto (R$)</label>
-      <input class="form-input" id="f-pi-value" type="text" inputmode="decimal" placeholder="0,00" oninput="moneyKey(this)"/></div>
-    <div class="form-group"><label class="form-label">Tipo</label>
-      <div class="dm-seg" id="f-pi-type">
-        <button type="button" class="dm-seg-btn active" data-v="recurring" onclick="piTypeSeg(this)">Todo mês</button>
-        <button type="button" class="dm-seg-btn" data-v="once" onclick="piTypeSeg(this)">Só um mês</button>
-      </div></div>
-    <div class="form-group"><label class="form-label" id="f-pi-month-label">A partir de</label>
-      ${monthInputHtml('f-pi-start',currentMonthKey)}</div>
-    <button class="btn-primary" id="btn-save-pi" onclick="savePlannedItem('${catId}')">Adicionar item</button>
-    <button class="btn-secondary" onclick="_closeModal()">Fechar</button>`;
-}
-function piTypeSeg(btn){
-  [...btn.parentElement.children].forEach(b=>b.classList.remove('active'));
-  btn.classList.add('active');
-  const lbl=document.getElementById('f-pi-month-label');
-  if(lbl) lbl.textContent=btn.dataset.v==='recurring'?'A partir de':'Mês';
-}
-async function savePlannedItem(catId){
-  const name=(document.getElementById('f-pi-name').value||'').trim();
-  const value=parseNum(document.getElementById('f-pi-value').value);
-  const start_month=document.getElementById('f-pi-start').value;
-  const el=document.querySelector('#f-pi-type .dm-seg-btn.active');
-  const recurring=(el?el.dataset.v:'recurring')==='recurring';
-  if(!name){ showToast('Informe o nome do item.','error'); return; }
-  if(isNaN(value)||value<0){ showToast('Informe um valor válido.','error'); return; }
-  if(!start_month){ showToast('Informe o mês.','error'); return; }
-  const btn=document.getElementById('btn-save-pi'); btn.disabled=true; btn.textContent='Salvando...';
-  try{
-    await api.insertPlannedItem({cat_id:catId,name,value,recurring,start_month,end_month:null,month_values:{},position:plannedItems.filter(i=>i.cat_id===catId).length});
-    plannedItems=await api.getPlannedItems()||[];
-    vib(12); renderPlannedItemsModal(catId); showToast('Item adicionado!','success');
-  }catch{ showToast('Erro ao salvar. Confira se a tabela planned_items existe no Supabase.','error'); btn.disabled=false; btn.textContent='Adicionar item'; }
-}
-async function removePlannedItem(id,catId){
-  if(!confirm('Remover este item? Os lançamentos já marcados como pagos continuam.')) return;
-  try{ await api.deletePlannedItem(id); plannedItems=plannedItems.filter(i=>i.id!==id); renderPlannedItemsModal(catId); showToast('Item removido.','success'); }
-  catch{ showToast('Erro ao remover.','error'); }
 }
 function editPlanCell(catId,mk){
   const cat=categories.find(c=>c.id===catId); if(!cat) return;
@@ -1803,6 +1817,7 @@ async function removeBalanceAnchor(id){
   catch{ showToast('Erro ao remover.','error'); }
 }
 function histSegHtml(){
+  if(!isPlanningOn()) return '';
   return `<div class="dm-seg" id="hist-seg" style="margin-bottom:16px">
     <button type="button" class="dm-seg-btn${histView==='hist'?' active':''}" onclick="setHistView('hist')">Histórico</button>
     <button type="button" class="dm-seg-btn${histView==='plan'?' active':''}" onclick="setHistView('plan')">Planejamento</button>
@@ -1813,9 +1828,10 @@ function setHistView(v){
   render();
 }
 function syncPlanWide(){
-  document.body.classList.toggle('plan-wide',currentTab==='historico'&&histView==='plan');
+  document.body.classList.toggle('plan-wide',isPlanningOn()&&currentTab==='historico'&&histView==='plan'&&planView==='table');
 }
 function renderHistorico(el){
+  if(!isPlanningOn()) histView='hist';
   syncPlanWide();
   if(histView==='plan'){ renderPlanning(el); return; }
   if(!isPro()){
@@ -2372,7 +2388,6 @@ function openAddExpense(catId){
     <div class="form-group"><label class="form-label">Data</label>
       <input class="form-input" id="f-date" type="date" value="${today}" onchange="onExpenseDateChange()"/></div>
     ${repeatFieldHtml()}
-    ${notesFieldHtml('')}
     ${receiptPickerHtml()}
     <button class="btn-primary" id="btn-save-exp" onclick="saveExpense(null)">Salvar</button>
     <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
@@ -2495,7 +2510,6 @@ function openEditExpense(expId){
     <div class="form-group"><label class="form-label">Data</label>
       <input class="form-input" id="f-date" type="date" value="${e.date}"/></div>
     ${repeatFieldHtml(e.installment_total?'installment':(e.recurring?'recurring':'none'),e.installment_total||'',e.installment_no||1,'parcela',true)}
-    ${notesFieldHtml(e.notes||'')}
     ${receiptPickerHtml(e.image_url||'')}
     <button class="btn-primary" id="btn-save-exp" onclick="saveExpense('${expId}')">Salvar</button>
     <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
@@ -2535,8 +2549,7 @@ async function saveExpense(expId){
     const newFile=document.getElementById('f-receipt')?.files?.[0];
     if(newFile){ btn.textContent='Enviando foto...'; try{ image_url=await getReceiptUrl(); }catch(upErr){ showToast(`Foto não enviada: ${upErr.message}`,'error'); } btn.textContent='Salvando...'; }
     const card_id=repeatMode==='installment'?(document.getElementById('f-card')?.value||null):null;
-    const notes=(document.getElementById('f-notes')?.value||'').trim()||null;
-    const payload={cat_id:catId,name,value,date:targetDate,recurring,image_url,installment_total,installment_no,installment_group,card_id,notes};
+    const payload={cat_id:catId,name,value,date:targetDate,recurring,image_url,installment_total,installment_no,installment_group,card_id,notes:expId?(expenses.find(x=>x.id===expId)?.notes||null):null};
     if(expId) await api.updateExpense(expId,payload);
     else{
       await api.insertExpense({id:uid(),month_key:targetMonthKey,...payload});
@@ -3201,24 +3214,157 @@ function cardLabel(id){ const c=cards.find(x=>x.id===id); return c?c.name:null; 
 
 function monthInputHtml(id,val){ return `<input class="form-input" id="${id}" type="month" value="${val||''}"/>`; }
 
-function itemAppliesTo(item,mk){
-  if(!item) return false;
-  if(item.recurring) return mk>=item.start_month&&(!item.end_month||mk<=item.end_month);
-  return item.start_month===mk;
+async function togglePlanning(){
+  const on=!isPlanningOn();
+  localStorage.setItem('gc-planning',on?'1':'0');
+  api.updateUserMeta({planning_enabled:on}).catch(()=>{});
+  vib(8);
+  if(on){ try{ planEntries=await api.getPlanEntries()||[]; }catch{} }
+  else { planEntries=[]; histView='hist'; document.body.classList.remove('plan-wide'); }
+  openAccountModal(); render();
+  showToast(on?'Planejamento ativado.':'Planejamento desativado.','success');
 }
-function itemValueFor(item,mk){
-  const mv=item.month_values&&item.month_values[mk];
-  const v=(mv!=null&&!isNaN(parseFloat(mv)))?parseFloat(mv):parseFloat(item.value||0);
+
+function entryEndMonth(e){
+  if(e.schedule==='once') return e.start_month;
+  if(e.schedule==='installments'&&e.count){
+    let mk=e.start_month;
+    for(let i=1;i<e.count;i++) mk=nextMonthKey(mk);
+    return mk;
+  }
+  return e.end_month||null;
+}
+function entryAppliesTo(e,mk){
+  if(!e||mk<e.start_month) return false;
+  const end=entryEndMonth(e);
+  return end?mk<=end:true;
+}
+function entryValueFor(e,mk){
+  const mv=e.month_values&&e.month_values[mk];
+  const v=(mv!=null&&!isNaN(parseFloat(mv)))?parseFloat(mv):parseFloat(e.value||0);
   return Math.round(v*100)/100;
 }
-function itemsForCatMonth(catId,mk){
-  return plannedItems.filter(i=>i.cat_id===catId&&itemAppliesTo(i,mk));
+function entryInstallmentNo(e,mk){
+  if(e.schedule!=='installments') return null;
+  let mk2=e.start_month,n=1;
+  while(mk2<mk){ mk2=nextMonthKey(mk2); n++; }
+  return n;
+}
+function entriesOut(catId,mk){ return planEntries.filter(e=>e.kind==='out'&&e.cat_id===catId&&entryAppliesTo(e,mk)); }
+function incomesForMonth(mk){
+  return planEntries.filter(e=>e.kind==='in'&&entryAppliesTo(e,mk))
+    .reduce((s,e)=>s+entryValueFor(e,mk),0);
 }
 function isRowPaid(e){
   if(e.paid===true) return true;
   if(e.paid===false) return false;
   return (e.month_key||'')<=currentMonthKey;
 }
+
+async function openPlanEntries(catId){
+  openModal(`<div class="modal-title">Meus compromissos</div><div class="loading"><div class="spinner"></div></div>`);
+  try{ planEntries=await api.getPlanEntries()||[]; }catch{}
+  renderPlanEntriesModal(catId||'');
+}
+function scheduleLabel(e){
+  if(e.schedule==='once') return `So em ${monthLabel(e.start_month)}`;
+  if(e.schedule==='installments') return `${e.count}x de ${monthLabel(e.start_month)} a ${monthLabel(entryEndMonth(e))}`;
+  return `Todo mes desde ${monthLabel(e.start_month)}${e.end_month?` ate ${monthLabel(e.end_month)}`:''}`;
+}
+function renderPlanEntriesModal(preCat){
+  const list=planEntries.length?planEntries.map(e=>{
+    const cat=e.cat_id?categories.find(c=>c.id===e.cat_id):null;
+    const nOv=Object.keys(e.month_values||{}).length;
+    return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 0;border-bottom:1px solid var(--border)">
+      <div style="min-width:0">
+        <div style="font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+          <i class="fa-solid fa-arrow-trend-${e.kind==='in'?'up':'down'}" style="color:${e.kind==='in'?'var(--accent-text)':'var(--red)'};margin-right:7px" aria-hidden="true"></i>${escapeHtml(e.name)}${e.barcode?' <i class="fa-solid fa-barcode" style="font-size:10px;color:var(--text3)" aria-hidden="true"></i>':''}
+        </div>
+        <div style="font-size:12px;color:var(--text3);margin-top:2px">${brl(e.value)} &middot; ${scheduleLabel(e)}${cat?` &middot; ${escapeHtml(cat.name)}`:''}${nOv?` &middot; ${nOv} ajustado(s)`:''}</div>
+      </div>
+      <div class="icon-btn" style="border-color:#ff4f4f44;color:var(--red)" onclick="removePlanEntry('${e.id}')" aria-label="Remover"><i class="fa-solid fa-trash" aria-hidden="true"></i></div>
+    </div>`;}).join(''):`<p class="modal-note">Nenhum compromisso ainda. Cadastre salario, contas fixas, parcelas de cartao e boletos &mdash; e com eles que o app projeta seu saldo para frente.</p>`;
+  const owned=categories.filter(c=>c.user_id===currentUser.id);
+  document.getElementById('modal-content').innerHTML=`<div class="modal-title">Meus compromissos</div>
+    <div style="margin-bottom:16px">${list}</div>
+    <div class="form-group"><label class="form-label">Tipo</label>
+      <div class="dm-seg" id="f-pe-kind">
+        <button type="button" class="dm-seg-btn active" data-v="out" onclick="peSeg(this,'kind')">Sai</button>
+        <button type="button" class="dm-seg-btn" data-v="in" onclick="peSeg(this,'kind')">Entra</button>
+      </div></div>
+    <div class="form-group"><label class="form-label">Nome</label>
+      <input class="form-input" id="f-pe-name" placeholder="Ex: Nubank, Salario, IPTU" maxlength="60" autocomplete="off"/></div>
+    <div class="form-group"><label class="form-label">Valor (R$)</label>
+      <input class="form-input" id="f-pe-value" type="text" inputmode="decimal" placeholder="0,00" oninput="moneyKey(this)"/></div>
+    <div class="form-group" id="f-pe-cat-wrap"><label class="form-label">Categoria</label>
+      <select class="form-input" id="f-pe-cat">
+        <option value="">Sem categoria</option>
+        ${owned.map(c=>`<option value="${c.id}"${c.id===preCat?' selected':''}>${escapeHtml(c.name)}</option>`).join('')}
+      </select></div>
+    <div class="form-group"><label class="form-label">Quando</label>
+      <div class="dm-seg" id="f-pe-sched">
+        <button type="button" class="dm-seg-btn active" data-v="monthly" onclick="peSeg(this,'sched')">Todo mes</button>
+        <button type="button" class="dm-seg-btn" data-v="installments" onclick="peSeg(this,'sched')">Parcelas</button>
+        <button type="button" class="dm-seg-btn" data-v="once" onclick="peSeg(this,'sched')">Uma vez</button>
+      </div></div>
+    <div style="display:flex;gap:10px">
+      <div class="form-group" style="flex:1"><label class="form-label" id="f-pe-start-lbl">A partir de</label>
+        ${monthInputHtml('f-pe-start',currentMonthKey)}</div>
+      <div class="form-group" style="flex:1" id="f-pe-count-wrap" hidden><label class="form-label">N de parcelas</label>
+        <input class="form-input" id="f-pe-count" type="number" inputmode="numeric" min="2" max="360" placeholder="12"/></div>
+    </div>
+    <div class="form-group"><label class="form-label">Vence dia <span style="color:var(--text3);text-transform:none;letter-spacing:0">(opcional)</span></label>
+      <input class="form-input" id="f-pe-due" type="number" inputmode="numeric" min="1" max="31" placeholder="10"/></div>
+    <div class="form-group" id="f-pe-barcode-wrap"><label class="form-label">Codigo de barras <span style="color:var(--text3);text-transform:none;letter-spacing:0">(opcional)</span></label>
+      <textarea class="form-input" id="f-pe-barcode" rows="2" maxlength="200" placeholder="Cole aqui o codigo do boleto" style="resize:vertical;font-family:var(--font-body)"></textarea>
+      <span class="field-hint">Fica guardado no compromisso e voce copia com um toque na projecao.</span></div>
+    <button class="btn-primary" id="btn-save-pe" onclick="savePlanEntry()">Adicionar compromisso</button>
+    <button class="btn-secondary" onclick="_closeModal()">Fechar</button>`;
+}
+function peSeg(btn,which){
+  [...btn.parentElement.children].forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  if(which==='sched'){
+    const v=btn.dataset.v;
+    const cw=document.getElementById('f-pe-count-wrap'); if(cw) cw.hidden=v!=='installments';
+    const lbl=document.getElementById('f-pe-start-lbl'); if(lbl) lbl.textContent=v==='once'?'Mes':'A partir de';
+  }
+  if(which==='kind'){
+    const isIn=btn.dataset.v==='in';
+    const cw=document.getElementById('f-pe-cat-wrap'); if(cw) cw.hidden=isIn;
+    const bw=document.getElementById('f-pe-barcode-wrap'); if(bw) bw.hidden=isIn;
+  }
+}
+function peVal(id,def){ const el=document.querySelector('#'+id+' .dm-seg-btn.active'); return el?el.dataset.v:def; }
+async function savePlanEntry(){
+  const kind=peVal('f-pe-kind','out');
+  const schedule=peVal('f-pe-sched','monthly');
+  const name=(document.getElementById('f-pe-name').value||'').trim();
+  const value=parseNum(document.getElementById('f-pe-value').value);
+  const start_month=document.getElementById('f-pe-start').value;
+  const cat_id=kind==='out'?(document.getElementById('f-pe-cat').value||null):null;
+  const countRaw=parseInt(document.getElementById('f-pe-count').value,10);
+  const dueRaw=parseInt(document.getElementById('f-pe-due').value,10);
+  const barcode=kind==='out'?((document.getElementById('f-pe-barcode').value||'').trim()||null):null;
+  if(!name){ showToast('Informe o nome.','error'); return; }
+  if(isNaN(value)||value<=0){ showToast('Informe um valor valido.','error'); return; }
+  if(!start_month){ showToast('Informe o mes.','error'); return; }
+  if(schedule==='installments'&&(!countRaw||countRaw<2)){ showToast('Informe o numero de parcelas.','error'); return; }
+  const btn=document.getElementById('btn-save-pe'); btn.disabled=true; btn.textContent='Salvando...';
+  try{
+    await api.insertPlanEntry({kind,name,value,cat_id,schedule,start_month,end_month:null,
+      count:schedule==='installments'?countRaw:null,month_values:{},barcode,
+      due_day:isNaN(dueRaw)?null:dueRaw,position:planEntries.length});
+    planEntries=await api.getPlanEntries()||[];
+    vib(12); renderPlanEntriesModal(cat_id||''); showToast('Compromisso adicionado!','success');
+  }catch{ showToast('Erro ao salvar. Confira se a tabela plan_entries existe no Supabase.','error'); btn.disabled=false; btn.textContent='Adicionar compromisso'; }
+}
+async function removePlanEntry(id){
+  if(!confirm('Remover este compromisso? Os lancamentos ja marcados como pagos continuam.')) return;
+  try{ await api.deletePlanEntry(id); planEntries=planEntries.filter(e=>e.id!==id); renderPlanEntriesModal(''); render(); showToast('Compromisso removido.','success'); }
+  catch{ showToast('Erro ao remover.','error'); }
+}
+
 function anchorFor(mk){ return anchors.find(a=>a.month_key===mk)||null; }
 function plannedFor(cat,mk){
   const m=months.find(x=>x.key===mk);
@@ -3243,14 +3389,15 @@ function projectMonths(n,startKey,allExps){
     let despesas=0, realizado=0;
     owned.forEach(c=>{
       const catRows=monthRows.filter(e=>e.cat_id===c.id);
-      const items=itemsForCatMonth(c.id,mk);
+      const items=entriesOut(c.id,mk);
       const itens=items.map(it=>{
-        const lanc=catRows.find(e=>e.planned_item_id===it.id);
+        const lanc=catRows.find(e=>e.plan_entry_id===it.id);
         return {itemId:it.id,name:it.name,
-          value:lanc?Math.round(parseFloat(lanc.value||0)*100)/100:itemValueFor(it,mk),
-          paid:!!lanc,expenseId:lanc?lanc.id:null};
+          value:lanc?Math.round(parseFloat(lanc.value||0)*100)/100:entryValueFor(it,mk),
+          paid:!!lanc,expenseId:lanc?lanc.id:null,barcode:it.barcode||null,dueDay:it.due_day||null,
+          inst:it.schedule==='installments'?`${entryInstallmentNo(it,mk)}/${it.count}`:null};
       });
-      const avulsos=catRows.filter(e=>!e.planned_item_id).map(e=>({
+      const avulsos=catRows.filter(e=>!e.plan_entry_id).map(e=>({
         expenseId:e.id,name:e.name,value:Math.round(parseFloat(e.value||0)*100)/100,
         paid:isRowPaid(e),fromItem:false}));
       const somaItens=itens.reduce((s,x)=>s+x.value,0);
@@ -3294,107 +3441,6 @@ function aggregateByYear(rows){
     a.saldoFim=r.saldoFim;
   });
   return Object.values(years).map(a=>({...a,sobra:Math.round((a.receitas-a.despesas)*100)/100}));
-}
-function incomeAppliesTo(inc,mk){
-  if(!inc) return false;
-  if(inc.recurring) return mk>=inc.start_month&&(!inc.end_month||mk<=inc.end_month);
-  return inc.start_month===mk;
-}
-function incomesForMonth(mk){
-  return incomes.filter(i=>incomeAppliesTo(i,mk)).reduce((s,i)=>s+parseFloat(i.value||0),0);
-}
-async function openIncomes(){
-  openModal(`<div class="modal-title">Minhas receitas</div><div class="loading"><div class="spinner"></div></div>`);
-  try{ incomes=await api.getIncomes()||[]; }catch{}
-  renderIncomesModal();
-}
-function renderIncomesModal(){
-  const list=incomes.length?incomes.map(i=>{
-    const period=i.recurring
-      ? `Todo mês desde ${monthLabel(i.start_month)}${i.end_month?` até ${monthLabel(i.end_month)}`:''}`
-      : `Só em ${monthLabel(i.start_month)}`;
-    const ended=i.end_month&&i.end_month<currentMonthKey;
-    return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 0;border-bottom:1px solid var(--border);${ended?'opacity:.5':''}">
-      <div style="min-width:0">
-        <div style="font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><i class="fa-solid fa-arrow-trend-up" style="color:var(--accent-text);margin-right:7px" aria-hidden="true"></i>${escapeHtml(i.name)}</div>
-        <div style="font-size:12px;color:var(--text3);margin-top:2px">${brl(i.value)} · ${period}</div>
-      </div>
-      <div style="display:flex;gap:6px;flex-shrink:0">
-        ${i.recurring?`<div class="icon-btn" style="border-color:var(--accent-line);color:var(--accent-text)" onclick="openChangeIncome('${i.id}')" title="Alterar valor a partir de um mês"><i class="fa-solid fa-pen" aria-hidden="true"></i></div>`:''}
-        <div class="icon-btn" style="border-color:#ff4f4f44;color:var(--red)" onclick="removeIncome('${i.id}')" aria-label="Remover receita"><i class="fa-solid fa-trash" aria-hidden="true"></i></div>
-      </div>
-    </div>`;}).join(''):`<p class="modal-note">Nenhuma receita cadastrada. Cadastre seu salário para o app projetar seu saldo mês a mês.</p>`;
-  document.getElementById('modal-content').innerHTML=`<div class="modal-title">Minhas receitas</div>
-    <div style="margin-bottom:16px">${list}</div>
-    <div class="form-group"><label class="form-label">Nome</label>
-      <input class="form-input" id="f-inc-name" placeholder="Ex: Salário" maxlength="60" autocomplete="off"/></div>
-    <div class="form-group"><label class="form-label">Valor (R$)</label>
-      <input class="form-input" id="f-inc-value" type="text" inputmode="decimal" placeholder="0,00" oninput="moneyKey(this)"/></div>
-    <div class="form-group"><label class="form-label">Tipo</label>
-      <div class="dm-seg" id="f-inc-type">
-        <button type="button" class="dm-seg-btn active" data-v="recurring" onclick="incTypeSeg(this)">Todo mês</button>
-        <button type="button" class="dm-seg-btn" data-v="once" onclick="incTypeSeg(this)">Só um mês</button>
-      </div></div>
-    <div class="form-group"><label class="form-label" id="f-inc-month-label">A partir de</label>
-      ${monthInputHtml('f-inc-start',currentMonthKey)}</div>
-    <button class="btn-primary" id="btn-save-inc" onclick="saveIncome()">Adicionar receita</button>
-    <button class="btn-secondary" onclick="openAccountModal()">Voltar</button>`;
-}
-function incTypeSeg(btn){
-  [...btn.parentElement.children].forEach(b=>b.classList.remove('active'));
-  btn.classList.add('active');
-  const lbl=document.getElementById('f-inc-month-label');
-  if(lbl) lbl.textContent=btn.dataset.v==='recurring'?'A partir de':'Mês';
-}
-function incTypeVal(){ const el=document.querySelector('#f-inc-type .dm-seg-btn.active'); return el?el.dataset.v:'recurring'; }
-async function saveIncome(){
-  const name=(document.getElementById('f-inc-name').value||'').trim();
-  const value=parseNum(document.getElementById('f-inc-value').value);
-  const start_month=document.getElementById('f-inc-start').value;
-  const recurring=incTypeVal()==='recurring';
-  if(!name){ showToast('Informe o nome da receita.','error'); return; }
-  if(isNaN(value)||value<=0){ showToast('Informe um valor válido.','error'); return; }
-  if(!start_month){ showToast('Informe o mês.','error'); return; }
-  const btn=document.getElementById('btn-save-inc'); btn.disabled=true; btn.textContent='Salvando...';
-  try{
-    await api.insertIncome({name,value,recurring,start_month,end_month:null});
-    incomes=await api.getIncomes()||[];
-    vib(12); renderIncomesModal(); showToast('Receita adicionada!','success');
-  }catch{ showToast('Erro ao salvar. Confira se a tabela incomes existe no Supabase.','error'); btn.disabled=false; btn.textContent='Adicionar receita'; }
-}
-async function removeIncome(id){
-  if(!confirm('Remover esta receita?')) return;
-  try{ await api.deleteIncome(id); incomes=incomes.filter(i=>i.id!==id); renderIncomesModal(); showToast('Receita removida.','success'); }
-  catch{ showToast('Erro ao remover.','error'); }
-}
-function openChangeIncome(id){
-  const inc=incomes.find(i=>i.id===id); if(!inc) return;
-  openModal(`<div class="modal-title">Alterar ${escapeHtml(inc.name)}</div>
-    <p class="modal-note">Use quando o valor muda a partir de um mês — um aumento de salário, por exemplo. O valor antigo continua valendo nos meses anteriores.</p>
-    <div class="info-rows">
-      <div class="info-row"><span><i class="fa-solid fa-arrow-trend-up" aria-hidden="true"></i> Valor atual</span><strong>${brl(inc.value)}</strong></div>
-    </div>
-    <div class="form-group"><label class="form-label">Novo valor (R$)</label>
-      <input class="form-input" id="f-chg-value" type="text" inputmode="decimal" placeholder="0,00" oninput="moneyKey(this)"/></div>
-    <div class="form-group"><label class="form-label">A partir de</label>
-      ${monthInputHtml('f-chg-from',nextMonthKey(currentMonthKey))}</div>
-    <button class="btn-primary" id="btn-chg-inc" onclick="changeIncomeFrom('${id}')">Aplicar mudança</button>
-    <button class="btn-secondary" onclick="openIncomes()">Cancelar</button>`);
-}
-async function changeIncomeFrom(id){
-  const inc=incomes.find(i=>i.id===id); if(!inc) return;
-  const value=parseNum(document.getElementById('f-chg-value').value);
-  const from=document.getElementById('f-chg-from').value;
-  if(isNaN(value)||value<=0){ showToast('Informe um valor válido.','error'); return; }
-  if(!from){ showToast('Informe o mês.','error'); return; }
-  if(from<=inc.start_month){ showToast('O mês precisa ser depois do início da receita atual.','error'); return; }
-  const btn=document.getElementById('btn-chg-inc'); btn.disabled=true; btn.textContent='Aplicando...';
-  try{
-    await api.updateIncome(id,{end_month:prevMonthKey(from)});
-    await api.insertIncome({name:inc.name,value,recurring:true,start_month:from,end_month:inc.end_month||null});
-    incomes=await api.getIncomes()||[];
-    vib(12); openIncomes(); showToast(`${inc.name} passa a ${brl(value)} em ${monthLabel(from)}.`,'success');
-  }catch{ showToast('Erro ao aplicar.','error'); btn.disabled=false; btn.textContent='Aplicar mudança'; }
 }
 async function openCards(){
   openModal(`<div class="modal-title">Meus cartões</div><div class="loading"><div class="spinner"></div></div>`);

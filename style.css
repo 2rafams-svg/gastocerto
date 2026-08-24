@@ -217,11 +217,6 @@ button{touch-action:manipulation}
 .cat-list{padding:16px 20px calc(96px + var(--safe-bot))}
 .plan-wrap{padding:16px 20px calc(28px + var(--safe-bot))}
 .plan-warn{background:var(--amber-soft);border:1px solid var(--amber-soft);color:var(--amber-text);border-radius:12px;padding:11px 13px;font-size:12.5px;line-height:1.45;margin-bottom:14px}
-.plan-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:14px 16px;margin-bottom:12px;box-shadow:var(--shadow-sm)}
-.plan-head-label{font-size:10.5px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.5px}
-.plan-head-value{font-family:var(--font-title);font-size:clamp(18px,5.5vw,22px);font-weight:800;letter-spacing:-.01em;margin-top:3px}
-.plan-head-sub{font-size:11px;color:var(--text3);margin-top:2px}
-.plan-head-btn{flex-shrink:0;border:1px solid var(--border);background:var(--surface2);color:var(--text2);border-radius:10px;padding:9px 12px;font:600 12px var(--font-body);cursor:pointer;display:flex;align-items:center;gap:6px}
 .plan-head-btn:active{background:var(--surface)}
 .plan-controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px}
 .plan-horizon{flex:1 1 130px;min-width:0;max-width:100%;width:auto;padding:9px 10px;font-size:13px}
@@ -290,10 +285,6 @@ button{touch-action:manipulation}
   .stmt-line{padding:9px 10px;gap:5px}
   .plan-wrap{padding-left:12px;padding-right:12px}
 }
-.plan-two{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px}
-.plan-two-box{flex:1 1 140px;min-width:0;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:11px 13px;box-shadow:var(--shadow-sm)}
-.plan-two-lbl{font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.plan-two-val{font-family:var(--font-title);font-size:17px;font-weight:800;margin-top:3px}
 .plan-two-val.pos{color:var(--accent-text)}
 .plan-two-val.neg{color:var(--red)}
 .pay-chk{width:20px;height:20px;border-radius:50%;border:1px solid var(--border);background:var(--surface2);color:var(--text3);font-size:9px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;vertical-align:middle;margin-right:6px;transition:background .15s,color .15s}
@@ -626,3 +617,35 @@ details summary::-webkit-details-marker{display:none}
 .plan-wrap,.stmt-wrap,.stmt-month,.proj-cards,.proj-card{min-width:0}
 body.plan-wide #content{overflow-x:visible}
 .plan-table-wrap{max-width:100%}
+
+.plan-hero{background:var(--accent-soft);border:1px solid var(--accent-line);border-radius:18px;padding:18px 18px 15px;margin-bottom:16px}
+.plan-hero-lbl{font-size:11px;color:var(--accent-text);font-weight:700;text-transform:uppercase;letter-spacing:.6px}
+.plan-hero-val{font-family:var(--font-title);font-size:clamp(28px,9vw,38px);font-weight:800;letter-spacing:-.02em;line-height:1.1;margin:4px 0 10px}
+.plan-hero-val.pos{color:var(--accent-text)}
+.plan-hero-val.neg{color:var(--red)}
+.plan-hero-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;font-size:13px;color:var(--text2);padding-top:10px;border-top:1px solid var(--accent-line)}
+.plan-hero-row .pos{color:var(--accent-text)}
+.plan-hero-row .neg{color:var(--red)}
+.plan-hero-fix{border:1px solid var(--accent-line);background:transparent;color:var(--accent-text);border-radius:100px;padding:5px 11px;font:600 11.5px var(--font-body);cursor:pointer;flex-shrink:0}
+.plan-hero-fix:active{background:var(--surface)}
+.plan-hero-far{font-size:12.5px;color:var(--text2);margin-top:9px}
+.plan-hero-far .pos{color:var(--accent-text)}
+.plan-hero-far .neg{color:var(--red)}
+.plan-more{margin-top:14px}
+.plan-setup{background:var(--surface);border:1px solid var(--border);border-radius:18px;padding:22px 18px;box-shadow:var(--shadow-sm);text-align:center}
+.plan-setup-ico{font-size:28px;color:var(--accent-text);margin-bottom:10px}
+.plan-setup-title{font-family:var(--font-title);font-size:19px;font-weight:800;margin-bottom:6px}
+.plan-setup-copy{font-size:13px;color:var(--text2);line-height:1.5;margin-bottom:20px}
+.plan-step{display:flex;gap:12px;text-align:left;padding:14px 0;border-top:1px solid var(--border)}
+.plan-step-n{width:26px;height:26px;flex-shrink:0;border-radius:50%;background:var(--surface2);color:var(--text2);display:flex;align-items:center;justify-content:center;font:700 12px var(--font-body)}
+.plan-step.done .plan-step-n{background:var(--accent);color:var(--on-accent)}
+.plan-step-main{flex:1;min-width:0}
+.plan-step-t{font-size:14px;font-weight:600;margin-bottom:8px}
+.plan-step.done .plan-step-t{color:var(--text2);font-weight:500}
+.plan-step-v{font-family:var(--font-title);font-size:17px;font-weight:800;color:var(--accent-text)}
+.plan-step-form{display:flex;gap:8px}
+.plan-step-form .form-input{flex:1;min-width:0}
+.plan-step-form .btn-primary{width:auto;flex-shrink:0;padding:12px 16px;font-size:13px}
+
+.pe-more{width:100%;border:1px dashed var(--border);background:transparent;color:var(--text2);border-radius:12px;padding:11px;font:600 12.5px var(--font-body);cursor:pointer;margin-bottom:12px;display:flex;align-items:center;justify-content:center;gap:7px}
+.pe-more:active{background:var(--surface2)}

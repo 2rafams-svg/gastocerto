@@ -44,7 +44,7 @@ function syncThemeRow(){
   if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
-const APP_VERSION = '4.6';
+const APP_VERSION = '5.0';
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
 const CORRECT_PIN = () => String(new Date().getFullYear());
@@ -149,7 +149,7 @@ function userTag(uid){
 async function logout(){
   const token=session?.access_token;
   if(token) fetch(`${SUPABASE_URL}/auth/v1/logout`,{method:'POST',headers:{apikey:SUPABASE_KEY,Authorization:`Bearer ${token}`}}).catch(()=>{});
-  persistSession(null); categories=[]; months=[]; expenses=[]; expenseNames=[]; acceptedShares=[]; sharedOutMap={}; pendingSplitInvites=[]; acceptedGroupIds=new Set(); friends=[]; budgetTransfers=[]; cards=[]; rollovers=[]; futureMonthKeys=[]; anchors=[]; planEntries=[]; histView='hist'; planUntilYear=0; document.body.classList.remove('plan-wide');
+  persistSession(null); categories=[]; months=[]; expenses=[]; expenseNames=[]; acceptedShares=[]; sharedOutMap={}; pendingSplitInvites=[]; acceptedGroupIds=new Set(); friends=[]; budgetTransfers=[]; cards=[]; rollovers=[]; futureMonthKeys=[]; anchors=[]; planEntries=[]; histView='hist'; planMonths=12; document.body.classList.remove('plan-wide');
   stopUnreadPoll(); unreadDm={}; updateAmigosBadge();
   document.documentElement.classList.remove('gc-has-session');
   document.getElementById('app').style.display='none';
@@ -340,7 +340,7 @@ const api={
 };
 
 let categories=[], months=[], currentMonthKey='', viewMonthKey='', expenses=[], currentTab='home', currentCatIdx=0, budgetTransfers=[], cards=[], rollovers=[], futureMonthKeys=[];
-let anchors=[], planEntries=[], histView='hist', planUntilYear=0, planScale='month', planOpenGroups={}, planView='table', planStmtMonths=12;
+let anchors=[], planEntries=[], histView='hist', planMonths=12, planOpenGroups={};
 function isPlanningOn(){ return localStorage.getItem('gc-planning')==='1'; }
 let subscription=null, userPlan='free';
 let splitGroups=[], pendingShares=[], acceptedShares=[], sharedOutMap={}, pendingSplitInvites=[], acceptedGroupIds=new Set(), friends=[];
@@ -476,7 +476,7 @@ function openAccountModal(){
       <span class="theme-row-label"><i class="fa-solid fa-chart-line" aria-hidden="true"></i> Planejamento futuro</span>
       <label class="switch"><input type="checkbox" id="planning-switch" ${isPlanningOn()?'checked':''} onchange="togglePlanning()"><span class="switch-track"><span class="switch-thumb"></span></span></label>
     </div>
-    ${isPlanningOn()?`<button class="btn-secondary" onclick="openPlanEntries()"><i class="fa-solid fa-calendar-check" aria-hidden="true"></i> Meus compromissos</button>`:''}
+    ${isPlanningOn()?`<button class="btn-secondary" onclick="openPlanEntries()"><i class="fa-solid fa-calendar-check" aria-hidden="true"></i> O que entra e sai</button>`:''}
     <button class="btn-secondary" onclick="openCards()"><i class="fa-solid fa-credit-card" aria-hidden="true"></i> Meus cartões</button>
     <button class="btn-secondary" onclick="openPaywall('Planos e assinatura')"><i class="fa-solid fa-crown" aria-hidden="true"></i> Ver planos</button>
     <button class="btn-secondary" onclick="_closeModal();showTutorial(true)"><i class="fa-solid fa-circle-question" aria-hidden="true"></i> Ver tutorial</button>
@@ -1524,48 +1524,80 @@ async function reorderCats(srcId, targetId){
 }
 
 async function renderPlanning(el){
-  el.innerHTML=`<div class="plan-wrap">${histSegHtml()}<div class="loading"><div class="spinner"></div>Montando projeção...</div></div>`;
+  el.innerHTML=`<div class="plan-wrap">${histSegHtml()}<div class="loading"><div class="spinner"></div>Montando projecao...</div></div>`;
   let allExps=[];
   try{ allExps=await api.getExpensesFrom(projectionStart())||[]; }catch{}
-  const n=planHorizonMonths();
-  const rows=projectMonths(n,projectionStart(),allExps);
-  const shown=planScale==='year'?aggregateByYear(rows):rows;
-  const last=rows[rows.length-1];
-  const first=rows[0];
-  const hojeRow=rows.find(r=>r.mk===currentMonthKey)||first;
+
+  if(planPrecisaSetup()){ el.innerHTML=`<div class="plan-wrap">${histSegHtml()}${planSetupHtml()}</div>`; return; }
+
+  const rows=projectMonths(planMonths,projectionStart(),allExps);
+  const hoje=rows.find(r=>r.mk===currentMonthKey)||rows[0];
+  const fim=rows[rows.length-1];
+  const anual=planMonths>24;
+  const tabela=anual?aggregateByYear(rows):rows;
+
   el.innerHTML=`<div class="plan-wrap">
     ${histSegHtml()}
-    ${!planEntries.some(e=>e.kind==='in')?`<div class="plan-warn"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> Cadastre seu salario em <strong>Sua conta › Meus compromissos</strong> para o saldo projetado fazer sentido.</div>`:''}
-    <div class="plan-head">
-      <div>
-        <div class="plan-head-label">Saldo hoje · ${monthLabel(hojeRow.mk)}</div>
-        <div class="plan-head-value">${brl(hojeRow.saldoRealizado)}</div>
-        <div class="plan-head-sub">projetado para o fim do mes ${brl(hojeRow.saldoFim)}</div>
+    <div class="plan-hero">
+      <div class="plan-hero-lbl">Voce tem hoje</div>
+      <div class="plan-hero-val ${hoje.saldoRealizado>=0?'pos':'neg'}">${brl(hoje.saldoRealizado)}</div>
+      <div class="plan-hero-row">
+        <span>Fecha ${monthLabel(hoje.mk)} com <strong class="${hoje.saldoFim>=0?'pos':'neg'}">${brl(hoje.saldoFim)}</strong></span>
+        <button class="plan-hero-fix" onclick="openBalanceAnchor('${hoje.mk}')"><i class="fa-solid fa-pen" aria-hidden="true"></i> corrigir</button>
       </div>
-      <button class="plan-head-btn" onclick="openBalanceAnchor('${hojeRow.mk}')"><i class="fa-solid fa-sliders" aria-hidden="true"></i> Ajustar</button>
+      <div class="plan-hero-far">Em <strong>${anual?fim.mk.split('-')[0]:monthLabel(fim.mk)}</strong> voce tera <strong class="${fim.saldoFim>=0?'pos':'neg'}">${brl(fim.saldoFim)}</strong></div>
     </div>
-    <div class="plan-controls">
-      <div class="dm-seg" style="flex:1">
-        <button type="button" class="dm-seg-btn${planView==='stmt'?' active':''}" onclick="setPlanView('stmt')">Extrato</button>
-        <button type="button" class="dm-seg-btn${planView==='table'?' active':''}" onclick="setPlanView('table')">Tabela</button>
-      </div>
-      ${planView==='table'?`<div class="dm-seg" style="flex:1">
-        <button type="button" class="dm-seg-btn${planScale==='month'?' active':''}" onclick="setPlanScale('month')">Mensal</button>
-        <button type="button" class="dm-seg-btn${planScale==='year'?' active':''}" onclick="setPlanScale('year')">Anual</button>
-      </div>`:''}
-      <select class="form-input plan-horizon" onchange="setPlanUntil(this.value)">
-        ${planYearOptions()}
-      </select>
-    </div>
-    <div class="plan-two">
-      <div class="plan-two-box"><div class="plan-two-lbl">Projetado em ${planScale==='year'?last.mk.split('-')[0]:monthLabel(last.mk)}</div><div class="plan-two-val ${last.saldoFim>=0?'pos':'neg'}">${brl(last.saldoFim)}</div></div>
-      <div class="plan-two-box"><div class="plan-two-lbl">Realizado em ${monthLabel(rows[0].mk)}</div><div class="plan-two-val ${rows[0].saldoRealizado>=0?'pos':'neg'}">${brl(rows[0].saldoRealizado)}</div></div>
-    </div>
-    ${planView==='stmt'?planStatementHtml(rows):`${planCardsHtml(shown)}${planTableHtml(shown)}`}
+    ${planStatementHtml(rows)}
+    ${planTableHtml(tabela)}
+    <button class="btn-secondary plan-more" onclick="planVerMais()"><i class="fa-solid fa-chevron-down" aria-hidden="true"></i> Ver mais 12 meses</button>
+    <button class="btn-secondary" onclick="openPlanEntries()"><i class="fa-solid fa-repeat" aria-hidden="true"></i> O que entra e sai todo mes</button>
   </div>`;
 }
+function planVerMais(){ planMonths+=12; vib(5); render(); }
+function planPrecisaSetup(){ return !anchors.length || !planEntries.some(e=>e.kind==='in'); }
+function planSetupHtml(){
+  const temSaldo=anchors.length>0;
+  const temRenda=planEntries.some(e=>e.kind==='in');
+  const passo=(n,ok,titulo,valor,campo,fn)=>`<div class="plan-step${ok?' done':''}">
+      <span class="plan-step-n">${ok?'<i class="fa-solid fa-check" aria-hidden="true"></i>':n}</span>
+      <div class="plan-step-main">
+        <div class="plan-step-t">${titulo}</div>
+        ${ok?`<div class="plan-step-v">${valor}</div>`:`<div class="plan-step-form">
+          <input class="form-input" id="${campo}" type="text" inputmode="decimal" placeholder="0,00" oninput="moneyKey(this)"/>
+          <button class="btn-primary" onclick="${fn}()">Salvar</button>
+        </div>`}
+      </div>
+    </div>`;
+  return `<div class="plan-setup">
+    <div class="plan-setup-ico"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i></div>
+    <div class="plan-setup-title">Duas perguntas e pronto</div>
+    <div class="plan-setup-copy">Com isso o app ja projeta seu saldo para os proximos meses. Depois voce refina no seu ritmo.</div>
+    ${passo(1,temSaldo,'Quanto voce tem hoje?',temSaldo?brl(anchors[anchors.length-1].balance):'','f-setup-saldo','salvarSetupSaldo')}
+    ${passo(2,temRenda,'Quanto entra por mes?',temRenda?brl(planEntries.find(e=>e.kind==='in').value):'','f-setup-renda','salvarSetupRenda')}
+  </div>`;
+}
+async function salvarSetupSaldo(){
+  const v=parseNum(document.getElementById('f-setup-saldo').value);
+  if(isNaN(v)){ showToast('Informe um valor.','error'); return; }
+  try{
+    await api.upsertAnchor({month_key:currentMonthKey,balance:v,note:'Saldo informado no inicio'});
+    anchors=await api.getAnchors()||[];
+    vib(12); render();
+  }catch{ showToast('Erro ao salvar. Rode o setup-planejamento.sql.','error'); }
+}
+async function salvarSetupRenda(){
+  const v=parseNum(document.getElementById('f-setup-renda').value);
+  if(isNaN(v)||v<=0){ showToast('Informe um valor.','error'); return; }
+  try{
+    await api.insertPlanEntry({kind:'in',name:'Renda mensal',value:v,cat_id:null,
+      schedule:'monthly',start_month:currentMonthKey,end_month:null,count:null,
+      month_values:{},barcode:null,due_day:null,position:0});
+    planEntries=await api.getPlanEntries()||[];
+    vib(12); render();
+  }catch{ showToast('Erro ao salvar. Rode o setup-planejamento.sql.','error'); }
+}
 function planStatementHtml(rows){
-  const win=rows.slice(0,planStmtMonths);
+  const win=rows;
   const body=win.map(r=>{
     const evs=[];
     planEntries.filter(e=>e.kind==='in'&&entryAppliesTo(e,r.mk)).forEach(e=>{
@@ -1599,10 +1631,8 @@ function planStatementHtml(rows){
       ${lines||'<div class="stmt-empty">Nada previsto neste mes.</div>'}
     </div>`;
   }).join('');
-  const more=rows.length>planStmtMonths?`<button class="btn-secondary" onclick="planStmtMore()">Carregar mais meses</button>`:'';
-  return `<div class="stmt-wrap">${body}${more}</div>`;
+  return `<div class="stmt-wrap">${body}</div>`;
 }
-function planStmtMore(){ planStmtMonths+=12; render(); }
 async function copyPlanBarcode(id){
   const e=planEntries.find(x=>x.id===id); if(!e||!e.barcode) return;
   let ok=false;
@@ -1614,28 +1644,6 @@ async function copyPlanBarcode(id){
   }
   vib(8); showToast(ok?'Codigo copiado!':'Nao foi possivel copiar.',ok?'success':'error');
 }
-function setPlanScale(v){ planScale=v; vib(5); render(); }
-function planTargetYear(){
-  const cy=parseInt(projectionStart().split('-')[0],10);
-  return planUntilYear&&planUntilYear>=cy?planUntilYear:cy+1;
-}
-function planHorizonMonths(){
-  const [sy,sm]=projectionStart().split('-').map(Number);
-  return Math.max(1,(planTargetYear()-sy)*12+(12-sm+1));
-}
-function planYearOptions(){
-  const cy=parseInt(projectionStart().split('-')[0],10);
-  const tgt=planTargetYear();
-  let out='';
-  for(let y=cy;y<=cy+20;y++) out+=`<option value="${y}"${y===tgt?' selected':''}>ate ${y}</option>`;
-  return out;
-}
-function setPlanUntil(v){
-  planUntilYear=parseInt(v,10)||0;
-  if(planHorizonMonths()>24) planScale='year';
-  render();
-}
-function setPlanView(v){ planView=v; vib(5); render(); }
 function togglePlanGroup(key){ planOpenGroups[key]=!planOpenGroups[key]; render(); }
 function planGroupNames(rows){
   const set=[];
@@ -1645,7 +1653,7 @@ function planGroupNames(rows){
 function planCardsHtml(rows){
   return `<div class="proj-cards">${rows.map(r=>{
     const open=!!planOpenGroups[r.mk];
-    const label=planScale==='year'?r.mk:monthLabel(r.mk);
+    const label=r.mk.length===4?r.mk:monthLabel(r.mk);
     return `<div class="proj-card${r.isPast?' past':''}">
       <div class="proj-card-head" onclick="togglePlanGroup('${r.mk}')">
         <span class="proj-card-month">${label}${r.anchored?' <i class="fa-solid fa-thumbtack" style="font-size:9px;opacity:.7" title="Saldo ajustado"></i>':''}</span>
@@ -1670,7 +1678,7 @@ function planTableHtml(rows){
   const owned=categories.filter(c=>c.user_id===currentUser.id);
   return `<div class="plan-table-wrap">
     <table class="plan-table">
-      <thead><tr><th class="sticky-col">&nbsp;</th>${rows.map(r=>`<th>${planScale==='year'?r.mk:monthLabel(r.mk)}</th>`).join('')}</tr></thead>
+      <thead><tr><th class="sticky-col">&nbsp;</th>${rows.map(r=>`<th>${r.mk.length===4?r.mk:monthLabel(r.mk)}</th>`).join('')}</tr></thead>
       <tbody>
         <tr><td class="sticky-col">Saldo inicial</td>${rows.map(r=>cell(r.saldoIni)).join('')}</tr>
         <tr><td class="sticky-col">Receitas</td>${rows.map(r=>cell(r.receitas,'pos')).join('')}</tr>
@@ -1683,7 +1691,7 @@ function planTableHtml(rows){
             <td class="sticky-col"><i class="fa-solid fa-caret-${open?'down':'right'}" style="width:10px" aria-hidden="true"></i> ${escapeHtml(g)}${merged?`<button class="plan-item-btn" onclick="event.stopPropagation();openPlanEntries('${cats[0].id}')" title="Gerenciar compromissos"><i class="fa-solid fa-list-ul" aria-hidden="true"></i></button>`:''}</td>
             ${rows.map(r=>cell(r.porGrupo[g]||0,'neg')).join('')}
           </tr>
-          ${open&&planScale==='month'?cats.map(c=>{
+          ${open&&String(rows[0].mk).length>4?cats.map(c=>{
             const copen=merged?true:!!planOpenGroups['c:'+c.id];
             const itemIds=[];
             rows.forEach(r=>{ const pc=r.porCategoria&&r.porCategoria[c.id];
@@ -1720,6 +1728,7 @@ function planTableHtml(rows){
 }
 async function togglePlannedPaid(itemId,mk,expenseId){
   const item=planEntries.find(i=>i.id===itemId); if(!item) return;
+  if(!expenseId&&mk>currentMonthKey){ showToast('Isso ainda e previsao. Da baixa quando o mes chegar.','error'); return; }
   try{
     if(expenseId){
       const res=await api.deleteExpense(expenseId);
@@ -1833,7 +1842,7 @@ function setHistView(v){
   render();
 }
 function syncPlanWide(){
-  document.body.classList.toggle('plan-wide',isPlanningOn()&&currentTab==='historico'&&histView==='plan'&&planView==='table');
+  document.body.classList.toggle('plan-wide',isPlanningOn()&&currentTab==='historico'&&histView==='plan');
 }
 function renderHistorico(el){
   if(!isPlanningOn()) histView='hist';
@@ -3301,7 +3310,7 @@ function isRowPaid(e){
 }
 
 async function openPlanEntries(catId){
-  openModal(`<div class="modal-title">Meus compromissos</div><div class="loading"><div class="spinner"></div></div>`);
+  openModal(`<div class="modal-title">O que entra e sai</div><div class="loading"><div class="spinner"></div></div>`);
   try{ planEntries=await api.getPlanEntries()||[]; }catch{}
   renderPlanEntriesModal(catId||'');
 }
@@ -3324,12 +3333,13 @@ function renderPlanEntriesModal(preCat){
       <div class="icon-btn" style="border-color:#ff4f4f44;color:var(--red)" onclick="removePlanEntry('${e.id}')" aria-label="Remover"><i class="fa-solid fa-trash" aria-hidden="true"></i></div>
     </div>`;}).join(''):`<p class="modal-note">Nenhum compromisso ainda. Cadastre salario, contas fixas, parcelas de cartao e boletos &mdash; e com eles que o app projeta seu saldo para frente.</p>`;
   const owned=categories.filter(c=>c.user_id===currentUser.id);
-  document.getElementById('modal-content').innerHTML=`<div class="modal-title">Meus compromissos</div>
+  document.getElementById('modal-content').innerHTML=`<div class="modal-title">O que entra e sai</div>
+    <p class="modal-note">Salario, contas fixas, parcelas de cartao e boletos. E disso que sai a projecao do seu saldo.</p>
     <div style="margin-bottom:16px">${list}</div>
     <div class="form-group"><label class="form-label">Tipo</label>
       <div class="dm-seg" id="f-pe-kind">
-        <button type="button" class="dm-seg-btn active" data-v="out" onclick="peSeg(this,'kind')">Sai</button>
-        <button type="button" class="dm-seg-btn" data-v="in" onclick="peSeg(this,'kind')">Entra</button>
+        <button type="button" class="dm-seg-btn active" data-v="out" onclick="peSeg(this,'kind')">Sai do bolso</button>
+        <button type="button" class="dm-seg-btn" data-v="in" onclick="peSeg(this,'kind')">Entra no bolso</button>
       </div></div>
     <div class="form-group"><label class="form-label">Nome</label>
       <input class="form-input" id="f-pe-name" placeholder="Ex: Nubank, Salario, IPTU" maxlength="60" autocomplete="off"/></div>
@@ -3352,11 +3362,15 @@ function renderPlanEntriesModal(preCat){
       <div class="form-group" style="flex:1" id="f-pe-count-wrap" hidden><label class="form-label">N de parcelas</label>
         <input class="form-input" id="f-pe-count" type="number" inputmode="numeric" min="2" max="360" placeholder="12"/></div>
     </div>
-    <div class="form-group"><label class="form-label">Vence dia <span style="color:var(--text3);text-transform:none;letter-spacing:0">(opcional)</span></label>
-      <input class="form-input" id="f-pe-due" type="number" inputmode="numeric" min="1" max="31" placeholder="10"/></div>
-    <div class="form-group" id="f-pe-barcode-wrap"><label class="form-label">Codigo de barras <span style="color:var(--text3);text-transform:none;letter-spacing:0">(opcional)</span></label>
-      <textarea class="form-input" id="f-pe-barcode" rows="2" maxlength="200" placeholder="Cole aqui o codigo do boleto" style="resize:vertical;font-family:var(--font-body)"></textarea>
-      <span class="field-hint">Fica guardado no compromisso e voce copia com um toque na projecao.</span></div>
+    <button type="button" class="pe-more" id="f-pe-more-btn" onclick="peMore()"><i class="fa-solid fa-chevron-down" aria-hidden="true"></i> Mais opcoes</button>
+    <div id="f-pe-more" hidden>
+      <div class="form-group"><label class="form-label">Vence dia</label>
+        <input class="form-input" id="f-pe-due" type="number" inputmode="numeric" min="1" max="31" placeholder="10"/>
+        <span class="field-hint">So para ordenar no extrato. Nao cobra nada.</span></div>
+      <div class="form-group" id="f-pe-barcode-wrap"><label class="form-label">Codigo de barras do boleto</label>
+        <textarea class="form-input" id="f-pe-barcode" rows="2" maxlength="200" placeholder="Cole aqui" style="resize:vertical;font-family:var(--font-body)"></textarea>
+        <span class="field-hint">Voce copia com um toque na projecao, na hora de pagar.</span></div>
+    </div>
     <button class="btn-primary" id="btn-save-pe" onclick="savePlanEntry()">Adicionar compromisso</button>
     <button class="btn-secondary" onclick="_closeModal()">Fechar</button>`;
 }
@@ -3373,6 +3387,11 @@ function peSeg(btn,which){
     const cw=document.getElementById('f-pe-cat-wrap'); if(cw) cw.hidden=isIn;
     const bw=document.getElementById('f-pe-barcode-wrap'); if(bw) bw.hidden=isIn;
   }
+}
+function peMore(){
+  const w=document.getElementById('f-pe-more'); const b=document.getElementById('f-pe-more-btn');
+  if(!w) return; w.hidden=!w.hidden;
+  b.innerHTML=`<i class="fa-solid fa-chevron-${w.hidden?'down':'up'}" aria-hidden="true"></i> ${w.hidden?'Mais opcoes':'Menos opcoes'}`;
 }
 function peVal(id,def){ const el=document.querySelector('#'+id+' .dm-seg-btn.active'); return el?el.dataset.v:def; }
 async function savePlanEntry(){

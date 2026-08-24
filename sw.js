@@ -1,5 +1,5 @@
-const CACHE = 'gastocerto-v4.6-mobile-fluido';
-const SHELL = ['./', './index.html', './offline.html', './style.css?v=4.6', './app.js?v=4.6', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
+const CACHE = 'gastocerto-v5.0-simples';
+const SHELL = ['./', './index.html', './offline.html', './style.css?v=5.0', './app.js?v=5.0', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));

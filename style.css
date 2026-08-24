@@ -266,6 +266,26 @@ button{touch-action:manipulation}
 .plan-table tr.sep td{border-top:2px solid var(--border);font-weight:700}
 .plan-table tr.accum td{background:var(--accent-soft);font-family:var(--font-title);font-weight:800;font-size:14px}
 .plan-table tr.accum .sticky-col{background:var(--accent-soft)}
+.plan-two{display:flex;gap:10px;margin-bottom:14px}
+.plan-two-box{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:11px 13px;box-shadow:var(--shadow-sm)}
+.plan-two-lbl{font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.plan-two-val{font-family:var(--font-title);font-size:17px;font-weight:800;margin-top:3px}
+.plan-two-val.pos{color:var(--accent-text)}
+.plan-two-val.neg{color:var(--red)}
+.pay-chk{width:20px;height:20px;border-radius:50%;border:1px solid var(--border);background:var(--surface2);color:var(--text3);font-size:9px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;vertical-align:middle;margin-right:6px;transition:background .15s,color .15s}
+.pay-chk.on{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.pay-chk:active{transform:scale(.9)}
+.plan-row.item{font-size:12px;color:var(--text3);padding-left:8px}
+.plan-row.item span:last-child{cursor:pointer}
+.plan-row.item .paid-val{color:var(--accent-text)}
+.plan-table tr.sub.cat .sticky-col{font-weight:600;color:var(--text);cursor:pointer}
+.plan-table tr.sub.item .sticky-col{padding-left:44px;font-size:11.5px;color:var(--text3)}
+.plan-table td.item-cell{white-space:nowrap}
+.plan-table td.item-cell .item-val{cursor:pointer;border-bottom:1px dashed transparent}
+.plan-table td.item-cell .item-val:hover{border-bottom-color:var(--accent-line)}
+.plan-table td.item-cell.paid .item-val{color:var(--accent-text)}
+.plan-item-btn{border:none;background:transparent;color:var(--text3);font-size:11px;cursor:pointer;padding:2px 5px;margin-left:6px;border-radius:5px}
+.plan-item-btn:hover{color:var(--accent-text);background:var(--accent-soft)}
 .plan-table .pos{color:var(--accent-text)}
 .plan-table .neg{color:var(--red)}
 .cat-total-card{display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--accent-soft);border:1px solid var(--accent-line);border-radius:14px;padding:13px 16px;margin-bottom:14px}

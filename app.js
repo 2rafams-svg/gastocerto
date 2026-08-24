@@ -44,7 +44,7 @@ function syncThemeRow(){
   if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
-const APP_VERSION = '3.15';
+const APP_VERSION = '3.16';
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
 const CORRECT_PIN = () => String(new Date().getFullYear());
@@ -147,7 +147,7 @@ function userTag(uid){
 async function logout(){
   const token=session?.access_token;
   if(token) fetch(`${SUPABASE_URL}/auth/v1/logout`,{method:'POST',headers:{apikey:SUPABASE_KEY,Authorization:`Bearer ${token}`}}).catch(()=>{});
-  persistSession(null); categories=[]; months=[]; expenses=[]; expenseNames=[]; acceptedShares=[]; sharedOutMap={}; pendingSplitInvites=[]; acceptedGroupIds=new Set(); friends=[]; budgetTransfers=[]; cards=[]; rollovers=[]; futureMonthKeys=[]; incomes=[]; anchors=[]; histView='hist'; document.body.classList.remove('plan-wide');
+  persistSession(null); categories=[]; months=[]; expenses=[]; expenseNames=[]; acceptedShares=[]; sharedOutMap={}; pendingSplitInvites=[]; acceptedGroupIds=new Set(); friends=[]; budgetTransfers=[]; cards=[]; rollovers=[]; futureMonthKeys=[]; incomes=[]; anchors=[]; plannedItems=[]; histView='hist'; document.body.classList.remove('plan-wide');
   stopUnreadPoll(); unreadDm={}; updateAmigosBadge();
   document.documentElement.classList.remove('gc-has-session');
   document.getElementById('app').style.display='none';
@@ -282,6 +282,10 @@ const api={
   insertIncome:(d)=>sbFetch('incomes',{method:'POST',body:JSON.stringify({...d,user_id:currentUser.id})}),
   updateIncome:(id,d)=>sbFetch(`incomes?id=eq.${id}`,{method:'PATCH',body:JSON.stringify(d)}),
   deleteIncome:(id)=>sbFetch(`incomes?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
+  getPlannedItems:()=>sbFetch(`planned_items?user_id=eq.${currentUser.id}&order=position.asc,name.asc`),
+  insertPlannedItem:(d)=>sbFetch('planned_items',{method:'POST',body:JSON.stringify({...d,user_id:currentUser.id})}),
+  updatePlannedItem:(id,d)=>sbFetch(`planned_items?id=eq.${id}`,{method:'PATCH',body:JSON.stringify(d)}),
+  deletePlannedItem:(id)=>sbFetch(`planned_items?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
   getAnchors:()=>sbFetch(`balance_anchors?user_id=eq.${currentUser.id}&order=month_key.asc`),
   upsertAnchor:(d)=>sbFetch('balance_anchors',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=representation'},body:JSON.stringify({...d,user_id:currentUser.id})}),
   deleteAnchor:(id)=>sbFetch(`balance_anchors?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
@@ -334,7 +338,7 @@ const api={
 };
 
 let categories=[], months=[], currentMonthKey='', viewMonthKey='', expenses=[], currentTab='home', currentCatIdx=0, budgetTransfers=[], cards=[], rollovers=[], futureMonthKeys=[];
-let incomes=[], anchors=[], histView='hist', planHorizon=12, planScale='month', planOpenGroups={};
+let incomes=[], anchors=[], plannedItems=[], histView='hist', planHorizon=12, planScale='month', planOpenGroups={};
 let subscription=null, userPlan='free';
 let splitGroups=[], pendingShares=[], acceptedShares=[], sharedOutMap={}, pendingSplitInvites=[], acceptedGroupIds=new Set(), friends=[];
 let myProfile=null, profilesById={};
@@ -623,6 +627,7 @@ async function init(){
     cards=await api.getCards().catch(()=>[]);
     incomes=await api.getIncomes().catch(()=>[]);
     anchors=await api.getAnchors().catch(()=>[]);
+    plannedItems=await api.getPlannedItems().catch(()=>[]);
     refreshFutureMonths();
     applyAutoRollover();
     saveCache();
@@ -1538,9 +1543,9 @@ async function renderPlanning(el){
         ${[6,12,24,36].map(n=>`<option value="${n}"${n===planHorizon?' selected':''}>${n} meses</option>`).join('')}
       </select>
     </div>
-    <div class="plan-summary">
-      <span>Em <strong>${planScale==='year'?last.mk.split('-')[0]:monthLabel(last.mk)}</strong> seu saldo projetado é</span>
-      <strong class="${last.saldoFim>=0?'pos':'neg'}">${brl(last.saldoFim)}</strong>
+    <div class="plan-two">
+      <div class="plan-two-box"><div class="plan-two-lbl">Projetado em ${planScale==='year'?last.mk.split('-')[0]:monthLabel(last.mk)}</div><div class="plan-two-val ${last.saldoFim>=0?'pos':'neg'}">${brl(last.saldoFim)}</div></div>
+      <div class="plan-two-box"><div class="plan-two-lbl">Realizado em ${monthLabel(rows[0].mk)}</div><div class="plan-two-val ${rows[0].saldoRealizado>=0?'pos':'neg'}">${brl(rows[0].saldoRealizado)}</div></div>
     </div>
     ${planCardsHtml(shown)}
     ${planTableHtml(shown)}
@@ -1568,7 +1573,11 @@ function planCardsHtml(rows){
       <div class="plan-row"><span>− Despesas</span><span class="neg">${brl(r.despesas)}</span></div>
       <div class="plan-row"><span>= Sobra do mês</span><span class="${r.sobra>=0?'pos':'neg'}">${brl(r.sobra)}</span></div>
       <div class="plan-row total"><span>Saldo acumulado</span><span class="${r.saldoFim>=0?'pos':'neg'}">${brl(r.saldoFim)}</span></div>
-      ${open?`<div class="plan-groups">${Object.entries(r.porGrupo).sort((a,b)=>b[1]-a[1]).map(([g,v])=>`<div class="plan-row sub"><span>${escapeHtml(g)}</span><span>${brl(v)}</span></div>`).join('')}</div>`:''}
+      ${open?`<div class="plan-groups">${Object.values(r.porCategoria).filter(pc=>pc.val>0||pc.itens.length).map(pc=>{
+        const cid=Object.keys(r.porCategoria).find(k=>r.porCategoria[k]===pc);
+        return `<div class="plan-row sub"><span>${escapeHtml(pc.name)}</span><span>${brl(pc.val)}</span></div>
+        ${pc.itens.map(it=>`<div class="plan-row item"><span><button class="pay-chk${it.paid?' on':''}" onclick="togglePlannedPaid('${it.itemId}','${r.mk}',${it.expenseId?`'${it.expenseId}'`:'null'})"><i class="fa-solid fa-${it.paid?'check':'circle-notch'}" aria-hidden="true"></i></button> ${escapeHtml(it.name)}</span><span class="${it.paid?'paid-val':''}" onclick="editItemMonthValue('${it.itemId}','${r.mk}')">${brl(it.value)}</span></div>`).join('')}`;
+      }).join('')}</div>`:''}
     </div>`;
   }).join('')}</div>`;
 }
@@ -1583,21 +1592,41 @@ function planTableHtml(rows){
         <tr><td class="sticky-col">Saldo inicial</td>${rows.map(r=>cell(r.saldoIni)).join('')}</tr>
         <tr><td class="sticky-col">Receitas</td>${rows.map(r=>cell(r.receitas,'pos')).join('')}</tr>
         ${groups.map(g=>{
-          const open=!!planOpenGroups['g:'+g];
           const cats=owned.filter(c=>catGroup(c)===g);
-          return `<tr class="grp" onclick="togglePlanGroup('g:${escapeHtml(g).replace(/'/g,'')}')">
-            <td class="sticky-col"><i class="fa-solid fa-caret-${open?'down':'right'}" style="width:10px" aria-hidden="true"></i> ${escapeHtml(g)}</td>
+          const merged=cats.length===1&&String(cats[0].name).toLowerCase()===String(g).toLowerCase();
+          const open=merged?!!planOpenGroups['c:'+cats[0].id]:!!planOpenGroups['g:'+g];
+          const gKey=merged?('c:'+cats[0].id):('g:'+escapeHtml(g).replace(/'/g,''));
+          return `<tr class="grp" onclick="togglePlanGroup('${gKey}')">
+            <td class="sticky-col"><i class="fa-solid fa-caret-${open?'down':'right'}" style="width:10px" aria-hidden="true"></i> ${escapeHtml(g)}${merged?`<button class="plan-item-btn" onclick="event.stopPropagation();openPlannedItems('${cats[0].id}')" title="Gerenciar itens"><i class="fa-solid fa-list-ul" aria-hidden="true"></i></button>`:''}</td>
             ${rows.map(r=>cell(r.porGrupo[g]||0,'neg')).join('')}
           </tr>
-          ${open&&planScale==='month'?cats.map(c=>`<tr class="sub">
-            <td class="sticky-col">${escapeHtml(c.name)}</td>
+          ${open&&planScale==='month'?cats.map(c=>{
+            const copen=merged?true:!!planOpenGroups['c:'+c.id];
+            const itemIds=[];
+            rows.forEach(r=>{ const pc=r.porCategoria&&r.porCategoria[c.id];
+              if(pc) pc.itens.forEach(it=>{ if(!itemIds.some(x=>x.id===it.itemId)) itemIds.push({id:it.itemId,name:it.name}); }); });
+            return `${merged?'':`<tr class="sub cat" onclick="togglePlanGroup('c:${c.id}')">
+            <td class="sticky-col"><i class="fa-solid fa-caret-${copen?'down':'right'}" style="width:10px;opacity:${itemIds.length?1:.25}" aria-hidden="true"></i> ${escapeHtml(c.name)}
+              <button class="plan-item-btn" onclick="event.stopPropagation();openPlannedItems('${c.id}')" title="Gerenciar itens"><i class="fa-solid fa-list-ul" aria-hidden="true"></i></button></td>
             ${rows.map(r=>{
               const pc=r.porCategoria?r.porCategoria[c.id]:null;
               if(!pc) return `<td></td>`;
-              const editable=!r.isPast;
-              return `<td class="${editable?'editable':''}" ${editable?`onclick="editPlanCell('${c.id}','${r.mk}')" title="Clique para planejar"`:''}>${brl(pc.val)}${pc.real>0&&pc.real<pc.plan?`<span class="cell-real">${brl(pc.real)} usado</span>`:''}</td>`;
+              const editable=!r.isPast&&!pc.driven;
+              return `<td class="${editable?'editable':''}" ${editable?`onclick="event.stopPropagation();editPlanCell('${c.id}','${r.mk}')" title="Clique para planejar"`:''}>${brl(pc.val)}${!pc.driven&&pc.real>0&&pc.real<pc.plan?`<span class="cell-real">${brl(pc.real)} usado</span>`:''}</td>`;
             }).join('')}
-          </tr>`).join(''):''}`;
+          </tr>`}
+          ${copen?itemIds.map(ii=>`<tr class="sub item">
+            <td class="sticky-col">${escapeHtml(ii.name)}</td>
+            ${rows.map(r=>{
+              const pc=r.porCategoria?r.porCategoria[c.id]:null;
+              const it=pc?pc.itens.find(x=>x.itemId===ii.id):null;
+              if(!it) return `<td></td>`;
+              return `<td class="item-cell${it.paid?' paid':''}">
+                <button class="pay-chk${it.paid?' on':''}" onclick="togglePlannedPaid('${it.itemId}','${r.mk}',${it.expenseId?`'${it.expenseId}'`:'null'})" title="${it.paid?'Marcar como não pago':'Marcar como pago'}"><i class="fa-solid fa-${it.paid?'check':'circle-notch'}" aria-hidden="true"></i></button>
+                <span class="item-val" onclick="editItemMonthValue('${it.itemId}','${r.mk}')">${brl(it.value)}</span>
+              </td>`;
+            }).join('')}
+          </tr>`).join(''):''}`;}).join(''):''}`;
         }).join('')}
         <tr class="sep"><td class="sticky-col">Total despesas</td>${rows.map(r=>cell(r.despesas,'neg')).join('')}</tr>
         <tr><td class="sticky-col">Sobra do mês</td>${rows.map(r=>cell(r.sobra,r.sobra>=0?'pos':'neg')).join('')}</tr>
@@ -1605,6 +1634,122 @@ function planTableHtml(rows){
       </tbody>
     </table>
   </div>`;
+}
+async function togglePlannedPaid(itemId,mk,expenseId){
+  const item=plannedItems.find(i=>i.id===itemId); if(!item) return;
+  try{
+    if(expenseId){
+      const res=await api.deleteExpense(expenseId);
+      if(!res||!res.length){ showToast('Não foi possível desmarcar.','error'); return; }
+      showToast('Desmarcado.','success');
+    }else{
+      await api.insertExpense({id:uid(),cat_id:item.cat_id,month_key:mk,name:item.name,
+        value:itemValueFor(item,mk),date:`${mk}-01`,paid:true,planned_item_id:item.id});
+      showToast('Marcado como pago.','success');
+    }
+    vib(10);
+    if(mk===viewMonthKey) expenses=await api.getExpenses(viewMonthKey);
+    render();
+  }catch(err){
+    const msg=String(err?.message||'');
+    if(/paid|planned_item_id/i.test(msg)) showToast('Rode o SQL: ALTER TABLE expenses ADD COLUMN paid boolean, ADD COLUMN planned_item_id uuid','error');
+    else showToast('Erro ao atualizar.','error');
+  }
+}
+function editItemMonthValue(itemId,mk){
+  const item=plannedItems.find(i=>i.id===itemId); if(!item) return;
+  openModal(`<div class="modal-title">${escapeHtml(item.name)}</div>
+    <p class="modal-note">Valor previsto em <strong>${monthLabel(mk)}</strong>. Muda só neste mês — os outros seguem com o valor padrão de ${brl(item.value)}.</p>
+    <div class="form-group"><label class="form-label">Valor em ${monthLabel(mk)} (R$)</label>
+      <input class="form-input" id="f-item-mv" type="text" inputmode="decimal" value="${itemValueFor(item,mk)}" oninput="moneyKey(this)"/></div>
+    <button class="btn-primary" id="btn-item-mv" onclick="saveItemMonthValue('${itemId}','${mk}')">Salvar</button>
+    ${item.month_values&&item.month_values[mk]!=null?`<button class="btn-secondary" onclick="clearItemMonthValue('${itemId}','${mk}')">Voltar ao padrão (${brl(item.value)})</button>`:''}
+    <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
+}
+async function saveItemMonthValue(itemId,mk){
+  const item=plannedItems.find(i=>i.id===itemId); if(!item) return;
+  const v=parseNum(document.getElementById('f-item-mv').value);
+  if(isNaN(v)||v<0){ showToast('Informe um valor válido.','error'); return; }
+  const btn=document.getElementById('btn-item-mv'); btn.disabled=true; btn.textContent='Salvando...';
+  try{
+    const mv={...(item.month_values||{}),[mk]:v};
+    await api.updatePlannedItem(itemId,{month_values:mv});
+    item.month_values=mv;
+    vib(10); _closeModal(); render(); showToast('Valor atualizado.','success');
+  }catch{ btn.disabled=false; btn.textContent='Salvar'; showToast('Erro ao salvar.','error'); }
+}
+async function clearItemMonthValue(itemId,mk){
+  const item=plannedItems.find(i=>i.id===itemId); if(!item) return;
+  try{
+    const mv={...(item.month_values||{})}; delete mv[mk];
+    await api.updatePlannedItem(itemId,{month_values:mv});
+    item.month_values=mv;
+    _closeModal(); render(); showToast('Voltou ao valor padrão.','success');
+  }catch{ showToast('Erro ao atualizar.','error'); }
+}
+async function openPlannedItems(catId){
+  const cat=categories.find(c=>c.id===catId); if(!cat) return;
+  openModal(`<div class="modal-title">Itens de ${escapeHtml(cat.name)}</div><div class="loading"><div class="spinner"></div></div>`);
+  try{ plannedItems=await api.getPlannedItems()||[]; }catch{}
+  renderPlannedItemsModal(catId);
+}
+function renderPlannedItemsModal(catId){
+  const cat=categories.find(c=>c.id===catId);
+  const mine=plannedItems.filter(i=>i.cat_id===catId);
+  const list=mine.length?mine.map(i=>{
+    const period=i.recurring
+      ? `Todo mês desde ${monthLabel(i.start_month)}${i.end_month?` até ${monthLabel(i.end_month)}`:''}`
+      : `Só em ${monthLabel(i.start_month)}`;
+    const nOv=Object.keys(i.month_values||{}).length;
+    return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 0;border-bottom:1px solid var(--border)">
+      <div style="min-width:0">
+        <div style="font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(i.name)}</div>
+        <div style="font-size:12px;color:var(--text3);margin-top:2px">${brl(i.value)} · ${period}${nOv?` · ${nOv} ${nOv===1?'mês ajustado':'meses ajustados'}`:''}</div>
+      </div>
+      <div class="icon-btn" style="border-color:#ff4f4f44;color:var(--red)" onclick="removePlannedItem('${i.id}','${catId}')" aria-label="Remover item"><i class="fa-solid fa-trash" aria-hidden="true"></i></div>
+    </div>`;}).join(''):`<p class="modal-note">Nenhum item ainda. Itens são despesas previstas desta categoria — ex: Nubank, Smiles, Aluguel — que aparecem na projeção e você marca como pagas.</p>`;
+  document.getElementById('modal-content').innerHTML=`<div class="modal-title">Itens de ${escapeHtml(cat.name)}</div>
+    <div style="margin-bottom:16px">${list}</div>
+    <div class="form-group"><label class="form-label">Nome do item</label>
+      <input class="form-input" id="f-pi-name" placeholder="Ex: Nubank" maxlength="60" autocomplete="off"/></div>
+    <div class="form-group"><label class="form-label">Valor previsto (R$)</label>
+      <input class="form-input" id="f-pi-value" type="text" inputmode="decimal" placeholder="0,00" oninput="moneyKey(this)"/></div>
+    <div class="form-group"><label class="form-label">Tipo</label>
+      <div class="dm-seg" id="f-pi-type">
+        <button type="button" class="dm-seg-btn active" data-v="recurring" onclick="piTypeSeg(this)">Todo mês</button>
+        <button type="button" class="dm-seg-btn" data-v="once" onclick="piTypeSeg(this)">Só um mês</button>
+      </div></div>
+    <div class="form-group"><label class="form-label" id="f-pi-month-label">A partir de</label>
+      ${monthInputHtml('f-pi-start',currentMonthKey)}</div>
+    <button class="btn-primary" id="btn-save-pi" onclick="savePlannedItem('${catId}')">Adicionar item</button>
+    <button class="btn-secondary" onclick="_closeModal()">Fechar</button>`;
+}
+function piTypeSeg(btn){
+  [...btn.parentElement.children].forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  const lbl=document.getElementById('f-pi-month-label');
+  if(lbl) lbl.textContent=btn.dataset.v==='recurring'?'A partir de':'Mês';
+}
+async function savePlannedItem(catId){
+  const name=(document.getElementById('f-pi-name').value||'').trim();
+  const value=parseNum(document.getElementById('f-pi-value').value);
+  const start_month=document.getElementById('f-pi-start').value;
+  const el=document.querySelector('#f-pi-type .dm-seg-btn.active');
+  const recurring=(el?el.dataset.v:'recurring')==='recurring';
+  if(!name){ showToast('Informe o nome do item.','error'); return; }
+  if(isNaN(value)||value<0){ showToast('Informe um valor válido.','error'); return; }
+  if(!start_month){ showToast('Informe o mês.','error'); return; }
+  const btn=document.getElementById('btn-save-pi'); btn.disabled=true; btn.textContent='Salvando...';
+  try{
+    await api.insertPlannedItem({cat_id:catId,name,value,recurring,start_month,end_month:null,month_values:{},position:plannedItems.filter(i=>i.cat_id===catId).length});
+    plannedItems=await api.getPlannedItems()||[];
+    vib(12); renderPlannedItemsModal(catId); showToast('Item adicionado!','success');
+  }catch{ showToast('Erro ao salvar. Confira se a tabela planned_items existe no Supabase.','error'); btn.disabled=false; btn.textContent='Adicionar item'; }
+}
+async function removePlannedItem(id,catId){
+  if(!confirm('Remover este item? Os lançamentos já marcados como pagos continuam.')) return;
+  try{ await api.deletePlannedItem(id); plannedItems=plannedItems.filter(i=>i.id!==id); renderPlannedItemsModal(catId); showToast('Item removido.','success'); }
+  catch{ showToast('Erro ao remover.','error'); }
 }
 function editPlanCell(catId,mk){
   const cat=categories.find(c=>c.id===catId); if(!cat) return;
@@ -3056,6 +3201,24 @@ function cardLabel(id){ const c=cards.find(x=>x.id===id); return c?c.name:null; 
 
 function monthInputHtml(id,val){ return `<input class="form-input" id="${id}" type="month" value="${val||''}"/>`; }
 
+function itemAppliesTo(item,mk){
+  if(!item) return false;
+  if(item.recurring) return mk>=item.start_month&&(!item.end_month||mk<=item.end_month);
+  return item.start_month===mk;
+}
+function itemValueFor(item,mk){
+  const mv=item.month_values&&item.month_values[mk];
+  const v=(mv!=null&&!isNaN(parseFloat(mv)))?parseFloat(mv):parseFloat(item.value||0);
+  return Math.round(v*100)/100;
+}
+function itemsForCatMonth(catId,mk){
+  return plannedItems.filter(i=>i.cat_id===catId&&itemAppliesTo(i,mk));
+}
+function isRowPaid(e){
+  if(e.paid===true) return true;
+  if(e.paid===false) return false;
+  return (e.month_key||'')<=currentMonthKey;
+}
 function anchorFor(mk){ return anchors.find(a=>a.month_key===mk)||null; }
 function plannedFor(cat,mk){
   const m=months.find(x=>x.key===mk);
@@ -3066,12 +3229,8 @@ function plannedFor(cat,mk){
 function projectMonths(n,startKey,allExps){
   const start=startKey||projectionStart();
   const rows=[];
-  const byMonthCat={};
-  (allExps||[]).forEach(e=>{
-    const k=e.month_key; if(!k) return;
-    (byMonthCat[k]=byMonthCat[k]||{});
-    byMonthCat[k][e.cat_id]=(byMonthCat[k][e.cat_id]||0)+parseFloat(e.value||0);
-  });
+  const byMonth={};
+  (allExps||[]).forEach(e=>{ const k=e.month_key; if(!k) return; (byMonth[k]=byMonth[k]||[]).push(e); });
   const owned=categories.filter(c=>c.user_id===currentUser.id);
   let carry=0, mk=start;
   for(let i=0;i<n;i++){
@@ -3079,15 +3238,32 @@ function projectMonths(n,startKey,allExps){
     const saldoIni=anc?parseFloat(anc.balance):(i===0?0:carry);
     const receitas=Math.round(incomesForMonth(mk)*100)/100;
     const isPast=mk<currentMonthKey;
+    const monthRows=byMonth[mk]||[];
     const porCategoria={}, porGrupo={};
     let despesas=0, realizado=0;
     owned.forEach(c=>{
-      const real=Math.round((byMonthCat[mk]?.[c.id]||0)*100)/100;
+      const catRows=monthRows.filter(e=>e.cat_id===c.id);
+      const items=itemsForCatMonth(c.id,mk);
+      const itens=items.map(it=>{
+        const lanc=catRows.find(e=>e.planned_item_id===it.id);
+        return {itemId:it.id,name:it.name,
+          value:lanc?Math.round(parseFloat(lanc.value||0)*100)/100:itemValueFor(it,mk),
+          paid:!!lanc,expenseId:lanc?lanc.id:null};
+      });
+      const avulsos=catRows.filter(e=>!e.planned_item_id).map(e=>({
+        expenseId:e.id,name:e.name,value:Math.round(parseFloat(e.value||0)*100)/100,
+        paid:isRowPaid(e),fromItem:false}));
+      const somaItens=itens.reduce((s,x)=>s+x.value,0);
+      const somaAvulsos=avulsos.reduce((s,x)=>s+x.value,0);
+      const total=Math.round((somaItens+somaAvulsos)*100)/100;
+      const pagoNoMes=Math.round((itens.filter(x=>x.paid).reduce((s,x)=>s+x.value,0)
+        +avulsos.filter(x=>x.paid).reduce((s,x)=>s+x.value,0))*100)/100;
       const plan=plannedFor(c,mk);
-      const val=isPast?real:Math.max(plan,real);
-      realizado+=real;
+      const val=items.length?total:(isPast?pagoNoMes:Math.max(plan,total));
+      realizado+=pagoNoMes;
       despesas+=val;
-      porCategoria[c.id]={real,plan,val,name:c.name,group:catGroup(c)};
+      porCategoria[c.id]={real:total,plan,val,name:c.name,group:catGroup(c),
+        itens,avulsos,pago:pagoNoMes,driven:items.length>0};
       const g=catGroup(c);
       porGrupo[g]=Math.round(((porGrupo[g]||0)+val)*100)/100;
     });

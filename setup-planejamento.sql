@@ -89,6 +89,8 @@ create policy pe_all on plan_entries for all
 -- ------------------------------------------------------------- colunas novas
 alter table categories add column if not exists group_name text;
 alter table categories add column if not exists plan_defer boolean default false;
+alter table categories add column if not exists show_home boolean default true;
+alter table categories add column if not exists show_plan boolean default true;
 alter table categories add column if not exists rollover_positive boolean default false;
 alter table categories add column if not exists rollover_negative boolean default false;
 

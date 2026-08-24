@@ -44,7 +44,7 @@ function syncThemeRow(){
   if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
-const APP_VERSION = '4.3';
+const APP_VERSION = '4.4';
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
 const CORRECT_PIN = () => String(new Date().getFullYear());
@@ -1242,7 +1242,7 @@ function renderHome(el){
       </div></div>`;
     return;
   }
-  if(currentCatIdx>=categories.length) currentCatIdx=0;
+  if(currentCatIdx>=homeCategories().length) currentCatIdx=0;
 
   const days=trialDaysRemaining();
   const trialBannerHtml=days>0&&days<=3?`<div style="padding:8px 20px 0"><div class="trial-banner" style="margin:0"><span>Seu acesso completo termina em <strong>${days} ${days===1?'dia':'dias'}</strong>.</span><button onclick="openPaywall('Continue com seus relatórios')">Ver Pro</button></div></div>`:'';
@@ -1250,7 +1250,8 @@ function renderHome(el){
   const isPast=viewMonthKey<currentMonthKey;
   const rolloverBannerHtml=isPast?`<div style="padding:8px 20px 0"><div class="trial-banner" style="margin:0;border-color:var(--accent-line);background:var(--accent-soft)"><span>Mês encerrado. Levar as sobras e estouros para <strong>${monthLabel(nextMonthKey(viewMonthKey))}</strong>?</span><button onclick="openRolloverMonth()">Levar</button></div></div>`:'';
 
-  const slidesHtml = categories.map((cat,i)=>buildSlide(cat,isNow)).join('');
+  const homeCats=homeCategories();
+  const slidesHtml = homeCats.map((cat,i)=>buildSlide(cat,isNow)).join('');
 
   el.innerHTML=`<div id="home-content" style="display:flex;flex-direction:column;height:100%">
     ${pendingSharesHtml}
@@ -1259,7 +1260,7 @@ function renderHome(el){
     ${rolloverBannerHtml}
     ${trialBannerHtml}
     <div class="cat-chips" id="cat-chips">
-      ${categories.map((c,i)=>`<button class="cat-chip${i===currentCatIdx?' active':''}" data-i="${i}" onclick="goToSlide(${i})">${escapeHtml(c.name)}</button>`).join('')}
+      ${homeCats.map((c,i)=>`<button class="cat-chip${i===currentCatIdx?' active':''}" data-i="${i}" onclick="goToSlide(${i})">${escapeHtml(c.name)}</button>`).join('')}
     </div>
     <div class="cat-carousel-wrap" id="carousel-wrap">
       <div class="cat-carousel" id="cat-carousel" style="transform:translateX(-${currentCatIdx*100}%)">
@@ -1398,7 +1399,7 @@ function closeMonthBtnHtml(){
 }
 
 function goToSlide(i){
-  if(i<0||i>=categories.length) return;
+  if(i<0||i>=homeCategories().length) return;
   vib(5);
   currentCatIdx=i;
   const carousel=document.getElementById('cat-carousel');
@@ -1447,7 +1448,7 @@ function renderCategorias(el){
       ${owned?'<div class="drag-handle" title="Arrastar"><i class="fa-solid fa-grip-vertical" aria-hidden="true"></i></div>':'<div class="drag-handle" style="opacity:.25;cursor:default" title="Compartilhada"><i class="fa-solid fa-grip-vertical" aria-hidden="true"></i></div>'}
       <div class="cat-manage-info">
         <div class="cat-manage-name">${escapeHtml(cat.name)}${!owned?`<span style="font-size:10px;color:var(--accent-text);background:var(--accent-soft);border-radius:100px;padding:1px 7px;margin-left:6px;font-weight:600">${perm==='edit'?'editar':'leitura'}</span>`:''}</div>
-        <div class="cat-manage-budget">${brl(cat.budget)}/mês${cat.group_name?` · ${escapeHtml(cat.group_name)}`:''}</div>
+        <div class="cat-manage-budget">${brl(cat.budget)}/mês${cat.group_name?` · ${escapeHtml(cat.group_name)}`:''}${cat.show_home===false?' · <i class="fa-solid fa-eye-slash" title="Não aparece no Início" aria-hidden="true"></i> só no plano':''}${isPlanningOn()&&cat.show_plan===false?' · fora do plano':''}</div>
       </div>
       <div style="display:flex;gap:8px">
         ${owned?`<div class="icon-btn" onclick="openEditCategory('${cat.id}')"><i class="fa-solid fa-pen" aria-label="Editar"></i></div>`:''}
@@ -2760,6 +2761,9 @@ async function openActivityLog(catId){
 }
 
 const NO_GROUP='Sem grupo';
+function showsOnHome(c){ return c.show_home!==false; }
+function showsOnPlan(c){ return c.show_plan!==false; }
+function homeCategories(){ return categories.filter(showsOnHome); }
 function catGroup(cat){ return (cat&&cat.group_name&&String(cat.group_name).trim())||NO_GROUP; }
 function allGroups(){
   const seen=[];
@@ -2773,6 +2777,20 @@ function groupFieldHtml(cat){
     <input class="form-input" id="f-cgroup" list="cgroup-list" maxlength="40" autocomplete="off" placeholder="Ex: Gastos gerais" value="${escapeHtml(cur)}"/>
     <datalist id="cgroup-list">${sugg.map(g=>`<option value="${escapeHtml(g)}"></option>`).join('')}</datalist>
     <span class="field-hint">Usado para somar as categorias por bloco no Planejamento.</span></div>`;
+}
+function visibilityFieldHtml(cat){
+  const home=!cat||cat.show_home!==false;
+  const plan=!cat||cat.show_plan!==false;
+  return `<div class="form-group"><label class="form-label">Onde esta categoria aparece</label>
+    <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--surface2);border-radius:10px;margin-bottom:6px">
+      <input type="checkbox" id="f-cshome" ${home?'checked':''} style="width:18px;height:18px;accent-color:var(--accent);flex-shrink:0"/>
+      <label for="f-cshome" style="font-size:13px;cursor:pointer;flex:1">Na tela Inicio <span style="color:var(--text2);font-size:12px">(no carrossel do dia a dia)</span></label>
+    </div>
+    ${isPlanningOn()?`<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--surface2);border-radius:10px">
+      <input type="checkbox" id="f-csplan" ${plan?'checked':''} style="width:18px;height:18px;accent-color:var(--accent);flex-shrink:0"/>
+      <label for="f-csplan" style="font-size:13px;cursor:pointer;flex:1">No Planejamento <span style="color:var(--text2);font-size:12px">(entra na projecao de saldo)</span></label>
+    </div>`:''}
+    <span class="field-hint">Desmarque a Inicio para uma categoria que so existe no planejamento. Ela continua aqui em Categorias.</span></div>`;
 }
 function deferFieldHtml(cat){
   if(!isPlanningOn()) return '';
@@ -2802,6 +2820,7 @@ function openAddCategory(){
     <div class="form-group"><label class="form-label">Orçamento mensal (R$)</label>
       <input class="form-input" id="f-cbudget" type="text" inputmode="decimal" placeholder="0,00" oninput="moneyKey(this)"/></div>
     ${groupFieldHtml(null)}
+    ${visibilityFieldHtml(null)}
     ${deferFieldHtml(null)}
     ${rolloverFieldsHtml(null)}
     <button class="btn-primary" id="btn-save-cat" onclick="saveCategory(null)">Salvar</button>
@@ -2816,6 +2835,7 @@ function openEditCategory(catId){
     <div class="form-group"><label class="form-label">Orçamento mensal (R$)</label>
       <input class="form-input" id="f-cbudget" type="text" inputmode="decimal" value="${cat.budget}" oninput="moneyKey(this)"/></div>
     ${groupFieldHtml(cat)}
+    ${visibilityFieldHtml(cat)}
     ${deferFieldHtml(cat)}
     ${rolloverFieldsHtml(cat)}
     <button class="btn-primary" id="btn-save-cat" onclick="saveCategory('${catId}')">Salvar</button>
@@ -2827,14 +2847,16 @@ async function saveCategory(catId){
   const budget=parseNum(document.getElementById('f-cbudget').value);
   const group_name=(document.getElementById('f-cgroup')?.value||'').trim()||null;
   const plan_defer=!!document.getElementById('f-cdefer')?.checked;
+  const sh=document.getElementById('f-cshome'); const show_home=sh?!!sh.checked:true;
+  const sp=document.getElementById('f-csplan'); const show_plan=sp?!!sp.checked:(document.getElementById('f-cshome')?true:true);
   const rollover_positive=!!document.getElementById('f-roll-pos')?.checked;
   const rollover_negative=!!document.getElementById('f-roll-neg')?.checked;
   if(!name||isNaN(budget)||budget<=0){ showToast('Preencha todos os campos.','error'); return; }
   if(!catId&&!isPro()&&categories.length>=CONFIG.FREE_MAX_CATEGORIES){ openPaywall('Limite de categorias atingido'); return; }
   const btn=document.getElementById('btn-save-cat'); btn.disabled=true; btn.textContent='Salvando...';
   try{
-    if(catId){ await api.updateCategory(catId,{name,budget,group_name,plan_defer,rollover_positive,rollover_negative}); logActivity(catId,'cat_edit',name,budget); }
-    else{ const nid=uid(); await api.insertCategory({id:nid,name,budget,position:categories.length,group_name,plan_defer,rollover_positive,rollover_negative}); logActivity(nid,'cat_create',name,budget); }
+    if(catId){ await api.updateCategory(catId,{name,budget,group_name,plan_defer,show_home,show_plan,rollover_positive,rollover_negative}); logActivity(catId,'cat_edit',name,budget); }
+    else{ const nid=uid(); await api.insertCategory({id:nid,name,budget,position:categories.length,group_name,plan_defer,show_home,show_plan,rollover_positive,rollover_negative}); logActivity(nid,'cat_create',name,budget); }
     categories=await api.getCategories();
     saveCache();
     vib(15);
@@ -2933,7 +2955,9 @@ function onFab(){
   vib();
   if(currentTab==='categorias'){ openAddCategory(); return; }
   if(!categories.length){ showToast('Crie uma categoria primeiro.','error'); return; }
-  const cat=categories[currentCatIdx]||categories[0];
+  const hc=homeCategories();
+  const cat=hc[currentCatIdx]||hc[0];
+  if(!cat){ showToast('Nenhuma categoria aparece no Início.','error'); return; }
   if(cat.user_id!==currentUser.id&&sharePerm(cat.id)!=='edit'){ showToast('Esta categoria é somente leitura.','error'); return; }
   openAddExpense(cat.id);
 }
@@ -3389,7 +3413,7 @@ function projectMonths(n,startKey,allExps){
   const rows=[];
   const byMonth={};
   (allExps||[]).forEach(e=>{ const k=e.month_key; if(!k) return; (byMonth[k]=byMonth[k]||[]).push(e); });
-  const owned=categories.filter(c=>c.user_id===currentUser.id);
+  const owned=categories.filter(c=>c.user_id===currentUser.id&&showsOnPlan(c));
   let carry=0, mk=start;
   for(let i=0;i<n;i++){
     const anc=anchorFor(mk);

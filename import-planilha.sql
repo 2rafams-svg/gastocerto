@@ -3,6 +3,13 @@
 -- Rode no SQL Editor do Supabase. Pode rodar de novo: limpa a importacao anterior antes.
 
 alter table categories add column if not exists plan_defer boolean default false;
+alter table categories add column if not exists show_home boolean default true;
+alter table categories add column if not exists show_plan boolean default true;
+
+-- suas categorias antigas saem da projecao (senao somam por cima dos compromissos)
+update categories set show_plan = false
+ where user_id = (select id from auth.users where email = '2rafab@gmail.com')
+   and id not like 'pl-%';
 
 do $$
 declare v_uid uuid;
@@ -14,7 +21,7 @@ begin
   delete from categories   where user_id = v_uid and id like 'pl-%';
   delete from balance_anchors where user_id = v_uid and month_key = '2026-08';
 
-  insert into categories (id, user_id, name, budget, position, group_name) values
+  insert into categories (id, user_id, name, budget, position, group_name, show_home, show_plan) values
     ('pl-contabeis', v_uid, 'Contabeis', 0, 0, 'Contabeis'),
     ('pl-cartoes', v_uid, 'Cartoes', 0, 1, 'Cartoes'),
     ('pl-negociacoes', v_uid, 'Negociacoes', 0, 2, 'Negociacoes'),

@@ -1,5 +1,5 @@
-const CACHE = 'gastocerto-v4.2-planning-flag';
-const SHELL = ['./', './index.html', './offline.html', './style.css?v=4.2', './app.js?v=4.2', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
+const CACHE = 'gastocerto-v4.3-defer';
+const SHELL = ['./', './index.html', './offline.html', './style.css?v=4.3', './app.js?v=4.3', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));

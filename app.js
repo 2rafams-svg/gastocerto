@@ -44,7 +44,7 @@ function syncThemeRow(){
   if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
-const APP_VERSION = '4.2';
+const APP_VERSION = '4.3';
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
 const CORRECT_PIN = () => String(new Date().getFullYear());
@@ -2774,6 +2774,13 @@ function groupFieldHtml(cat){
     <datalist id="cgroup-list">${sugg.map(g=>`<option value="${escapeHtml(g)}"></option>`).join('')}</datalist>
     <span class="field-hint">Usado para somar as categorias por bloco no Planejamento.</span></div>`;
 }
+function deferFieldHtml(cat){
+  if(!isPlanningOn()) return '';
+  return `<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--surface2);border-radius:10px;margin-bottom:16px">
+      <input type="checkbox" id="f-cdefer" ${cat&&cat.plan_defer?'checked':''} style="width:18px;height:18px;accent-color:var(--accent);flex-shrink:0"/>
+      <label for="f-cdefer" style="font-size:13px;cursor:pointer;flex:1">Pago no cartao <span style="color:var(--text2);font-size:12px">(o que voce gasta neste mes so sai do saldo no mes seguinte)</span></label>
+    </div>`;
+}
 function rolloverFieldsHtml(cat){
   const pos=cat?.rollover_positive, neg=cat?.rollover_negative;
   return `<div class="form-group"><label class="form-label">Saldo do mês anterior</label>
@@ -2795,6 +2802,7 @@ function openAddCategory(){
     <div class="form-group"><label class="form-label">Orçamento mensal (R$)</label>
       <input class="form-input" id="f-cbudget" type="text" inputmode="decimal" placeholder="0,00" oninput="moneyKey(this)"/></div>
     ${groupFieldHtml(null)}
+    ${deferFieldHtml(null)}
     ${rolloverFieldsHtml(null)}
     <button class="btn-primary" id="btn-save-cat" onclick="saveCategory(null)">Salvar</button>
     <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
@@ -2808,6 +2816,7 @@ function openEditCategory(catId){
     <div class="form-group"><label class="form-label">Orçamento mensal (R$)</label>
       <input class="form-input" id="f-cbudget" type="text" inputmode="decimal" value="${cat.budget}" oninput="moneyKey(this)"/></div>
     ${groupFieldHtml(cat)}
+    ${deferFieldHtml(cat)}
     ${rolloverFieldsHtml(cat)}
     <button class="btn-primary" id="btn-save-cat" onclick="saveCategory('${catId}')">Salvar</button>
     <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
@@ -2817,14 +2826,15 @@ async function saveCategory(catId){
   const name=document.getElementById('f-cname').value.trim();
   const budget=parseNum(document.getElementById('f-cbudget').value);
   const group_name=(document.getElementById('f-cgroup')?.value||'').trim()||null;
+  const plan_defer=!!document.getElementById('f-cdefer')?.checked;
   const rollover_positive=!!document.getElementById('f-roll-pos')?.checked;
   const rollover_negative=!!document.getElementById('f-roll-neg')?.checked;
   if(!name||isNaN(budget)||budget<=0){ showToast('Preencha todos os campos.','error'); return; }
   if(!catId&&!isPro()&&categories.length>=CONFIG.FREE_MAX_CATEGORIES){ openPaywall('Limite de categorias atingido'); return; }
   const btn=document.getElementById('btn-save-cat'); btn.disabled=true; btn.textContent='Salvando...';
   try{
-    if(catId){ await api.updateCategory(catId,{name,budget,group_name,rollover_positive,rollover_negative}); logActivity(catId,'cat_edit',name,budget); }
-    else{ const nid=uid(); await api.insertCategory({id:nid,name,budget,position:categories.length,group_name,rollover_positive,rollover_negative}); logActivity(nid,'cat_create',name,budget); }
+    if(catId){ await api.updateCategory(catId,{name,budget,group_name,plan_defer,rollover_positive,rollover_negative}); logActivity(catId,'cat_edit',name,budget); }
+    else{ const nid=uid(); await api.insertCategory({id:nid,name,budget,position:categories.length,group_name,plan_defer,rollover_positive,rollover_negative}); logActivity(nid,'cat_create',name,budget); }
     categories=await api.getCategories();
     saveCache();
     vib(15);
@@ -3407,7 +3417,8 @@ function projectMonths(n,startKey,allExps){
       const total=Math.round((somaItens+somaAvulsos)*100)/100;
       const pagoNoMes=Math.round((itens.filter(x=>x.paid).reduce((s,x)=>s+x.value,0)
         +avulsos.filter(x=>x.paid).reduce((s,x)=>s+x.value,0))*100)/100;
-      const plan=plannedFor(c,mk);
+      const srcMk=c.plan_defer?prevMonthKey(mk):mk;
+      const plan=(c.plan_defer&&srcMk<start)?0:plannedFor(c,srcMk);
       const val=items.length?total:(isPast?pagoNoMes:Math.max(plan,total));
       realizado+=pagoNoMes;
       despesas+=val;

@@ -44,7 +44,7 @@ function syncThemeRow(){
   if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
-const APP_VERSION = '4.4';
+const APP_VERSION = '4.5';
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
 const CORRECT_PIN = () => String(new Date().getFullYear());
@@ -1532,15 +1532,17 @@ async function renderPlanning(el){
   const shown=planScale==='year'?aggregateByYear(rows):rows;
   const last=rows[rows.length-1];
   const first=rows[0];
+  const hojeRow=rows.find(r=>r.mk===currentMonthKey)||first;
   el.innerHTML=`<div class="plan-wrap">
     ${histSegHtml()}
     ${!planEntries.some(e=>e.kind==='in')?`<div class="plan-warn"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> Cadastre seu salario em <strong>Sua conta › Meus compromissos</strong> para o saldo projetado fazer sentido.</div>`:''}
     <div class="plan-head">
       <div>
-        <div class="plan-head-label">Saldo em ${monthLabel(first.mk)}</div>
-        <div class="plan-head-value">${brl(first.saldoIni)}</div>
+        <div class="plan-head-label">Saldo hoje · ${monthLabel(hojeRow.mk)}</div>
+        <div class="plan-head-value">${brl(hojeRow.saldoRealizado)}</div>
+        <div class="plan-head-sub">projetado para o fim do mes ${brl(hojeRow.saldoFim)}</div>
       </div>
-      <button class="plan-head-btn" onclick="openBalanceAnchor('${first.mk}')"><i class="fa-solid fa-sliders" aria-hidden="true"></i> Ajustar</button>
+      <button class="plan-head-btn" onclick="openBalanceAnchor('${hojeRow.mk}')"><i class="fa-solid fa-sliders" aria-hidden="true"></i> Ajustar</button>
     </div>
     <div class="plan-controls">
       <div class="dm-seg" style="flex:1">
@@ -3294,6 +3296,7 @@ function incomesForMonth(mk){
 function isRowPaid(e){
   if(e.paid===true) return true;
   if(e.paid===false) return false;
+  if(e.card_id) return false;
   return (e.month_key||'')<=currentMonthKey;
 }
 

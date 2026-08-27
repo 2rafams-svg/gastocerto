@@ -44,7 +44,7 @@ function syncThemeRow(){
   if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
-const APP_VERSION = '5.0';
+const APP_VERSION = '5.1';
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
 const CORRECT_PIN = () => String(new Date().getFullYear());
@@ -149,7 +149,7 @@ function userTag(uid){
 async function logout(){
   const token=session?.access_token;
   if(token) fetch(`${SUPABASE_URL}/auth/v1/logout`,{method:'POST',headers:{apikey:SUPABASE_KEY,Authorization:`Bearer ${token}`}}).catch(()=>{});
-  persistSession(null); categories=[]; months=[]; expenses=[]; expenseNames=[]; acceptedShares=[]; sharedOutMap={}; pendingSplitInvites=[]; acceptedGroupIds=new Set(); friends=[]; budgetTransfers=[]; cards=[]; rollovers=[]; futureMonthKeys=[]; anchors=[]; planEntries=[]; histView='hist'; planMonths=12; document.body.classList.remove('plan-wide');
+  persistSession(null); categories=[]; months=[]; expenses=[]; expenseNames=[]; acceptedShares=[]; sharedOutMap={}; pendingSplitInvites=[]; acceptedGroupIds=new Set(); friends=[]; budgetTransfers=[]; cards=[]; rollovers=[]; futureMonthKeys=[];
   stopUnreadPoll(); unreadDm={}; updateAmigosBadge();
   document.documentElement.classList.remove('gc-has-session');
   document.getElementById('app').style.display='none';
@@ -269,7 +269,6 @@ const api={
   getActivity:(catId)=>sbFetch(`activity_log?category_id=eq.${catId}&order=created_at.desc&limit=50`),
   getAllActivity:()=>sbFetch('activity_log?order=created_at.desc&limit=80'),
   insertActivity:(d)=>sbFetch('activity_log',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify({...d,actor_user_id:currentUser.id,actor_email:currentUser.email})}),
-  setMonthBudgets:(key,budgets)=>sbFetch(`months?key=eq.${key}`,{method:'PATCH',body:JSON.stringify({budgets})}),
   getBudgetTransfers:(monthKey)=>sbFetch(`budget_transfers?month_key=eq.${monthKey}&order=created_at.desc`),
   insertBudgetTransfer:(d)=>sbFetch('budget_transfers',{method:'POST',body:JSON.stringify({...d,user_id:currentUser.id})}),
   getCards:()=>sbFetch(`cards?user_id=eq.${currentUser.id}&order=name.asc`),
@@ -279,18 +278,10 @@ const api={
   getRollovers:(monthKey)=>sbFetch(`budget_rollovers?to_month=eq.${monthKey}&order=created_at.desc`),
   insertRollover:(d)=>sbFetch('budget_rollovers',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=representation'},body:JSON.stringify({...d,user_id:currentUser.id})}),
   deleteRollover:(id)=>sbFetch(`budget_rollovers?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
-  getExpensesFrom:(monthKey)=>sbFetch(`expenses?month_key=gte.${monthKey}&order=month_key.asc`),
   getIncomes:()=>sbFetch(`incomes?user_id=eq.${currentUser.id}&order=start_month.asc`),
   insertIncome:(d)=>sbFetch('incomes',{method:'POST',body:JSON.stringify({...d,user_id:currentUser.id})}),
   updateIncome:(id,d)=>sbFetch(`incomes?id=eq.${id}`,{method:'PATCH',body:JSON.stringify(d)}),
   deleteIncome:(id)=>sbFetch(`incomes?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
-  getPlanEntries:()=>sbFetch(`plan_entries?user_id=eq.${currentUser.id}&order=position.asc,name.asc`),
-  insertPlanEntry:(d)=>sbFetch('plan_entries',{method:'POST',body:JSON.stringify({...d,user_id:currentUser.id})}),
-  updatePlanEntry:(id,d)=>sbFetch(`plan_entries?id=eq.${id}`,{method:'PATCH',body:JSON.stringify(d)}),
-  deletePlanEntry:(id)=>sbFetch(`plan_entries?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
-  getAnchors:()=>sbFetch(`balance_anchors?user_id=eq.${currentUser.id}&order=month_key.asc`),
-  upsertAnchor:(d)=>sbFetch('balance_anchors',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=representation'},body:JSON.stringify({...d,user_id:currentUser.id})}),
-  deleteAnchor:(id)=>sbFetch(`balance_anchors?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
   deleteInstallmentsAfter:(group,afterNo)=>sbFetch(`expenses?installment_group=eq.${group}&installment_no=gt.${afterNo}&select=id`,{method:'DELETE'}),
   getSplitGroups:()=>sbFetch('split_groups?order=id.desc'),
   insertSplitGroup:(name)=>sbFetch('split_groups',{method:'POST',body:JSON.stringify({name,created_by:currentUser.id})}),
@@ -340,8 +331,6 @@ const api={
 };
 
 let categories=[], months=[], currentMonthKey='', viewMonthKey='', expenses=[], currentTab='home', currentCatIdx=0, budgetTransfers=[], cards=[], rollovers=[], futureMonthKeys=[];
-let anchors=[], planEntries=[], histView='hist', planMonths=12, planOpenGroups={};
-function isPlanningOn(){ return localStorage.getItem('gc-planning')==='1'; }
 let subscription=null, userPlan='free';
 let splitGroups=[], pendingShares=[], acceptedShares=[], sharedOutMap={}, pendingSplitInvites=[], acceptedGroupIds=new Set(), friends=[];
 let myProfile=null, profilesById={};
@@ -424,10 +413,23 @@ function parseNum(s){
 }
 function moneyKey(el){ el.value=el.value.replace(/[^0-9.,]/g,''); }
 
-function baseBudget(cat, monthKey){
+function monthOverride(cat, monthKey){
+  const mb=cat&&cat.month_budgets?cat.month_budgets[monthKey]:null;
+  if(mb!=null&&!isNaN(parseFloat(mb))) return parseFloat(mb);
   const m=months.find(x=>x.key===monthKey);
-  const ov=m&&m.budgets?m.budgets[cat.id]:null;
-  return (ov!=null&&!isNaN(parseFloat(ov)))?parseFloat(ov):parseFloat(cat.budget);
+  const legado=m&&m.budgets?m.budgets[cat.id]:null;
+  return (legado!=null&&!isNaN(parseFloat(legado)))?parseFloat(legado):null;
+}
+function baseBudget(cat, monthKey){
+  const ov=monthOverride(cat,monthKey);
+  return ov!=null?ov:parseFloat(cat.budget);
+}
+async function setMonthBudget(catId, monthKey, valor){
+  const cat=categories.find(c=>c.id===catId); if(!cat) return;
+  const mb={...(cat.month_budgets||{})};
+  if(valor==null) delete mb[monthKey]; else mb[monthKey]=valor;
+  await api.updateCategory(catId,{month_budgets:mb});
+  cat.month_budgets=mb;
 }
 function rolloverAmount(catId, monthKey){
   return rollovers.filter(r=>r.cat_id===catId&&r.to_month===monthKey)
@@ -436,10 +438,7 @@ function rolloverAmount(catId, monthKey){
 function effBudget(cat, monthKey){
   return Math.round((baseBudget(cat,monthKey)+rolloverAmount(cat.id,monthKey))*100)/100;
 }
-function hasOverride(cat, monthKey){
-  const m=months.find(x=>x.key===monthKey);
-  return !!(m&&m.budgets&&m.budgets[cat.id]!=null);
-}
+function hasOverride(cat, monthKey){ return monthOverride(cat,monthKey)!=null; }
 
 let expenseNames=[], acResults=[];
 
@@ -472,11 +471,6 @@ function openAccountModal(){
       <span class="theme-row-label"><i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}</span>
       <label class="switch"><input type="checkbox" id="theme-switch" ${isLight?'checked':''} onchange="toggleTheme();syncThemeRow()"><span class="switch-track"><span class="switch-thumb"></span></span></label>
     </div>
-    <div class="theme-row">
-      <span class="theme-row-label"><i class="fa-solid fa-chart-line" aria-hidden="true"></i> Planejamento futuro</span>
-      <label class="switch"><input type="checkbox" id="planning-switch" ${isPlanningOn()?'checked':''} onchange="togglePlanning()"><span class="switch-track"><span class="switch-thumb"></span></span></label>
-    </div>
-    ${isPlanningOn()?`<button class="btn-secondary" onclick="openPlanEntries()"><i class="fa-solid fa-calendar-check" aria-hidden="true"></i> O que entra e sai</button>`:''}
     <button class="btn-secondary" onclick="openCards()"><i class="fa-solid fa-credit-card" aria-hidden="true"></i> Meus cartões</button>
     <button class="btn-secondary" onclick="openPaywall('Planos e assinatura')"><i class="fa-solid fa-crown" aria-hidden="true"></i> Ver planos</button>
     <button class="btn-secondary" onclick="_closeModal();showTutorial(true)"><i class="fa-solid fa-circle-question" aria-hidden="true"></i> Ver tutorial</button>
@@ -632,8 +626,6 @@ async function init(){
     budgetTransfers=await api.getBudgetTransfers(currentMonthKey).catch(()=>[]);
     rollovers=await api.getRollovers(viewMonthKey).catch(()=>[]);
     cards=await api.getCards().catch(()=>[]);
-    anchors=await api.getAnchors().catch(()=>[]);
-    if(isPlanningOn()) planEntries=await api.getPlanEntries().catch(()=>[]);
     refreshFutureMonths();
     applyAutoRollover();
     saveCache();
@@ -1212,7 +1204,6 @@ function render(){
   const isNow=viewMonthKey===currentMonthKey;
   document.getElementById('fab').style.display=(currentTab==='home'||currentTab==='categorias')?'flex':'none';
   const el=document.getElementById('content');
-  if(currentTab!=='historico') document.body.classList.remove('plan-wide');
   if(currentTab==='home') renderHome(el);
   else if(currentTab==='categorias') renderCategorias(el);
   else if(currentTab==='historico') renderHistorico(el);
@@ -1242,7 +1233,7 @@ function renderHome(el){
       </div></div>`;
     return;
   }
-  if(currentCatIdx>=homeCategories().length) currentCatIdx=0;
+  if(currentCatIdx>=categories.length) currentCatIdx=0;
 
   const days=trialDaysRemaining();
   const trialBannerHtml=days>0&&days<=3?`<div style="padding:8px 20px 0"><div class="trial-banner" style="margin:0"><span>Seu acesso completo termina em <strong>${days} ${days===1?'dia':'dias'}</strong>.</span><button onclick="openPaywall('Continue com seus relatórios')">Ver Pro</button></div></div>`:'';
@@ -1250,8 +1241,7 @@ function renderHome(el){
   const isPast=viewMonthKey<currentMonthKey;
   const rolloverBannerHtml=isPast?`<div style="padding:8px 20px 0"><div class="trial-banner" style="margin:0;border-color:var(--accent-line);background:var(--accent-soft)"><span>Mês encerrado. Levar as sobras e estouros para <strong>${monthLabel(nextMonthKey(viewMonthKey))}</strong>?</span><button onclick="openRolloverMonth()">Levar</button></div></div>`:'';
 
-  const homeCats=homeCategories();
-  const slidesHtml = homeCats.map((cat,i)=>buildSlide(cat,isNow)).join('');
+  const slidesHtml = categories.map((cat,i)=>buildSlide(cat,isNow)).join('');
 
   el.innerHTML=`<div id="home-content" style="display:flex;flex-direction:column;height:100%">
     ${pendingSharesHtml}
@@ -1260,7 +1250,7 @@ function renderHome(el){
     ${rolloverBannerHtml}
     ${trialBannerHtml}
     <div class="cat-chips" id="cat-chips">
-      ${homeCats.map((c,i)=>`<button class="cat-chip${i===currentCatIdx?' active':''}" data-i="${i}" onclick="goToSlide(${i})">${escapeHtml(c.name)}</button>`).join('')}
+      ${categories.map((c,i)=>`<button class="cat-chip${i===currentCatIdx?' active':''}" data-i="${i}" onclick="goToSlide(${i})">${escapeHtml(c.name)}</button>`).join('')}
     </div>
     <div class="cat-carousel-wrap" id="carousel-wrap">
       <div class="cat-carousel" id="cat-carousel" style="transform:translateX(-${currentCatIdx*100}%)">
@@ -1304,7 +1294,7 @@ function buildSlide(cat, isNow){
       </div>`:'';
     return `<div class="expense-item">
     <div class="expense-left">
-      <div class="expense-name">${e.recurring?`<i class="fa-solid fa-arrows-rotate" style="font-size:10px;color:var(--accent-text);margin-right:5px" title="Recorrente" aria-hidden="true"></i>`:''}${e.installment_total?`<i class="fa-solid fa-credit-card" style="font-size:10px;color:var(--accent-text);margin-right:5px" title="Cartão" aria-hidden="true"></i>`:''}${escapeHtml(e.name)}${e.installment_total>1?`<span style="font-size:10px;color:var(--text3);font-weight:600;margin-left:5px">(${e.installment_no}/${e.installment_total})</span>`:''}${e.card_id&&cardLabel(e.card_id)?`<span style="font-size:10px;color:var(--text2);background:var(--surface2);border-radius:100px;padding:1px 7px;margin-left:5px;white-space:nowrap;display:inline-block">${escapeHtml(cardLabel(e.card_id))}</span>`:''}${byLabel}${e.image_url?`<span class="exp-receipt-dot" onclick="event.stopPropagation();viewReceipt('${e.id}')" title="Ver comprovante"><i class="fa-solid fa-image" aria-hidden="true"></i></span>`:''}${e.notes?`<span class="exp-receipt-dot" onclick="event.stopPropagation();openExpenseNote('${e.id}')" title="Ver observações"><i class="fa-solid fa-barcode" aria-hidden="true"></i></span>`:''}</div>
+      <div class="expense-name">${e.recurring?`<i class="fa-solid fa-arrows-rotate" style="font-size:10px;color:var(--accent-text);margin-right:5px" title="Recorrente" aria-hidden="true"></i>`:''}${e.installment_total?`<i class="fa-solid fa-credit-card" style="font-size:10px;color:var(--accent-text);margin-right:5px" title="Cartão" aria-hidden="true"></i>`:''}${escapeHtml(e.name)}${e.installment_total>1?`<span style="font-size:10px;color:var(--text3);font-weight:600;margin-left:5px">(${e.installment_no}/${e.installment_total})</span>`:''}${e.card_id&&cardLabel(e.card_id)?`<span style="font-size:10px;color:var(--text2);background:var(--surface2);border-radius:100px;padding:1px 7px;margin-left:5px;white-space:nowrap;display:inline-block">${escapeHtml(cardLabel(e.card_id))}</span>`:''}${byLabel}${e.image_url?`<span class="exp-receipt-dot" onclick="event.stopPropagation();viewReceipt('${e.id}')" title="Ver comprovante"><i class="fa-solid fa-image" aria-hidden="true"></i></span>`:''}</div>
       <div class="expense-date">${new Date(e.date+'T12:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'})}</div>
     </div>
     <div class="expense-right">
@@ -1399,7 +1389,7 @@ function closeMonthBtnHtml(){
 }
 
 function goToSlide(i){
-  if(i<0||i>=homeCategories().length) return;
+  if(i<0||i>=categories.length) return;
   vib(5);
   currentCatIdx=i;
   const carousel=document.getElementById('cat-carousel');
@@ -1448,7 +1438,7 @@ function renderCategorias(el){
       ${owned?'<div class="drag-handle" title="Arrastar"><i class="fa-solid fa-grip-vertical" aria-hidden="true"></i></div>':'<div class="drag-handle" style="opacity:.25;cursor:default" title="Compartilhada"><i class="fa-solid fa-grip-vertical" aria-hidden="true"></i></div>'}
       <div class="cat-manage-info">
         <div class="cat-manage-name">${escapeHtml(cat.name)}${!owned?`<span style="font-size:10px;color:var(--accent-text);background:var(--accent-soft);border-radius:100px;padding:1px 7px;margin-left:6px;font-weight:600">${perm==='edit'?'editar':'leitura'}</span>`:''}</div>
-        <div class="cat-manage-budget">${brl(cat.budget)}/mês${cat.group_name?` · ${escapeHtml(cat.group_name)}`:''}${cat.show_home===false?' · <i class="fa-solid fa-eye-slash" title="Não aparece no Início" aria-hidden="true"></i> só no plano':''}${isPlanningOn()&&cat.show_plan===false?' · fora do plano':''}</div>
+        <div class="cat-manage-budget">${brl(cat.budget)}/mês</div>
       </div>
       <div style="display:flex;gap:8px">
         ${owned?`<div class="icon-btn" onclick="openEditCategory('${cat.id}')"><i class="fa-solid fa-pen" aria-label="Editar"></i></div>`:''}
@@ -1523,338 +1513,14 @@ async function reorderCats(srcId, targetId){
   renderCategorias(document.getElementById('content'));
 }
 
-async function renderPlanning(el){
-  el.innerHTML=`<div class="plan-wrap">${histSegHtml()}<div class="loading"><div class="spinner"></div>Montando projecao...</div></div>`;
-  let allExps=[];
-  try{ allExps=await api.getExpensesFrom(projectionStart())||[]; }catch{}
-
-  if(planPrecisaSetup()){ el.innerHTML=`<div class="plan-wrap">${histSegHtml()}${planSetupHtml()}</div>`; return; }
-
-  const rows=projectMonths(planMonths,projectionStart(),allExps);
-  const hoje=rows.find(r=>r.mk===currentMonthKey)||rows[0];
-  const fim=rows[rows.length-1];
-  const anual=planMonths>24;
-  const tabela=anual?aggregateByYear(rows):rows;
-
-  el.innerHTML=`<div class="plan-wrap">
-    ${histSegHtml()}
-    <div class="plan-hero">
-      <div class="plan-hero-lbl">Voce tem hoje</div>
-      <div class="plan-hero-val ${hoje.saldoRealizado>=0?'pos':'neg'}">${brl(hoje.saldoRealizado)}</div>
-      <div class="plan-hero-row">
-        <span>Fecha ${monthLabel(hoje.mk)} com <strong class="${hoje.saldoFim>=0?'pos':'neg'}">${brl(hoje.saldoFim)}</strong></span>
-        <button class="plan-hero-fix" onclick="openBalanceAnchor('${hoje.mk}')"><i class="fa-solid fa-pen" aria-hidden="true"></i> corrigir</button>
-      </div>
-      <div class="plan-hero-far">Em <strong>${anual?fim.mk.split('-')[0]:monthLabel(fim.mk)}</strong> voce tera <strong class="${fim.saldoFim>=0?'pos':'neg'}">${brl(fim.saldoFim)}</strong></div>
-    </div>
-    ${planStatementHtml(rows)}
-    ${planTableHtml(tabela)}
-    <button class="btn-secondary plan-more" onclick="planVerMais()"><i class="fa-solid fa-chevron-down" aria-hidden="true"></i> Ver mais 12 meses</button>
-    <button class="btn-secondary" onclick="openPlanEntries()"><i class="fa-solid fa-repeat" aria-hidden="true"></i> O que entra e sai todo mes</button>
-  </div>`;
-}
-function planVerMais(){ planMonths+=12; vib(5); render(); }
-function planPrecisaSetup(){ return !anchors.length || !planEntries.some(e=>e.kind==='in'); }
-function planSetupHtml(){
-  const temSaldo=anchors.length>0;
-  const temRenda=planEntries.some(e=>e.kind==='in');
-  const passo=(n,ok,titulo,valor,campo,fn)=>`<div class="plan-step${ok?' done':''}">
-      <span class="plan-step-n">${ok?'<i class="fa-solid fa-check" aria-hidden="true"></i>':n}</span>
-      <div class="plan-step-main">
-        <div class="plan-step-t">${titulo}</div>
-        ${ok?`<div class="plan-step-v">${valor}</div>`:`<div class="plan-step-form">
-          <input class="form-input" id="${campo}" type="text" inputmode="decimal" placeholder="0,00" oninput="moneyKey(this)"/>
-          <button class="btn-primary" onclick="${fn}()">Salvar</button>
-        </div>`}
-      </div>
-    </div>`;
-  return `<div class="plan-setup">
-    <div class="plan-setup-ico"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i></div>
-    <div class="plan-setup-title">Duas perguntas e pronto</div>
-    <div class="plan-setup-copy">Com isso o app ja projeta seu saldo para os proximos meses. Depois voce refina no seu ritmo.</div>
-    ${passo(1,temSaldo,'Quanto voce tem hoje?',temSaldo?brl(anchors[anchors.length-1].balance):'','f-setup-saldo','salvarSetupSaldo')}
-    ${passo(2,temRenda,'Quanto entra por mes?',temRenda?brl(planEntries.find(e=>e.kind==='in').value):'','f-setup-renda','salvarSetupRenda')}
-  </div>`;
-}
-async function salvarSetupSaldo(){
-  const v=parseNum(document.getElementById('f-setup-saldo').value);
-  if(isNaN(v)){ showToast('Informe um valor.','error'); return; }
-  try{
-    await api.upsertAnchor({month_key:currentMonthKey,balance:v,note:'Saldo informado no inicio'});
-    anchors=await api.getAnchors()||[];
-    vib(12); render();
-  }catch{ showToast('Erro ao salvar. Rode o setup-planejamento.sql.','error'); }
-}
-async function salvarSetupRenda(){
-  const v=parseNum(document.getElementById('f-setup-renda').value);
-  if(isNaN(v)||v<=0){ showToast('Informe um valor.','error'); return; }
-  try{
-    await api.insertPlanEntry({kind:'in',name:'Renda mensal',value:v,cat_id:null,
-      schedule:'monthly',start_month:currentMonthKey,end_month:null,count:null,
-      month_values:{},barcode:null,due_day:null,position:0});
-    planEntries=await api.getPlanEntries()||[];
-    vib(12); render();
-  }catch{ showToast('Erro ao salvar. Rode o setup-planejamento.sql.','error'); }
-}
-function planStatementHtml(rows){
-  const win=rows;
-  const body=win.map(r=>{
-    const evs=[];
-    planEntries.filter(e=>e.kind==='in'&&entryAppliesTo(e,r.mk)).forEach(e=>{
-      evs.push({day:e.due_day||1,name:e.name,val:entryValueFor(e,r.mk),kind:'in',id:e.id,mk:r.mk});
-    });
-    Object.keys(r.porCategoria).forEach(cid=>{
-      const pc=r.porCategoria[cid];
-      pc.itens.forEach(it=>evs.push({day:it.dueDay||1,name:it.name,val:-it.value,kind:'out',
-        itemId:it.itemId,paid:it.paid,expenseId:it.expenseId,barcode:it.barcode,inst:it.inst,mk:r.mk}));
-      pc.avulsos.forEach(a=>evs.push({day:1,name:a.name,val:-a.value,kind:'out',paid:a.paid,fixed:true,mk:r.mk}));
-      if(!pc.driven&&pc.val>0){
-        const rest=Math.round((pc.val-pc.pago)*100)/100;
-        if(rest>0.004) evs.push({day:28,name:`${pc.name} (previsto)`,val:-rest,kind:'est',fixed:true,mk:r.mk});
-      }
-    });
-    evs.sort((a,b)=>a.day-b.day||(b.kind==='in')-(a.kind==='in'));
-    let run=r.saldoIni;
-    const lines=evs.map(ev=>{
-      run=Math.round((run+ev.val)*100)/100;
-      const act=ev.itemId?`<button class="pay-chk${ev.paid?' on':''}" onclick="togglePlannedPaid('${ev.itemId}','${ev.mk}',${ev.expenseId?`'${ev.expenseId}'`:'null'})" title="${ev.paid?'Desmarcar':'Marcar como pago'}"><i class="fa-solid fa-${ev.paid?'check':'circle-notch'}" aria-hidden="true"></i></button>`:'<span class="stmt-nodot"></span>';
-      const bc=ev.barcode?`<button class="stmt-bar" onclick="copyPlanBarcode('${ev.itemId}')" title="Copiar codigo de barras"><i class="fa-solid fa-barcode" aria-hidden="true"></i></button>`:'';
-      return `<div class="stmt-line${ev.paid?' paid':''}${ev.kind==='est'?' est':''}">
-        <span class="stmt-day">${String(ev.day).padStart(2,'0')}</span>
-        <span class="stmt-name">${act}${escapeHtml(ev.name)}${ev.inst?`<span class="stmt-inst">${ev.inst}</span>`:''}${bc}</span>
-        <span class="stmt-val ${ev.val>=0?'pos':'neg'}">${ev.val>=0?'+':''}${brl(Math.abs(ev.val))}</span>
-        <span class="stmt-run">${brl(run)}</span>
-      </div>`;
-    }).join('');
-    return `<div class="stmt-month">
-      <div class="stmt-head"><span>${monthLabel(r.mk)}</span><span class="${r.saldoFim>=0?'pos':'neg'}">${brl(r.saldoFim)}</span></div>
-      ${lines||'<div class="stmt-empty">Nada previsto neste mes.</div>'}
-    </div>`;
-  }).join('');
-  return `<div class="stmt-wrap">${body}</div>`;
-}
-async function copyPlanBarcode(id){
-  const e=planEntries.find(x=>x.id===id); if(!e||!e.barcode) return;
-  let ok=false;
-  try{ await navigator.clipboard.writeText(e.barcode); ok=true; }
-  catch{
-    try{ const ta=document.createElement('textarea'); ta.value=e.barcode;
-      ta.style.cssText='position:fixed;opacity:0'; document.body.appendChild(ta); ta.select();
-      ok=document.execCommand('copy'); ta.remove(); }catch{}
-  }
-  vib(8); showToast(ok?'Codigo copiado!':'Nao foi possivel copiar.',ok?'success':'error');
-}
-function togglePlanGroup(key){ planOpenGroups[key]=!planOpenGroups[key]; render(); }
-function planGroupNames(rows){
-  const set=[];
-  rows.forEach(r=>Object.keys(r.porGrupo).forEach(g=>{ if(!set.includes(g)) set.push(g); }));
-  return set.sort((a,b)=>a===NO_GROUP?1:b===NO_GROUP?-1:a.localeCompare(b));
-}
-function planCardsHtml(rows){
-  return `<div class="proj-cards">${rows.map(r=>{
-    const open=!!planOpenGroups[r.mk];
-    const label=r.mk.length===4?r.mk:monthLabel(r.mk);
-    return `<div class="proj-card${r.isPast?' past':''}">
-      <div class="proj-card-head" onclick="togglePlanGroup('${r.mk}')">
-        <span class="proj-card-month">${label}${r.anchored?' <i class="fa-solid fa-thumbtack" style="font-size:9px;opacity:.7" title="Saldo ajustado"></i>':''}</span>
-        <i class="fa-solid fa-chevron-${open?'up':'down'}" style="font-size:11px;color:var(--text3)" aria-hidden="true"></i>
-      </div>
-      <div class="plan-row"><span>Saldo inicial</span><span>${brl(r.saldoIni)}</span></div>
-      <div class="plan-row"><span>+ Receitas</span><span class="pos">${brl(r.receitas)}</span></div>
-      <div class="plan-row"><span>− Despesas</span><span class="neg">${brl(r.despesas)}</span></div>
-      <div class="plan-row"><span>= Sobra do mês</span><span class="${r.sobra>=0?'pos':'neg'}">${brl(r.sobra)}</span></div>
-      <div class="plan-row total"><span>Saldo acumulado</span><span class="${r.saldoFim>=0?'pos':'neg'}">${brl(r.saldoFim)}</span></div>
-      ${open?`<div class="plan-groups">${Object.values(r.porCategoria).filter(pc=>pc.val>0||pc.itens.length).map(pc=>{
-        const cid=Object.keys(r.porCategoria).find(k=>r.porCategoria[k]===pc);
-        return `<div class="plan-row sub"><span>${escapeHtml(pc.name)}</span><span>${brl(pc.val)}</span></div>
-        ${pc.itens.map(it=>`<div class="plan-row item"><span><button class="pay-chk${it.paid?' on':''}" onclick="togglePlannedPaid('${it.itemId}','${r.mk}',${it.expenseId?`'${it.expenseId}'`:'null'})"><i class="fa-solid fa-${it.paid?'check':'circle-notch'}" aria-hidden="true"></i></button> ${escapeHtml(it.name)}</span><span class="${it.paid?'paid-val':''}" onclick="editItemMonthValue('${it.itemId}','${r.mk}')">${brl(it.value)}</span></div>`).join('')}`;
-      }).join('')}</div>`:''}
-    </div>`;
-  }).join('')}</div>`;
-}
-function planTableHtml(rows){
-  const groups=planGroupNames(rows);
-  const cell=(v,cls)=>`<td class="${cls||''}">${brl(v)}</td>`;
-  const owned=categories.filter(c=>c.user_id===currentUser.id);
-  return `<div class="plan-table-wrap">
-    <table class="plan-table">
-      <thead><tr><th class="sticky-col">&nbsp;</th>${rows.map(r=>`<th>${r.mk.length===4?r.mk:monthLabel(r.mk)}</th>`).join('')}</tr></thead>
-      <tbody>
-        <tr><td class="sticky-col">Saldo inicial</td>${rows.map(r=>cell(r.saldoIni)).join('')}</tr>
-        <tr><td class="sticky-col">Receitas</td>${rows.map(r=>cell(r.receitas,'pos')).join('')}</tr>
-        ${groups.map(g=>{
-          const cats=owned.filter(c=>catGroup(c)===g);
-          const merged=cats.length===1&&String(cats[0].name).toLowerCase()===String(g).toLowerCase();
-          const open=merged?!!planOpenGroups['c:'+cats[0].id]:!!planOpenGroups['g:'+g];
-          const gKey=merged?('c:'+cats[0].id):('g:'+escapeHtml(g).replace(/'/g,''));
-          return `<tr class="grp" onclick="togglePlanGroup('${gKey}')">
-            <td class="sticky-col"><i class="fa-solid fa-caret-${open?'down':'right'}" style="width:10px" aria-hidden="true"></i> ${escapeHtml(g)}${merged?`<button class="plan-item-btn" onclick="event.stopPropagation();openPlanEntries('${cats[0].id}')" title="Gerenciar compromissos"><i class="fa-solid fa-list-ul" aria-hidden="true"></i></button>`:''}</td>
-            ${rows.map(r=>cell(r.porGrupo[g]||0,'neg')).join('')}
-          </tr>
-          ${open&&String(rows[0].mk).length>4?cats.map(c=>{
-            const copen=merged?true:!!planOpenGroups['c:'+c.id];
-            const itemIds=[];
-            rows.forEach(r=>{ const pc=r.porCategoria&&r.porCategoria[c.id];
-              if(pc) pc.itens.forEach(it=>{ if(!itemIds.some(x=>x.id===it.itemId)) itemIds.push({id:it.itemId,name:it.name}); }); });
-            return `${merged?'':`<tr class="sub cat" onclick="togglePlanGroup('c:${c.id}')">
-            <td class="sticky-col"><i class="fa-solid fa-caret-${copen?'down':'right'}" style="width:10px;opacity:${itemIds.length?1:.25}" aria-hidden="true"></i> ${escapeHtml(c.name)}
-              <button class="plan-item-btn" onclick="event.stopPropagation();openPlanEntries('${c.id}')" title="Gerenciar compromissos"><i class="fa-solid fa-list-ul" aria-hidden="true"></i></button></td>
-            ${rows.map(r=>{
-              const pc=r.porCategoria?r.porCategoria[c.id]:null;
-              if(!pc) return `<td></td>`;
-              const editable=!r.isPast&&!pc.driven;
-              return `<td class="${editable?'editable':''}" ${editable?`onclick="event.stopPropagation();editPlanCell('${c.id}','${r.mk}')" title="Clique para planejar"`:''}>${brl(pc.val)}${!pc.driven&&pc.real>0&&pc.real<pc.plan?`<span class="cell-real">${brl(pc.real)} usado</span>`:''}</td>`;
-            }).join('')}
-          </tr>`}
-          ${copen?itemIds.map(ii=>`<tr class="sub item">
-            <td class="sticky-col">${escapeHtml(ii.name)}</td>
-            ${rows.map(r=>{
-              const pc=r.porCategoria?r.porCategoria[c.id]:null;
-              const it=pc?pc.itens.find(x=>x.itemId===ii.id):null;
-              if(!it) return `<td></td>`;
-              return `<td class="item-cell${it.paid?' paid':''}">
-                <button class="pay-chk${it.paid?' on':''}" onclick="togglePlannedPaid('${it.itemId}','${r.mk}',${it.expenseId?`'${it.expenseId}'`:'null'})" title="${it.paid?'Marcar como não pago':'Marcar como pago'}"><i class="fa-solid fa-${it.paid?'check':'circle-notch'}" aria-hidden="true"></i></button>
-                <span class="item-val" onclick="editItemMonthValue('${it.itemId}','${r.mk}')">${brl(it.value)}</span>
-              </td>`;
-            }).join('')}
-          </tr>`).join(''):''}`;}).join(''):''}`;
-        }).join('')}
-        <tr class="sep"><td class="sticky-col">Total despesas</td>${rows.map(r=>cell(r.despesas,'neg')).join('')}</tr>
-        <tr><td class="sticky-col">Sobra do mês</td>${rows.map(r=>cell(r.sobra,r.sobra>=0?'pos':'neg')).join('')}</tr>
-        <tr class="accum"><td class="sticky-col">Saldo acumulado</td>${rows.map(r=>cell(r.saldoFim,r.saldoFim>=0?'pos':'neg')).join('')}</tr>
-      </tbody>
-    </table>
-  </div>`;
-}
-async function togglePlannedPaid(itemId,mk,expenseId){
-  const item=planEntries.find(i=>i.id===itemId); if(!item) return;
-  if(!expenseId&&mk>currentMonthKey){ showToast('Isso ainda e previsao. Da baixa quando o mes chegar.','error'); return; }
-  try{
-    if(expenseId){
-      const res=await api.deleteExpense(expenseId);
-      if(!res||!res.length){ showToast('Não foi possível desmarcar.','error'); return; }
-      showToast('Desmarcado.','success');
-    }else{
-      await api.insertExpense({id:uid(),cat_id:item.cat_id,month_key:mk,name:item.name,
-        value:entryValueFor(item,mk),date:`${mk}-01`,paid:true,plan_entry_id:item.id,notes:item.barcode||null});
-      showToast('Marcado como pago.','success');
-    }
-    vib(10);
-    if(mk===viewMonthKey) expenses=await api.getExpenses(viewMonthKey);
-    render();
-  }catch(err){
-    const msg=String(err?.message||'');
-    if(/paid|plan_entry_id/i.test(msg)) showToast('Rode o SQL: ALTER TABLE expenses ADD COLUMN paid boolean, ADD COLUMN plan_entry_id uuid','error');
-    else showToast('Erro ao atualizar.','error');
-  }
-}
-function editItemMonthValue(itemId,mk){
-  const item=planEntries.find(i=>i.id===itemId); if(!item) return;
-  openModal(`<div class="modal-title">${escapeHtml(item.name)}</div>
-    <p class="modal-note">Valor previsto em <strong>${monthLabel(mk)}</strong>. Muda só neste mês — os outros seguem com o valor padrão de ${brl(item.value)}.</p>
-    <div class="form-group"><label class="form-label">Valor em ${monthLabel(mk)} (R$)</label>
-      <input class="form-input" id="f-item-mv" type="text" inputmode="decimal" value="${entryValueFor(item,mk)}" oninput="moneyKey(this)"/></div>
-    <button class="btn-primary" id="btn-item-mv" onclick="saveItemMonthValue('${itemId}','${mk}')">Salvar</button>
-    ${item.month_values&&item.month_values[mk]!=null?`<button class="btn-secondary" onclick="clearItemMonthValue('${itemId}','${mk}')">Voltar ao padrão (${brl(item.value)})</button>`:''}
-    <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
-}
-async function saveItemMonthValue(itemId,mk){
-  const item=planEntries.find(i=>i.id===itemId); if(!item) return;
-  const v=parseNum(document.getElementById('f-item-mv').value);
-  if(isNaN(v)||v<0){ showToast('Informe um valor válido.','error'); return; }
-  const btn=document.getElementById('btn-item-mv'); btn.disabled=true; btn.textContent='Salvando...';
-  try{
-    const mv={...(item.month_values||{}),[mk]:v};
-    await api.updatePlanEntry(itemId,{month_values:mv});
-    item.month_values=mv;
-    vib(10); _closeModal(); render(); showToast('Valor atualizado.','success');
-  }catch{ btn.disabled=false; btn.textContent='Salvar'; showToast('Erro ao salvar.','error'); }
-}
-async function clearItemMonthValue(itemId,mk){
-  const item=planEntries.find(i=>i.id===itemId); if(!item) return;
-  try{
-    const mv={...(item.month_values||{})}; delete mv[mk];
-    await api.updatePlanEntry(itemId,{month_values:mv});
-    item.month_values=mv;
-    _closeModal(); render(); showToast('Voltou ao valor padrão.','success');
-  }catch{ showToast('Erro ao atualizar.','error'); }
-}
-function editPlanCell(catId,mk){
-  const cat=categories.find(c=>c.id===catId); if(!cat) return;
-  const cur=plannedFor(cat,mk);
-  openModal(`<div class="modal-title">Planejar ${escapeHtml(cat.name)}</div>
-    <p class="modal-note">Quanto você espera gastar em <strong>${monthLabel(mk)}</strong>. O que for lançado vai consumindo esse valor.</p>
-    <div class="form-group"><label class="form-label">Valor planejado (R$)</label>
-      <input class="form-input" id="f-plan-val" type="text" inputmode="decimal" value="${cur}" oninput="moneyKey(this)"/></div>
-    <button class="btn-primary" id="btn-plan-val" onclick="savePlanCell('${catId}','${mk}')">Salvar</button>
-    <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
-}
-async function savePlanCell(catId,mk){
-  const v=parseNum(document.getElementById('f-plan-val').value);
-  if(isNaN(v)||v<0){ showToast('Informe um valor válido.','error'); return; }
-  const btn=document.getElementById('btn-plan-val'); btn.disabled=true; btn.textContent='Salvando...';
-  try{
-    if(!months.find(m=>m.key===mk)){ await api.insertMonth({key:mk,closed:false}); months=await api.getMonths(); }
-    const m=months.find(x=>x.key===mk);
-    const budgets={...(m.budgets||{}),[catId]:v};
-    await api.setMonthBudgets(mk,budgets);
-    m.budgets=budgets;
-    saveCache(); vib(12); _closeModal(); render();
-    showToast('Planejamento atualizado.','success');
-  }catch{ btn.disabled=false; btn.textContent='Salvar'; showToast('Erro ao salvar.','error'); }
-}
-function openBalanceAnchor(mk){
-  const anc=anchorFor(mk);
-  openModal(`<div class="modal-title">Ajustar saldo</div>
-    <p class="modal-note">Fixa o saldo geral em <strong>${monthLabel(mk)}</strong>. Use quando um valor pago foi diferente do previsto ou houve gasto fora do app. Os meses seguintes recalculam a partir daqui.</p>
-    <div class="form-group"><label class="form-label">Saldo em ${monthLabel(mk)} (R$)</label>
-      <input class="form-input" id="f-anchor-val" type="text" inputmode="decimal" value="${anc?anc.balance:''}" placeholder="0,00" oninput="moneyKey(this)"/></div>
-    <div class="form-group"><label class="form-label">Observação <span style="color:var(--text3);text-transform:none;letter-spacing:0">(opcional)</span></label>
-      <input class="form-input" id="f-anchor-note" maxlength="120" placeholder="Ex: conferido no extrato" value="${anc&&anc.note?escapeHtml(anc.note):''}"/></div>
-    <button class="btn-primary" id="btn-anchor" onclick="saveBalanceAnchor('${mk}')">Salvar saldo</button>
-    ${anc?`<button class="btn-secondary" onclick="removeBalanceAnchor('${anc.id}')">Remover ajuste</button>`:''}
-    <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
-}
-async function saveBalanceAnchor(mk){
-  const v=parseNum(document.getElementById('f-anchor-val').value);
-  const note=(document.getElementById('f-anchor-note').value||'').trim()||null;
-  if(isNaN(v)){ showToast('Informe um valor válido.','error'); return; }
-  const btn=document.getElementById('btn-anchor'); btn.disabled=true; btn.textContent='Salvando...';
-  try{
-    await api.upsertAnchor({month_key:mk,balance:v,note});
-    anchors=await api.getAnchors()||[];
-    vib(12); _closeModal(); render(); showToast('Saldo ajustado.','success');
-  }catch{ btn.disabled=false; btn.textContent='Salvar saldo'; showToast('Erro — confira se a tabela balance_anchors existe no Supabase.','error'); }
-}
-async function removeBalanceAnchor(id){
-  try{ await api.deleteAnchor(id); anchors=anchors.filter(a=>a.id!==id); _closeModal(); render(); showToast('Ajuste removido.','success'); }
-  catch{ showToast('Erro ao remover.','error'); }
-}
-function histSegHtml(){
-  if(!isPlanningOn()) return '';
-  return `<div class="dm-seg" id="hist-seg" style="margin-bottom:16px">
-    <button type="button" class="dm-seg-btn${histView==='hist'?' active':''}" onclick="setHistView('hist')">Histórico</button>
-    <button type="button" class="dm-seg-btn${histView==='plan'?' active':''}" onclick="setHistView('plan')">Planejamento</button>
-  </div>`;
-}
-function setHistView(v){
-  histView=v; vib(5);
-  render();
-}
-function syncPlanWide(){
-  document.body.classList.toggle('plan-wide',isPlanningOn()&&currentTab==='historico'&&histView==='plan');
-}
 function renderHistorico(el){
-  if(!isPlanningOn()) histView='hist';
-  syncPlanWide();
-  if(histView==='plan'){ renderPlanning(el); return; }
   if(!isPro()){
     const current=expenses.reduce((s,e)=>s+parseFloat(e.value),0);
     const totalBudget=categories.reduce((s,c)=>s+effBudget(c,currentMonthKey),0);
     const totalAvail=totalBudget-current;
     const totalPct=totalBudget>0?Math.min((current/totalBudget)*100,100):0;
     el.innerHTML=`<div style="padding:16px 20px calc(28px + var(--safe-bot))">
-      ${histSegHtml()}
+      
       <div class="month-title">${monthLabel(currentMonthKey)}</div>
       <div class="summary-card" style="margin:0 0 12px">
         <div class="summary-grid">
@@ -1868,13 +1534,13 @@ function renderHistorico(el){
     </div>`;
     return;
   }
-  el.innerHTML=`<div style="padding:16px 20px calc(28px + var(--safe-bot))">${histSegHtml()}<div class="loading"><div class="spinner"></div>Carregando...</div></div>`;
+  el.innerHTML=`<div style="padding:16px 20px calc(28px + var(--safe-bot))"><div class="loading"><div class="spinner"></div>Carregando...</div></div>`;
   renderHistoricoAsync(el);
 }
 async function renderHistoricoAsync(el){
   let allExps=[];
   try{ allExps=await api.getAllExpenses(); }
-  catch{ el.innerHTML=`<div style="padding:16px 20px calc(28px + var(--safe-bot))">${histSegHtml()}<div class="empty"><div class="empty-icon"><i class="fa-solid fa-triangle-exclamation"></i></div><div class="empty-text">Erro ao carregar histórico.</div></div></div>`; return; }
+  catch{ el.innerHTML=`<div style="padding:16px 20px calc(28px + var(--safe-bot))"><div class="empty"><div class="empty-icon"><i class="fa-solid fa-triangle-exclamation"></i></div><div class="empty-text">Erro ao carregar histórico.</div></div></div>`; return; }
 
   const byMonth={};
   allExps.forEach(e=>{ (byMonth[e.month_key]=byMonth[e.month_key]||[]).push(e); });
@@ -1982,7 +1648,7 @@ async function renderHistoricoAsync(el){
     });
     html+=`</div>`;
   }
-  el.innerHTML=`<div style="padding:16px 20px calc(28px + var(--safe-bot))">${histSegHtml()}${html||'<div class="empty"><div class="empty-icon"><i class="fa-regular fa-calendar-xmark"></i></div><div class="empty-text">Nenhum gasto registrado ainda.</div></div>'}</div>`;
+  el.innerHTML=`<div style="padding:16px 20px calc(28px + var(--safe-bot))">${html||'<div class="empty"><div class="empty-icon"><i class="fa-regular fa-calendar-xmark"></i></div><div class="empty-text">Nenhum gasto registrado ainda.</div></div>'}</div>`;
 }
 
 async function renderSplit(el){
@@ -2406,34 +2072,6 @@ function openAddExpense(catId){
     <button class="btn-primary" id="btn-save-exp" onclick="saveExpense(null)">Salvar</button>
     <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
 }
-function notesFieldHtml(val){
-  return `<div class="form-group"><label class="form-label">Observações <span style="color:var(--text3);text-transform:none;letter-spacing:0">(opcional)</span></label>
-    <textarea class="form-input" id="f-notes" rows="2" maxlength="600" placeholder="Código de barras do boleto, número do pedido, anotações…" style="resize:vertical;font-family:var(--font-body)">${escapeHtml(val||'')}</textarea>
-    <span class="field-hint">Fica salvo no lançamento e você copia com um toque depois.</span></div>`;
-}
-function openExpenseNote(expId){
-  const e=expenses.find(x=>x.id===expId); if(!e||!e.notes) return;
-  openModal(`<div class="modal-title">${escapeHtml(e.name)}</div>
-    <p class="modal-note">Observações deste lançamento.</p>
-    <div id="note-box" style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:14px;font-size:14px;line-height:1.5;word-break:break-all;white-space:pre-wrap;margin-bottom:16px">${escapeHtml(e.notes)}</div>
-    <button class="btn-primary" id="btn-copy-note" onclick="copyExpenseNote('${expId}')"><i class="fa-regular fa-copy" aria-hidden="true"></i> Copiar</button>
-    <button class="btn-secondary" onclick="_closeModal()">Fechar</button>`);
-}
-async function copyExpenseNote(expId){
-  const e=expenses.find(x=>x.id===expId); if(!e||!e.notes) return;
-  let ok=false;
-  try{ await navigator.clipboard.writeText(e.notes); ok=true; }
-  catch{
-    try{
-      const ta=document.createElement('textarea');
-      ta.value=e.notes; ta.style.cssText='position:fixed;opacity:0';
-      document.body.appendChild(ta); ta.select();
-      ok=document.execCommand('copy'); ta.remove();
-    }catch{}
-  }
-  vib(8);
-  showToast(ok?'Copiado!':'Não foi possível copiar.',ok?'success':'error');
-}
 function repeatFieldHtml(mode='none',installmentTotal='',installmentNo=1,valueMode='compra',isEdit=false,cardId=''){
   const thisMonthRow=isEdit?'':`<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--surface2);border-radius:10px;margin-bottom:6px">
       <input type="checkbox" id="f-installment-thismonth" checked onchange="onThisMonthToggle()" style="width:18px;height:18px;accent-color:var(--accent);flex-shrink:0"/>
@@ -2563,7 +2201,7 @@ async function saveExpense(expId){
     const newFile=document.getElementById('f-receipt')?.files?.[0];
     if(newFile){ btn.textContent='Enviando foto...'; try{ image_url=await getReceiptUrl(); }catch(upErr){ showToast(`Foto não enviada: ${upErr.message}`,'error'); } btn.textContent='Salvando...'; }
     const card_id=repeatMode==='installment'?(document.getElementById('f-card')?.value||null):null;
-    const payload={cat_id:catId,name,value,date:targetDate,recurring,image_url,installment_total,installment_no,installment_group,card_id,notes:expId?(expenses.find(x=>x.id===expId)?.notes||null):null};
+    const payload={cat_id:catId,name,value,date:targetDate,recurring,image_url,installment_total,installment_no,installment_group,card_id};
     if(expId) await api.updateExpense(expId,payload);
     else{
       await api.insertExpense({id:uid(),month_key:targetMonthKey,...payload});
@@ -2590,8 +2228,6 @@ async function saveExpense(expId){
       showToast('Falta a coluna no banco: ALTER TABLE expenses ADD COLUMN image_url text','error');
     }else if(/recurring/i.test(msg)){
       showToast('Rode o SQL: ALTER TABLE expenses ADD COLUMN recurring boolean DEFAULT false','error');
-    }else if(/notes/i.test(msg)){
-      showToast('Rode o SQL: ALTER TABLE expenses ADD COLUMN notes text','error');
     }else if(/installment/i.test(msg)){
       showToast('Rode o SQL: ALTER TABLE expenses ADD COLUMN installment_no integer, ADD COLUMN installment_total integer, ADD COLUMN installment_group text','error');
     }else{
@@ -2771,45 +2407,6 @@ async function openActivityLog(catId){
     <button class="btn-secondary" onclick="_closeModal()">Fechar</button>`;
 }
 
-const NO_GROUP='Sem grupo';
-function showsOnHome(c){ return c.show_home!==false; }
-function showsOnPlan(c){ return c.show_plan!==false; }
-function homeCategories(){ return categories.filter(showsOnHome); }
-function catGroup(cat){ return (cat&&cat.group_name&&String(cat.group_name).trim())||NO_GROUP; }
-function allGroups(){
-  const seen=[];
-  categories.forEach(c=>{ const g=catGroup(c); if(g!==NO_GROUP&&!seen.includes(g)) seen.push(g); });
-  return seen.sort((a,b)=>a.localeCompare(b));
-}
-function groupFieldHtml(cat){
-  const cur=cat&&cat.group_name?String(cat.group_name):'';
-  const sugg=[...new Set([...allGroups(),'Contábeis','Cartões','Negociações','Gastos gerais'])];
-  return `<div class="form-group"><label class="form-label">Grupo <span style="color:var(--text3);text-transform:none;letter-spacing:0">(opcional)</span></label>
-    <input class="form-input" id="f-cgroup" list="cgroup-list" maxlength="40" autocomplete="off" placeholder="Ex: Gastos gerais" value="${escapeHtml(cur)}"/>
-    <datalist id="cgroup-list">${sugg.map(g=>`<option value="${escapeHtml(g)}"></option>`).join('')}</datalist>
-    <span class="field-hint">Usado para somar as categorias por bloco no Planejamento.</span></div>`;
-}
-function visibilityFieldHtml(cat){
-  const home=!cat||cat.show_home!==false;
-  const plan=!cat||cat.show_plan!==false;
-  return `<div class="form-group"><label class="form-label">Onde esta categoria aparece</label>
-    <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--surface2);border-radius:10px;margin-bottom:6px">
-      <input type="checkbox" id="f-cshome" ${home?'checked':''} style="width:18px;height:18px;accent-color:var(--accent);flex-shrink:0"/>
-      <label for="f-cshome" style="font-size:13px;cursor:pointer;flex:1">Na tela Inicio <span style="color:var(--text2);font-size:12px">(no carrossel do dia a dia)</span></label>
-    </div>
-    ${isPlanningOn()?`<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--surface2);border-radius:10px">
-      <input type="checkbox" id="f-csplan" ${plan?'checked':''} style="width:18px;height:18px;accent-color:var(--accent);flex-shrink:0"/>
-      <label for="f-csplan" style="font-size:13px;cursor:pointer;flex:1">No Planejamento <span style="color:var(--text2);font-size:12px">(entra na projecao de saldo)</span></label>
-    </div>`:''}
-    <span class="field-hint">Desmarque a Inicio para uma categoria que so existe no planejamento. Ela continua aqui em Categorias.</span></div>`;
-}
-function deferFieldHtml(cat){
-  if(!isPlanningOn()) return '';
-  return `<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--surface2);border-radius:10px;margin-bottom:16px">
-      <input type="checkbox" id="f-cdefer" ${cat&&cat.plan_defer?'checked':''} style="width:18px;height:18px;accent-color:var(--accent);flex-shrink:0"/>
-      <label for="f-cdefer" style="font-size:13px;cursor:pointer;flex:1">Pago no cartao <span style="color:var(--text2);font-size:12px">(o que voce gasta neste mes so sai do saldo no mes seguinte)</span></label>
-    </div>`;
-}
 function rolloverFieldsHtml(cat){
   const pos=cat?.rollover_positive, neg=cat?.rollover_negative;
   return `<div class="form-group"><label class="form-label">Saldo do mês anterior</label>
@@ -2830,9 +2427,6 @@ function openAddCategory(){
       <input class="form-input" id="f-cname" placeholder="Ex: Academia" autocomplete="off"/></div>
     <div class="form-group"><label class="form-label">Orçamento mensal (R$)</label>
       <input class="form-input" id="f-cbudget" type="text" inputmode="decimal" placeholder="0,00" oninput="moneyKey(this)"/></div>
-    ${groupFieldHtml(null)}
-    ${visibilityFieldHtml(null)}
-    ${deferFieldHtml(null)}
     ${rolloverFieldsHtml(null)}
     <button class="btn-primary" id="btn-save-cat" onclick="saveCategory(null)">Salvar</button>
     <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
@@ -2845,9 +2439,6 @@ function openEditCategory(catId){
       <input class="form-input" id="f-cname" value="${cat.name}" autocomplete="off"/></div>
     <div class="form-group"><label class="form-label">Orçamento mensal (R$)</label>
       <input class="form-input" id="f-cbudget" type="text" inputmode="decimal" value="${cat.budget}" oninput="moneyKey(this)"/></div>
-    ${groupFieldHtml(cat)}
-    ${visibilityFieldHtml(cat)}
-    ${deferFieldHtml(cat)}
     ${rolloverFieldsHtml(cat)}
     <button class="btn-primary" id="btn-save-cat" onclick="saveCategory('${catId}')">Salvar</button>
     <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
@@ -2856,18 +2447,14 @@ function openEditCategory(catId){
 async function saveCategory(catId){
   const name=document.getElementById('f-cname').value.trim();
   const budget=parseNum(document.getElementById('f-cbudget').value);
-  const group_name=(document.getElementById('f-cgroup')?.value||'').trim()||null;
-  const plan_defer=!!document.getElementById('f-cdefer')?.checked;
-  const sh=document.getElementById('f-cshome'); const show_home=sh?!!sh.checked:true;
-  const sp=document.getElementById('f-csplan'); const show_plan=sp?!!sp.checked:(document.getElementById('f-cshome')?true:true);
   const rollover_positive=!!document.getElementById('f-roll-pos')?.checked;
   const rollover_negative=!!document.getElementById('f-roll-neg')?.checked;
   if(!name||isNaN(budget)||budget<=0){ showToast('Preencha todos os campos.','error'); return; }
   if(!catId&&!isPro()&&categories.length>=CONFIG.FREE_MAX_CATEGORIES){ openPaywall('Limite de categorias atingido'); return; }
   const btn=document.getElementById('btn-save-cat'); btn.disabled=true; btn.textContent='Salvando...';
   try{
-    if(catId){ await api.updateCategory(catId,{name,budget,group_name,plan_defer,show_home,show_plan,rollover_positive,rollover_negative}); logActivity(catId,'cat_edit',name,budget); }
-    else{ const nid=uid(); await api.insertCategory({id:nid,name,budget,position:categories.length,group_name,plan_defer,show_home,show_plan,rollover_positive,rollover_negative}); logActivity(nid,'cat_create',name,budget); }
+    if(catId){ await api.updateCategory(catId,{name,budget,rollover_positive,rollover_negative}); logActivity(catId,'cat_edit',name,budget); }
+    else{ const nid=uid(); await api.insertCategory({id:nid,name,budget,position:categories.length,rollover_positive,rollover_negative}); logActivity(nid,'cat_create',name,budget); }
     categories=await api.getCategories();
     saveCache();
     vib(15);
@@ -2966,9 +2553,7 @@ function onFab(){
   vib();
   if(currentTab==='categorias'){ openAddCategory(); return; }
   if(!categories.length){ showToast('Crie uma categoria primeiro.','error'); return; }
-  const hc=homeCategories();
-  const cat=hc[currentCatIdx]||hc[0];
-  if(!cat){ showToast('Nenhuma categoria aparece no Início.','error'); return; }
+  const cat=categories[currentCatIdx]||categories[0];
   if(cat.user_id!==currentUser.id&&sharePerm(cat.id)!=='edit'){ showToast('Esta categoria é somente leitura.','error'); return; }
   openAddExpense(cat.id);
 }
@@ -3080,26 +2665,20 @@ function openMonthOverride(catId){
 async function saveMonthOverride(catId){
   const v=parseNum(document.getElementById('f-ovbudget').value);
   if(isNaN(v)||v<=0){ showToast('Informe um valor válido.','error'); return; }
-  const m=months.find(x=>x.key===currentMonthKey); if(!m) return;
-  const budgets={...(m.budgets||{}), [catId]:v};
   const btn=document.getElementById('btn-ov'); btn.disabled=true; btn.textContent='Salvando...';
   try{
-    await api.setMonthBudgets(currentMonthKey, budgets);
-    m.budgets=budgets;
+    await setMonthBudget(catId, currentMonthKey, v);
     saveCache(); vib(15);
     _closeModal(); render(); showToast('Orçamento do mês ajustado!','success');
   }catch(e){
     btn.disabled=false; btn.textContent='Salvar ajuste do mês';
-    showToast('Erro — confira se a coluna "budgets" existe no Supabase.','error');
+    showToast('Erro — rode o SQL: ALTER TABLE categories ADD COLUMN month_budgets jsonb','error');
   }
 }
 
 async function revertMonthOverride(catId){
-  const m=months.find(x=>x.key===currentMonthKey); if(!m||!m.budgets) return;
-  const budgets={...m.budgets}; delete budgets[catId];
   try{
-    await api.setMonthBudgets(currentMonthKey, budgets);
-    m.budgets=budgets;
+    await setMonthBudget(catId, currentMonthKey, null);
     saveCache(); vib(10);
     _closeModal(); render(); showToast('Voltou ao orçamento padrão.','success');
   }catch{ showToast('Erro ao reverter.','error'); }
@@ -3157,12 +2736,10 @@ async function saveTransferBudget(){
   const fromCat=categories.find(c=>c.id===fromId), toCat=categories.find(c=>c.id===toId);
   const newFromBudget=Math.round((baseBudget(fromCat,currentMonthKey)-amount)*100)/100;
   const newToBudget=Math.round((baseBudget(toCat,currentMonthKey)+amount)*100)/100;
-  const m=months.find(x=>x.key===currentMonthKey); if(!m) return;
-  const budgets={...(m.budgets||{}),[fromId]:newFromBudget,[toId]:newToBudget};
   const btn=document.getElementById('btn-transfer'); btn.disabled=true; btn.textContent='Transferindo...';
   try{
-    await api.setMonthBudgets(currentMonthKey,budgets);
-    m.budgets=budgets;
+    await setMonthBudget(fromId, currentMonthKey, newFromBudget);
+    await setMonthBudget(toId, currentMonthKey, newToBudget);
     try{
       const row=await api.insertBudgetTransfer({month_key:currentMonthKey,from_cat_id:fromId,to_cat_id:toId,amount});
       budgetTransfers.unshift(row?.[0]||{month_key:currentMonthKey,from_cat_id:fromId,to_cat_id:toId,amount,created_at:new Date().toISOString()});
@@ -3259,250 +2836,10 @@ function cardInvoiceMonth(card,dateStr){
 }
 function cardLabel(id){ const c=cards.find(x=>x.id===id); return c?c.name:null; }
 
-function monthInputHtml(id,val){ return `<input class="form-input" id="${id}" type="month" value="${val||''}"/>`; }
 
-async function togglePlanning(){
-  const on=!isPlanningOn();
-  localStorage.setItem('gc-planning',on?'1':'0');
-  api.updateUserMeta({planning_enabled:on}).catch(()=>{});
-  vib(8);
-  if(on){ try{ planEntries=await api.getPlanEntries()||[]; }catch{} }
-  else { planEntries=[]; histView='hist'; document.body.classList.remove('plan-wide'); }
-  openAccountModal(); render();
-  showToast(on?'Planejamento ativado.':'Planejamento desativado.','success');
-}
 
-function entryEndMonth(e){
-  if(e.schedule==='once') return e.start_month;
-  if(e.schedule==='installments'&&e.count){
-    let mk=e.start_month;
-    for(let i=1;i<e.count;i++) mk=nextMonthKey(mk);
-    return mk;
-  }
-  return e.end_month||null;
-}
-function entryAppliesTo(e,mk){
-  if(!e||mk<e.start_month) return false;
-  const end=entryEndMonth(e);
-  return end?mk<=end:true;
-}
-function entryValueFor(e,mk){
-  const mv=e.month_values&&e.month_values[mk];
-  const v=(mv!=null&&!isNaN(parseFloat(mv)))?parseFloat(mv):parseFloat(e.value||0);
-  return Math.round(v*100)/100;
-}
-function entryInstallmentNo(e,mk){
-  if(e.schedule!=='installments') return null;
-  let mk2=e.start_month,n=1;
-  while(mk2<mk){ mk2=nextMonthKey(mk2); n++; }
-  return n;
-}
-function entriesOut(catId,mk){ return planEntries.filter(e=>e.kind==='out'&&e.cat_id===catId&&entryAppliesTo(e,mk)); }
-function incomesForMonth(mk){
-  return planEntries.filter(e=>e.kind==='in'&&entryAppliesTo(e,mk))
-    .reduce((s,e)=>s+entryValueFor(e,mk),0);
-}
-function isRowPaid(e){
-  if(e.paid===true) return true;
-  if(e.paid===false) return false;
-  if(e.card_id) return false;
-  return (e.month_key||'')<=currentMonthKey;
-}
 
-async function openPlanEntries(catId){
-  openModal(`<div class="modal-title">O que entra e sai</div><div class="loading"><div class="spinner"></div></div>`);
-  try{ planEntries=await api.getPlanEntries()||[]; }catch{}
-  renderPlanEntriesModal(catId||'');
-}
-function scheduleLabel(e){
-  if(e.schedule==='once') return `So em ${monthLabel(e.start_month)}`;
-  if(e.schedule==='installments') return `${e.count}x de ${monthLabel(e.start_month)} a ${monthLabel(entryEndMonth(e))}`;
-  return `Todo mes desde ${monthLabel(e.start_month)}${e.end_month?` ate ${monthLabel(e.end_month)}`:''}`;
-}
-function renderPlanEntriesModal(preCat){
-  const list=planEntries.length?planEntries.map(e=>{
-    const cat=e.cat_id?categories.find(c=>c.id===e.cat_id):null;
-    const nOv=Object.keys(e.month_values||{}).length;
-    return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 0;border-bottom:1px solid var(--border)">
-      <div style="min-width:0">
-        <div style="font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-          <i class="fa-solid fa-arrow-trend-${e.kind==='in'?'up':'down'}" style="color:${e.kind==='in'?'var(--accent-text)':'var(--red)'};margin-right:7px" aria-hidden="true"></i>${escapeHtml(e.name)}${e.barcode?' <i class="fa-solid fa-barcode" style="font-size:10px;color:var(--text3)" aria-hidden="true"></i>':''}
-        </div>
-        <div style="font-size:12px;color:var(--text3);margin-top:2px">${brl(e.value)} &middot; ${scheduleLabel(e)}${cat?` &middot; ${escapeHtml(cat.name)}`:''}${nOv?` &middot; ${nOv} ajustado(s)`:''}</div>
-      </div>
-      <div class="icon-btn" style="border-color:#ff4f4f44;color:var(--red)" onclick="removePlanEntry('${e.id}')" aria-label="Remover"><i class="fa-solid fa-trash" aria-hidden="true"></i></div>
-    </div>`;}).join(''):`<p class="modal-note">Nenhum compromisso ainda. Cadastre salario, contas fixas, parcelas de cartao e boletos &mdash; e com eles que o app projeta seu saldo para frente.</p>`;
-  const owned=categories.filter(c=>c.user_id===currentUser.id);
-  document.getElementById('modal-content').innerHTML=`<div class="modal-title">O que entra e sai</div>
-    <p class="modal-note">Salario, contas fixas, parcelas de cartao e boletos. E disso que sai a projecao do seu saldo.</p>
-    <div style="margin-bottom:16px">${list}</div>
-    <div class="form-group"><label class="form-label">Tipo</label>
-      <div class="dm-seg" id="f-pe-kind">
-        <button type="button" class="dm-seg-btn active" data-v="out" onclick="peSeg(this,'kind')">Sai do bolso</button>
-        <button type="button" class="dm-seg-btn" data-v="in" onclick="peSeg(this,'kind')">Entra no bolso</button>
-      </div></div>
-    <div class="form-group"><label class="form-label">Nome</label>
-      <input class="form-input" id="f-pe-name" placeholder="Ex: Nubank, Salario, IPTU" maxlength="60" autocomplete="off"/></div>
-    <div class="form-group"><label class="form-label">Valor (R$)</label>
-      <input class="form-input" id="f-pe-value" type="text" inputmode="decimal" placeholder="0,00" oninput="moneyKey(this)"/></div>
-    <div class="form-group" id="f-pe-cat-wrap"><label class="form-label">Categoria</label>
-      <select class="form-input" id="f-pe-cat">
-        <option value="">Sem categoria</option>
-        ${owned.map(c=>`<option value="${c.id}"${c.id===preCat?' selected':''}>${escapeHtml(c.name)}</option>`).join('')}
-      </select></div>
-    <div class="form-group"><label class="form-label">Quando</label>
-      <div class="dm-seg" id="f-pe-sched">
-        <button type="button" class="dm-seg-btn active" data-v="monthly" onclick="peSeg(this,'sched')">Todo mes</button>
-        <button type="button" class="dm-seg-btn" data-v="installments" onclick="peSeg(this,'sched')">Parcelas</button>
-        <button type="button" class="dm-seg-btn" data-v="once" onclick="peSeg(this,'sched')">Uma vez</button>
-      </div></div>
-    <div style="display:flex;gap:10px">
-      <div class="form-group" style="flex:1"><label class="form-label" id="f-pe-start-lbl">A partir de</label>
-        ${monthInputHtml('f-pe-start',currentMonthKey)}</div>
-      <div class="form-group" style="flex:1" id="f-pe-count-wrap" hidden><label class="form-label">N de parcelas</label>
-        <input class="form-input" id="f-pe-count" type="number" inputmode="numeric" min="2" max="360" placeholder="12"/></div>
-    </div>
-    <button type="button" class="pe-more" id="f-pe-more-btn" onclick="peMore()"><i class="fa-solid fa-chevron-down" aria-hidden="true"></i> Mais opcoes</button>
-    <div id="f-pe-more" hidden>
-      <div class="form-group"><label class="form-label">Vence dia</label>
-        <input class="form-input" id="f-pe-due" type="number" inputmode="numeric" min="1" max="31" placeholder="10"/>
-        <span class="field-hint">So para ordenar no extrato. Nao cobra nada.</span></div>
-      <div class="form-group" id="f-pe-barcode-wrap"><label class="form-label">Codigo de barras do boleto</label>
-        <textarea class="form-input" id="f-pe-barcode" rows="2" maxlength="200" placeholder="Cole aqui" style="resize:vertical;font-family:var(--font-body)"></textarea>
-        <span class="field-hint">Voce copia com um toque na projecao, na hora de pagar.</span></div>
-    </div>
-    <button class="btn-primary" id="btn-save-pe" onclick="savePlanEntry()">Adicionar compromisso</button>
-    <button class="btn-secondary" onclick="_closeModal()">Fechar</button>`;
-}
-function peSeg(btn,which){
-  [...btn.parentElement.children].forEach(b=>b.classList.remove('active'));
-  btn.classList.add('active');
-  if(which==='sched'){
-    const v=btn.dataset.v;
-    const cw=document.getElementById('f-pe-count-wrap'); if(cw) cw.hidden=v!=='installments';
-    const lbl=document.getElementById('f-pe-start-lbl'); if(lbl) lbl.textContent=v==='once'?'Mes':'A partir de';
-  }
-  if(which==='kind'){
-    const isIn=btn.dataset.v==='in';
-    const cw=document.getElementById('f-pe-cat-wrap'); if(cw) cw.hidden=isIn;
-    const bw=document.getElementById('f-pe-barcode-wrap'); if(bw) bw.hidden=isIn;
-  }
-}
-function peMore(){
-  const w=document.getElementById('f-pe-more'); const b=document.getElementById('f-pe-more-btn');
-  if(!w) return; w.hidden=!w.hidden;
-  b.innerHTML=`<i class="fa-solid fa-chevron-${w.hidden?'down':'up'}" aria-hidden="true"></i> ${w.hidden?'Mais opcoes':'Menos opcoes'}`;
-}
-function peVal(id,def){ const el=document.querySelector('#'+id+' .dm-seg-btn.active'); return el?el.dataset.v:def; }
-async function savePlanEntry(){
-  const kind=peVal('f-pe-kind','out');
-  const schedule=peVal('f-pe-sched','monthly');
-  const name=(document.getElementById('f-pe-name').value||'').trim();
-  const value=parseNum(document.getElementById('f-pe-value').value);
-  const start_month=document.getElementById('f-pe-start').value;
-  const cat_id=kind==='out'?(document.getElementById('f-pe-cat').value||null):null;
-  const countRaw=parseInt(document.getElementById('f-pe-count').value,10);
-  const dueRaw=parseInt(document.getElementById('f-pe-due').value,10);
-  const barcode=kind==='out'?((document.getElementById('f-pe-barcode').value||'').trim()||null):null;
-  if(!name){ showToast('Informe o nome.','error'); return; }
-  if(isNaN(value)||value<=0){ showToast('Informe um valor valido.','error'); return; }
-  if(!start_month){ showToast('Informe o mes.','error'); return; }
-  if(schedule==='installments'&&(!countRaw||countRaw<2)){ showToast('Informe o numero de parcelas.','error'); return; }
-  const btn=document.getElementById('btn-save-pe'); btn.disabled=true; btn.textContent='Salvando...';
-  try{
-    await api.insertPlanEntry({kind,name,value,cat_id,schedule,start_month,end_month:null,
-      count:schedule==='installments'?countRaw:null,month_values:{},barcode,
-      due_day:isNaN(dueRaw)?null:dueRaw,position:planEntries.length});
-    planEntries=await api.getPlanEntries()||[];
-    vib(12); renderPlanEntriesModal(cat_id||''); showToast('Compromisso adicionado!','success');
-  }catch{ showToast('Erro ao salvar. Confira se a tabela plan_entries existe no Supabase.','error'); btn.disabled=false; btn.textContent='Adicionar compromisso'; }
-}
-async function removePlanEntry(id){
-  if(!confirm('Remover este compromisso? Os lancamentos ja marcados como pagos continuam.')) return;
-  try{ await api.deletePlanEntry(id); planEntries=planEntries.filter(e=>e.id!==id); renderPlanEntriesModal(''); render(); showToast('Compromisso removido.','success'); }
-  catch{ showToast('Erro ao remover.','error'); }
-}
 
-function anchorFor(mk){ return anchors.find(a=>a.month_key===mk)||null; }
-function plannedFor(cat,mk){
-  const m=months.find(x=>x.key===mk);
-  const ov=m&&m.budgets?m.budgets[cat.id]:null;
-  const base=(ov!=null&&!isNaN(parseFloat(ov)))?parseFloat(ov):parseFloat(cat.budget||0);
-  return Math.round(base*100)/100;
-}
-function projectMonths(n,startKey,allExps){
-  const start=startKey||projectionStart();
-  const rows=[];
-  const byMonth={};
-  (allExps||[]).forEach(e=>{ const k=e.month_key; if(!k) return; (byMonth[k]=byMonth[k]||[]).push(e); });
-  const owned=categories.filter(c=>c.user_id===currentUser.id&&showsOnPlan(c));
-  let carry=0, mk=start;
-  for(let i=0;i<n;i++){
-    const anc=anchorFor(mk);
-    const saldoIni=anc?parseFloat(anc.balance):(i===0?0:carry);
-    const receitas=Math.round(incomesForMonth(mk)*100)/100;
-    const isPast=mk<currentMonthKey;
-    const monthRows=byMonth[mk]||[];
-    const porCategoria={}, porGrupo={};
-    let despesas=0, realizado=0;
-    owned.forEach(c=>{
-      const catRows=monthRows.filter(e=>e.cat_id===c.id);
-      const items=entriesOut(c.id,mk);
-      const itens=items.map(it=>{
-        const lanc=catRows.find(e=>e.plan_entry_id===it.id);
-        return {itemId:it.id,name:it.name,
-          value:lanc?Math.round(parseFloat(lanc.value||0)*100)/100:entryValueFor(it,mk),
-          paid:!!lanc,expenseId:lanc?lanc.id:null,barcode:it.barcode||null,dueDay:it.due_day||null,
-          inst:it.schedule==='installments'?`${entryInstallmentNo(it,mk)}/${it.count}`:null};
-      });
-      const avulsos=catRows.filter(e=>!e.plan_entry_id).map(e=>({
-        expenseId:e.id,name:e.name,value:Math.round(parseFloat(e.value||0)*100)/100,
-        paid:isRowPaid(e),fromItem:false}));
-      const somaItens=itens.reduce((s,x)=>s+x.value,0);
-      const somaAvulsos=avulsos.reduce((s,x)=>s+x.value,0);
-      const total=Math.round((somaItens+somaAvulsos)*100)/100;
-      const pagoNoMes=Math.round((itens.filter(x=>x.paid).reduce((s,x)=>s+x.value,0)
-        +avulsos.filter(x=>x.paid).reduce((s,x)=>s+x.value,0))*100)/100;
-      const srcMk=c.plan_defer?prevMonthKey(mk):mk;
-      const plan=(c.plan_defer&&srcMk<start)?0:plannedFor(c,srcMk);
-      const val=items.length?total:(isPast?pagoNoMes:Math.max(plan,total));
-      realizado+=pagoNoMes;
-      despesas+=val;
-      porCategoria[c.id]={real:total,plan,val,name:c.name,group:catGroup(c),
-        itens,avulsos,pago:pagoNoMes,driven:items.length>0};
-      const g=catGroup(c);
-      porGrupo[g]=Math.round(((porGrupo[g]||0)+val)*100)/100;
-    });
-    despesas=Math.round(despesas*100)/100;
-    realizado=Math.round(realizado*100)/100;
-    const saldoFim=Math.round((saldoIni+receitas-despesas)*100)/100;
-    rows.push({mk,saldoIni,receitas,despesas,realizado,porCategoria,porGrupo,
-      sobra:Math.round((receitas-despesas)*100)/100,
-      saldoRealizado:Math.round((saldoIni+receitas-realizado)*100)/100,
-      saldoFim,anchored:!!anc,isPast});
-    carry=saldoFim; mk=nextMonthKey(mk);
-  }
-  return rows;
-}
-function projectionStart(){
-  if(!anchors.length) return currentMonthKey;
-  const keys=anchors.map(a=>a.month_key).sort();
-  const past=keys.filter(k=>k<=currentMonthKey);
-  return past.length?past[past.length-1]:keys[0];
-}
-function aggregateByYear(rows){
-  const years={};
-  rows.forEach(r=>{
-    const y=r.mk.split('-')[0];
-    if(!years[y]){ years[y]={mk:y,saldoIni:r.saldoIni,receitas:0,despesas:0,porGrupo:{},saldoFim:r.saldoFim,isPast:r.isPast}; }
-    const a=years[y];
-    a.receitas=Math.round((a.receitas+r.receitas)*100)/100;
-    a.despesas=Math.round((a.despesas+r.despesas)*100)/100;
-    Object.entries(r.porGrupo).forEach(([g,v])=>{ a.porGrupo[g]=Math.round(((a.porGrupo[g]||0)+v)*100)/100; });
-    a.saldoFim=r.saldoFim;
-  });
-  return Object.values(years).map(a=>({...a,sobra:Math.round((a.receitas-a.despesas)*100)/100}));
-}
 async function openCards(){
   openModal(`<div class="modal-title">Meus cartões</div><div class="loading"><div class="spinner"></div></div>`);
   try{ cards=await api.getCards()||[]; }catch{}

@@ -44,7 +44,7 @@ function syncThemeRow(){
   if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
-const APP_VERSION = '5.1';
+const APP_VERSION = '5.2';
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
 const CORRECT_PIN = () => String(new Date().getFullYear());
@@ -278,6 +278,8 @@ const api={
   getRollovers:(monthKey)=>sbFetch(`budget_rollovers?to_month=eq.${monthKey}&order=created_at.desc`),
   insertRollover:(d)=>sbFetch('budget_rollovers',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=representation'},body:JSON.stringify({...d,user_id:currentUser.id})}),
   deleteRollover:(id)=>sbFetch(`budget_rollovers?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
+  deleteRolloversOfCat:(catId)=>sbFetch(`budget_rollovers?cat_id=eq.${catId}&user_id=eq.${currentUser.id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
+  getRolloversOfCat:(catId)=>sbFetch(`budget_rollovers?cat_id=eq.${catId}&user_id=eq.${currentUser.id}&select=id`),
   getIncomes:()=>sbFetch(`incomes?user_id=eq.${currentUser.id}&order=start_month.asc`),
   insertIncome:(d)=>sbFetch('incomes',{method:'POST',body:JSON.stringify({...d,user_id:currentUser.id})}),
   updateIncome:(id,d)=>sbFetch(`incomes?id=eq.${id}`,{method:'PATCH',body:JSON.stringify(d)}),
@@ -2418,7 +2420,10 @@ function rolloverFieldsHtml(cat){
       <input type="checkbox" id="f-roll-neg" ${neg?'checked':''} style="width:18px;height:18px;accent-color:var(--accent);flex-shrink:0"/>
       <label for="f-roll-neg" style="font-size:13px;cursor:pointer;flex:1">Levar o estouro <span style="color:var(--text2);font-size:12px">(o que passou do limite é descontado do mês seguinte)</span></label>
     </div>
-    <span class="field-hint">Deixe os dois desmarcados para decidir mês a mês, na mão, quando o mês fechar.</span></div>`;
+    <span class="field-hint">${cat&&cat.rollover_from&&(cat.rollover_positive||cat.rollover_negative)
+      ?`Vale a partir de <strong>${monthLabel(cat.rollover_from)}</strong>.`
+      :`Passa a valer a partir de <strong>${monthLabel(nextMonthKey(currentMonthKey))}</strong> &mdash; o mês atual não é mexido.`}
+      Deixe os dois desmarcados para decidir mês a mês, na mão.</span></div>`;
 }
 function openAddCategory(){
   if(!isPro()&&categories.length>=CONFIG.FREE_MAX_CATEGORIES){ openPaywall('Crie categorias ilimitadas'); return; }
@@ -2450,11 +2455,22 @@ async function saveCategory(catId){
   const rollover_positive=!!document.getElementById('f-roll-pos')?.checked;
   const rollover_negative=!!document.getElementById('f-roll-neg')?.checked;
   if(!name||isNaN(budget)||budget<=0){ showToast('Preencha todos os campos.','error'); return; }
+  const catAtual=catId?categories.find(c=>c.id===catId):null;
+  const eraAtivo=!!(catAtual&&(catAtual.rollover_positive||catAtual.rollover_negative));
+  const ficaAtivo=rollover_positive||rollover_negative;
+  if(catId&&eraAtivo&&!ficaAtivo){
+    let jaLevados=[];
+    try{ jaLevados=await api.getRolloversOfCat(catId)||[]; }catch{}
+    if(jaLevados.length){ perguntarDesligarRollover(catId,name,budget,jaLevados.length); return; }
+  }
+  let rollover_from=catAtual?.rollover_from||null;
+  if(!eraAtivo&&ficaAtivo) rollover_from=nextMonthKey(currentMonthKey);
+  if(!ficaAtivo) rollover_from=null;
   if(!catId&&!isPro()&&categories.length>=CONFIG.FREE_MAX_CATEGORIES){ openPaywall('Limite de categorias atingido'); return; }
   const btn=document.getElementById('btn-save-cat'); btn.disabled=true; btn.textContent='Salvando...';
   try{
-    if(catId){ await api.updateCategory(catId,{name,budget,rollover_positive,rollover_negative}); logActivity(catId,'cat_edit',name,budget); }
-    else{ const nid=uid(); await api.insertCategory({id:nid,name,budget,position:categories.length,rollover_positive,rollover_negative}); logActivity(nid,'cat_create',name,budget); }
+    if(catId){ await api.updateCategory(catId,{name,budget,rollover_positive,rollover_negative,rollover_from}); logActivity(catId,'cat_edit',name,budget); }
+    else{ const nid=uid(); await api.insertCategory({id:nid,name,budget,position:categories.length,rollover_positive,rollover_negative,rollover_from}); logActivity(nid,'cat_create',name,budget); }
     categories=await api.getCategories();
     saveCache();
     vib(15);
@@ -2462,6 +2478,32 @@ async function saveCategory(catId){
   }catch{ showToast('Erro ao salvar.','error'); btn.disabled=false; btn.textContent='Salvar'; }
 }
 
+function perguntarDesligarRollover(catId,name,budget,qtd){
+  openModal(`<div class="modal-title">Parar de levar o saldo</div>
+    <p class="modal-note">Esta categoria já levou saldo em <strong>${qtd} ${qtd===1?'mês':'meses'}</strong>. O que fazer com o que já foi levado?</p>
+    <button class="btn-primary" onclick="desligarRollover('${catId}',${JSON.stringify(name).replace(/"/g,'&quot;')},${budget},false)">
+      Manter o histórico
+    </button>
+    <p class="modal-note" style="margin:8px 0 16px;font-size:12px">Os saldos já levados continuam valendo nos meses em que entraram. Daqui pra frente, nada novo é levado.</p>
+    <button class="btn-secondary" onclick="desligarRollover('${catId}',${JSON.stringify(name).replace(/"/g,'&quot;')},${budget},true)">
+      Apagar tudo que já foi levado
+    </button>
+    <p class="modal-note" style="margin:8px 0 16px;font-size:12px">Remove os ${qtd} saldos desta categoria. Os orçamentos daqueles meses voltam ao valor original.</p>
+    <button class="btn-secondary" onclick="openEditCategory('${catId}')">Cancelar</button>`);
+}
+async function desligarRollover(catId,name,budget,apagar){
+  try{
+    if(apagar){
+      await api.deleteRolloversOfCat(catId);
+      rollovers=rollovers.filter(r=>r.cat_id!==catId);
+    }
+    await api.updateCategory(catId,{name,budget,rollover_positive:false,rollover_negative:false,rollover_from:null});
+    logActivity(catId,'cat_edit',name,budget);
+    categories=await api.getCategories();
+    saveCache(); vib(15); _closeModal(); render();
+    showToast(apagar?'Saldos apagados e acúmulo desligado.':'Acúmulo desligado. Histórico mantido.','success');
+  }catch{ showToast('Erro ao salvar.','error'); }
+}
 async function confirmDeleteCategory(catId){
   const cat=categories.find(c=>c.id===catId);
   if(!cat) return;
@@ -2765,7 +2807,9 @@ function monthBalance(cat,monthKey,exps,rolls){
   return Math.round((baseBudget(cat,monthKey)+roll-spent)*100)/100;
 }
 async function applyAutoRollover(){
-  const flagged=categories.filter(c=>c.user_id===currentUser.id&&(c.rollover_positive||c.rollover_negative));
+  const flagged=categories.filter(c=>c.user_id===currentUser.id
+    &&(c.rollover_positive||c.rollover_negative)
+    &&(!c.rollover_from||currentMonthKey>=c.rollover_from));
   if(!flagged.length) return;
   const prevKey=prevMonthKey(currentMonthKey);
   const pending=flagged.filter(c=>!rollovers.some(r=>r.cat_id===c.id&&r.from_month===prevKey&&r.to_month===currentMonthKey));

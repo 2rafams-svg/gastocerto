@@ -73,3 +73,12 @@ alter table expenses drop column if exists plan_entry_id;
 alter table expenses drop column if exists planned_item_id;
 alter table expenses drop column if exists paid;
 alter table expenses drop column if exists notes;
+
+-- ========== 4) rollover passa a valer a partir do mes seguinte ==========
+-- Guarda o mes em que o acumulo foi ligado. Sem isso, marcar a opcao hoje
+-- levaria o saldo do mes passado para o mes atual, mexendo em algo ja fechado.
+alter table categories add column if not exists rollover_from text;
+
+-- quem ja tinha a opcao ligada continua valendo desde sempre (nao mexe no passado)
+update categories set rollover_from = null
+ where rollover_positive is not true and rollover_negative is not true;

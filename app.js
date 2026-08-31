@@ -44,7 +44,7 @@ function syncThemeRow(){
   if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
-const APP_VERSION = '5.3';
+const APP_VERSION = '5.4';
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
 const CORRECT_PIN = () => String(new Date().getFullYear());
@@ -2001,8 +2001,19 @@ async function confirmDeleteSplitGroup(groupId){
 }
 
 function openModal(html){ document.getElementById('modal-content').innerHTML=html; document.getElementById('modal-overlay').classList.add('open'); fitViewport(); }
-function _closeModal(){ document.getElementById('modal-overlay').classList.remove('open'); }
+function _closeModal(){ closeSheet(); document.getElementById('modal-overlay').classList.remove('open'); }
 function closeModalOverlay(e){ if(e.target===document.getElementById('modal-overlay')) _closeModal(); }
+function openSheet(html){
+  closeSheet();
+  const ov=document.createElement('div');
+  ov.id='gc-sheet'; ov.className='dm-sheet-overlay';
+  ov.onclick=e=>{ if(e.target===ov) closeSheet(); };
+  ov.innerHTML=`<div class="dm-sheet"><div class="modal-handle"></div>${html}</div>`;
+  document.body.appendChild(ov);
+  fitViewport();
+  requestAnimationFrame(()=>ov.classList.add('open'));
+}
+function closeSheet(){ document.getElementById('gc-sheet')?.remove(); }
 (function(){
   const modal=document.getElementById('modal');
   const handle=modal?modal.querySelector('.modal-handle'):null;
@@ -2066,7 +2077,7 @@ function openAddExpense(catId){
         <div class="ac-list" id="ac-list"></div>
       </div></div>
     <div class="form-group"><label class="form-label" id="f-value-label">Valor (R$)</label>
-      <input class="form-input" id="f-value" type="text" inputmode="decimal" placeholder="0,00" oninput="moneyKey(this)"/></div>
+      <input class="form-input" id="f-value" type="text" inputmode="decimal" placeholder="0,00" oninput="moneyKey(this);onExpenseValueInput()"/></div>
     <div class="form-group"><label class="form-label">Data</label>
       <input class="form-input" id="f-date" type="date" value="${today}" onchange="onExpenseDateChange()"/></div>
     ${repeatFieldHtml()}
@@ -2075,39 +2086,123 @@ function openAddExpense(catId){
     <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
 }
 function repeatFieldHtml(mode='none',installmentTotal='',installmentNo=1,valueMode='compra',isEdit=false,cardId=''){
-  const thisMonthRow=isEdit?'':`<div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--surface2);border-radius:10px;margin-bottom:6px">
-      <input type="checkbox" id="f-installment-thismonth" checked onchange="onThisMonthToggle()" style="width:18px;height:18px;accent-color:var(--accent);flex-shrink:0"/>
-      <label for="f-installment-thismonth" style="font-size:13px;cursor:pointer;flex:1">Cai já neste mês <span style="color:var(--text2);font-size:12px">(desmarque se a fatura já fechou e a cobrança só chega no mês que vem)</span></label>
-    </div>
-    <span class="auth-hint" id="f-invoice-hint" style="display:none;margin-bottom:10px"></span>`;
-  const cardRow=`<div class="form-group"><label class="form-label">Cartão</label>
-      <select class="form-input" id="f-card" onchange="onCardChange()">
-        <option value="">Sem cartão específico</option>
-        ${cards.map(c=>`<option value="${c.id}"${c.id===cardId?' selected':''}>${escapeHtml(c.name)} · fecha dia ${c.closing_day}</option>`).join('')}
-      </select>
-      <span class="field-hint">Com um cartão escolhido, o app calcula sozinho em qual fatura a compra entra.</span></div>`;
+  const total=Math.max(1,parseInt(installmentTotal,10)||1);
+  const no=Math.min(total,Math.max(1,parseInt(installmentNo,10)||1));
   return `<div class="form-group"><label class="form-label">Repetição</label>
     <div class="dm-seg" id="f-repeat-seg">
       <button type="button" class="dm-seg-btn${mode==='none'?' active':''}" data-v="none" onclick="repeatSeg(this)">Única</button>
       <button type="button" class="dm-seg-btn${mode==='recurring'?' active':''}" data-v="recurring" onclick="repeatSeg(this)">Recorrente</button>
       <button type="button" class="dm-seg-btn${mode==='installment'?' active':''}" data-v="installment" onclick="repeatSeg(this)">Cartão</button>
     </div>
-    <div id="f-installment-wrap" ${mode==='installment'?'':'hidden'} style="margin-top:10px">
-      ${cards.length?cardRow:''}
-      <div class="dm-seg" id="f-installment-vmode" style="margin-bottom:10px">
+    <div id="f-installment-wrap" ${mode==='installment'?'':'hidden'} style="margin-top:12px">
+      <input type="hidden" id="f-card" value="${cardId||''}"/>
+      <input type="hidden" id="f-installment-no" value="${no}"/>
+      <input type="hidden" id="f-installment-total" value="${total}"/>
+      <button type="button" class="pick-row" id="f-card-row" onclick="openCardPicker()">
+        <span class="pick-ico"><i class="fa-solid fa-credit-card" aria-hidden="true"></i></span>
+        <span class="pick-body"><span class="pick-name" id="f-card-val">Sem cartão específico</span><span class="pick-sub" id="f-card-sub">Toque para escolher</span></span>
+        <i class="fa-solid fa-chevron-right pick-arrow" aria-hidden="true"></i>
+      </button>
+      <div class="dm-seg" id="f-installment-vmode" style="margin:12px 0">
         <button type="button" class="dm-seg-btn${valueMode==='parcela'?'':' active'}" data-v="compra" onclick="instVModeSeg(this)">Valor da compra</button>
         <button type="button" class="dm-seg-btn${valueMode==='parcela'?' active':''}" data-v="parcela" onclick="instVModeSeg(this)">Valor da parcela</button>
       </div>
-      <div style="display:flex;gap:10px;margin-bottom:10px">
-        <div style="flex:1"><span class="auth-hint" style="margin-bottom:6px;display:block">Parcela atual</span>
-          <input class="form-input" id="f-installment-no" type="number" inputmode="numeric" min="1" max="60" step="1" value="${installmentNo}"/></div>
-        <div style="flex:1"><span class="auth-hint" style="margin-bottom:6px;display:block">Total de parcelas</span>
-          <input class="form-input" id="f-installment-total" type="number" inputmode="numeric" min="1" max="60" step="1" placeholder="Ex: 12" value="${installmentTotal}"/></div>
+      <div class="step-grid">
+        ${stepperHtml('no','Parcela atual',no)}
+        ${stepperHtml('total','Total de parcelas',total)}
       </div>
-      ${thisMonthRow}
+      <div class="inst-sum" id="f-inst-sum"></div>
+      <div class="tm-row" id="f-thismonth-row"${isEdit?' hidden data-edit="1"':''}>
+        <input type="checkbox" id="f-installment-thismonth" checked onchange="onThisMonthToggle()"/>
+        <label for="f-installment-thismonth">Cai já neste mês<span>Desmarque se a fatura já fechou e a cobrança só chega no mês que vem.</span></label>
+      </div>
+      <div class="inst-target" id="f-invoice-hint" hidden></div>
     </div>
-    <span class="auth-hint" id="f-installment-hint" style="${mode==='installment'?'':'display:none'}">Use 1 parcela para uma compra à vista no cartão. Se a compra já começou, informe em qual parcela ela está — ex: 4 de 12. Em "Valor da compra", o total é dividido pelas parcelas.</span>
   </div>`;
+}
+function stepperHtml(k,label,val){
+  return `<div class="stepper">
+    <span class="stepper-lbl">${label}</span>
+    <div class="stepper-ctl">
+      <button type="button" class="stepper-btn" onclick="stepInst('${k}',-1)" aria-label="Diminuir ${label}"><i class="fa-solid fa-minus" aria-hidden="true"></i></button>
+      <span class="stepper-val" data-step="${k}" id="f-inst-${k}-val">${val}</span>
+      <button type="button" class="stepper-btn" onclick="stepInst('${k}',1)" aria-label="Aumentar ${label}"><i class="fa-solid fa-plus" aria-hidden="true"></i></button>
+    </div>
+    <span class="stepper-drag"><i class="fa-solid fa-arrows-left-right" aria-hidden="true"></i> arraste o número</span>
+  </div>`;
+}
+function instGet(k){ const el=document.getElementById(k==='no'?'f-installment-no':'f-installment-total'); return el?Math.max(1,parseInt(el.value,10)||1):1; }
+function instSet(k,v){
+  v=Math.max(1,Math.min(60,Math.round(v)));
+  let no=instGet('no'), total=instGet('total');
+  if(k==='no'){ no=v; if(no>total) total=no; } else { total=v; if(no>total) no=total; }
+  const en=document.getElementById('f-installment-no'); if(en) en.value=no;
+  const et=document.getElementById('f-installment-total'); if(et) et.value=total;
+  const dn=document.getElementById('f-inst-no-val'); if(dn) dn.textContent=no;
+  const dt=document.getElementById('f-inst-total-val'); if(dt) dt.textContent=total;
+  syncInstSummary();
+}
+function stepInst(k,d){ const antes=instGet(k); instSet(k,antes+d); if(instGet(k)!==antes) vib(6); }
+let _stepDrag=null;
+function stepDown(e){
+  const el=e.target&&e.target.closest?e.target.closest('.stepper-val'):null; if(!el) return;
+  _stepDrag={k:el.dataset.step,x:e.clientX,base:instGet(el.dataset.step),passos:0};
+  el.classList.add('dragging');
+  try{ el.setPointerCapture(e.pointerId); }catch{}
+  e.preventDefault();
+}
+function stepMove(e){
+  if(!_stepDrag) return;
+  const dx=e.clientX-_stepDrag.x;
+  if(Math.abs(dx)<6) return;
+  const passos=Math.round(dx/13);
+  if(passos===_stepDrag.passos) return;
+  _stepDrag.passos=passos;
+  instSet(_stepDrag.k,_stepDrag.base+passos);
+  vib(4);
+}
+function stepUp(){
+  if(!_stepDrag) return;
+  document.querySelectorAll('.stepper-val.dragging').forEach(el=>el.classList.remove('dragging'));
+  _stepDrag=null;
+}
+document.addEventListener('pointerdown',stepDown,{passive:false});
+document.addEventListener('pointermove',stepMove);
+document.addEventListener('pointerup',stepUp);
+document.addEventListener('pointercancel',stepUp);
+function selectedCard(){ const el=document.getElementById('f-card'); return el&&el.value?(cards.find(c=>c.id===el.value)||null):null; }
+function openCardPicker(){
+  if(!cards.length){ showToast('Cadastre um cartão em Sua conta › Meus cartões.','error'); return; }
+  const cur=document.getElementById('f-card')?.value||'';
+  const opcoes=cards.map(c=>`<button type="button" class="pick-opt${c.id===cur?' on':''}" onclick="pickCard('${c.id}')">
+      <span class="pick-ico"><i class="fa-solid fa-credit-card" aria-hidden="true"></i></span>
+      <span class="pick-body"><span class="pick-name">${escapeHtml(c.name)}</span><span class="pick-sub">Fecha dia ${c.closing_day}${c.due_day?` · vence dia ${c.due_day}`:''}</span></span>
+      <i class="fa-solid fa-check pick-chk" aria-hidden="true"></i>
+    </button>`).join('');
+  openSheet(`<div class="modal-title">Em qual cartão foi a compra?</div>
+    <p class="modal-note">Escolhendo o cartão, o app descobre sozinho em qual fatura a compra entra.</p>
+    <div class="pick-list">${opcoes}
+      <button type="button" class="pick-opt${cur?'':' on'}" onclick="pickCard('')">
+        <span class="pick-ico"><i class="fa-solid fa-hand-pointer" aria-hidden="true"></i></span>
+        <span class="pick-body"><span class="pick-name">Não quero especificar</span><span class="pick-sub">Você decide na mão em qual mês entra</span></span>
+        <i class="fa-solid fa-check pick-chk" aria-hidden="true"></i>
+      </button>
+    </div>`);
+}
+function pickCard(id){
+  const el=document.getElementById('f-card'); if(el) el.value=id;
+  closeSheet(); vib(10); syncCardRow(); syncInvoiceHint();
+}
+function syncCardRow(){
+  const row=document.getElementById('f-card-row'); if(!row) return;
+  const c=selectedCard();
+  const val=document.getElementById('f-card-val');
+  const sub=document.getElementById('f-card-sub');
+  row.classList.toggle('on',!!c);
+  if(val) val.textContent=c?c.name:(cards.length?'Sem cartão específico':'Nenhum cartão cadastrado');
+  if(sub) sub.textContent=c?`Fecha dia ${c.closing_day}${c.due_day?` · vence dia ${c.due_day}`:''}`:(cards.length?'Toque para escolher':'Cadastre em Sua conta › Meus cartões');
+  const tm=document.getElementById('f-thismonth-row');
+  if(tm&&!tm.dataset.edit) tm.hidden=!!c;
 }
 function repeatSeg(btn){
   [...btn.parentElement.children].forEach(b=>b.classList.remove('active'));
@@ -2115,32 +2210,55 @@ function repeatSeg(btn){
   const isInst=btn.dataset.v==='installment';
   const wrap=document.getElementById('f-installment-wrap');
   if(wrap) wrap.hidden=!isInst;
-  const hint=document.getElementById('f-installment-hint');
-  if(hint) hint.style.display=isInst?'':'none';
   updateValueFieldLabel();
-  if(isInst) syncInvoiceHint(true);
+  if(isInst){
+    syncCardRow(); syncInstSummary(); syncInvoiceHint();
+    const jaTem=document.getElementById('f-card')?.value;
+    if(wrap&&!jaTem&&cards.length&&!wrap.dataset.asked){ wrap.dataset.asked='1'; openCardPicker(); }
+  }
 }
 function repeatSegVal(){ const el=document.querySelector('#f-repeat-seg .dm-seg-btn.active'); return el?el.dataset.v:'none'; }
-function onCardChange(){ syncInvoiceHint(true); }
-function onThisMonthToggle(){ syncInvoiceHint(false); }
-function onExpenseDateChange(){ if(repeatSegVal()==='installment') syncInvoiceHint(true); }
-function syncInvoiceHint(applyCard){
-  const cb=document.getElementById('f-installment-thismonth'); if(!cb) return;
-  const hint=document.getElementById('f-invoice-hint'); if(!hint) return;
-  const sel=document.getElementById('f-card');
-  const card=sel&&sel.value?cards.find(c=>c.id===sel.value):null;
+function onThisMonthToggle(){ syncInvoiceHint(); }
+function onExpenseDateChange(){ if(repeatSegVal()==='installment') syncInvoiceHint(); }
+function onExpenseValueInput(){ if(repeatSegVal()==='installment') syncInstSummary(); }
+function invoiceTargetMonth(){
+  const card=selectedCard();
   const date=document.getElementById('f-date')?.value;
-  if(card&&date&&applyCard) cb.checked=(cardInvoiceMonth(card,date)===viewMonthKey);
-  const target=cb.checked?viewMonthKey:nextMonthKey(viewMonthKey);
-  hint.style.display='';
+  if(card&&date) return cardInvoiceMonth(card,date)||viewMonthKey;
+  const cb=document.getElementById('f-installment-thismonth');
+  return (cb&&!cb.checked)?nextMonthKey(viewMonthKey):viewMonthKey;
+}
+function syncInvoiceHint(){
+  const hint=document.getElementById('f-invoice-hint'); if(!hint) return;
+  const card=selectedCard();
+  const alvo=invoiceTargetMonth();
+  hint.hidden=false;
   hint.innerHTML=card
-    ? `<i class="fa-solid fa-receipt" aria-hidden="true"></i> Entra na fatura de <strong>${monthLabel(target)}</strong> — ${escapeHtml(card.name)} fecha dia ${card.closing_day}.`
-    : `<i class="fa-regular fa-calendar-check" aria-hidden="true"></i> Vai contar no orçamento de <strong>${monthLabel(target)}</strong>.`;
+    ? `<i class="fa-solid fa-receipt" aria-hidden="true"></i><span>Entra na fatura de <strong>${monthLabel(alvo)}</strong> — ${escapeHtml(card.name)} fecha dia ${card.closing_day}.</span>`
+    : `<i class="fa-regular fa-calendar-check" aria-hidden="true"></i><span>Vai contar no orçamento de <strong>${monthLabel(alvo)}</strong>.</span>`;
+}
+function syncInstSummary(){
+  const box=document.getElementById('f-inst-sum'); if(!box) return;
+  const no=instGet('no'), total=instGet('total'), restantes=total-no+1;
+  const bruto=parseNum(document.getElementById('f-value')?.value||'');
+  const temValor=!isNaN(bruto)&&bruto>0;
+  const cada=temValor?(instValueMode()==='compra'?Math.round((bruto/total)*100)/100:bruto):null;
+  const compra=temValor?(instValueMode()==='compra'?bruto:Math.round(cada*total*100)/100):null;
+  const editando=!!document.getElementById('f-thismonth-row')?.dataset.edit;
+  const linha=editando
+    ? (total===1?'Compra à vista no cartão.':`Parcela <strong>${no}</strong> de <strong>${total}</strong> desta compra.`)
+    : total===1
+      ? 'Compra à vista — uma cobrança só.'
+      : restantes===1
+        ? `Parcela <strong>${no}</strong> de <strong>${total}</strong> — é a última, o app lança só ela.`
+        : `Parcela <strong>${no}</strong> de <strong>${total}</strong> — o app lança ${restantes} cobranças, uma por mês.`;
+  const dinheiro=temValor?(editando||restantes===1?`<strong>${brl(cada)}</strong>${total>1?' por parcela':''}`:`${restantes}× de <strong>${brl(cada)}</strong>`)+(total>1?` · compra de ${brl(compra)}`:''):'';
+  box.innerHTML=`<div class="inst-sum-txt">${linha}</div>${dinheiro?`<div class="inst-sum-money">${dinheiro}</div>`:''}`;
 }
 function instVModeSeg(btn){
   [...btn.parentElement.children].forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');
-  updateValueFieldLabel();
+  updateValueFieldLabel(); syncInstSummary();
 }
 function instValueMode(){ const el=document.querySelector('#f-installment-vmode .dm-seg-btn.active'); return el?el.dataset.v:'compra'; }
 function updateValueFieldLabel(){
@@ -2160,13 +2278,14 @@ function openEditExpense(expId){
         <div class="ac-list" id="ac-list"></div>
       </div></div>
     <div class="form-group"><label class="form-label" id="f-value-label">Valor (R$)</label>
-      <input class="form-input" id="f-value" type="text" inputmode="decimal" value="${e.value}" oninput="moneyKey(this)"/></div>
+      <input class="form-input" id="f-value" type="text" inputmode="decimal" value="${e.value}" oninput="moneyKey(this);onExpenseValueInput()"/></div>
     <div class="form-group"><label class="form-label">Data</label>
-      <input class="form-input" id="f-date" type="date" value="${e.date}"/></div>
-    ${repeatFieldHtml(e.installment_total?'installment':(e.recurring?'recurring':'none'),e.installment_total||'',e.installment_no||1,'parcela',true)}
+      <input class="form-input" id="f-date" type="date" value="${e.date}" onchange="onExpenseDateChange()"/></div>
+    ${repeatFieldHtml(e.installment_total?'installment':(e.recurring?'recurring':'none'),e.installment_total||'',e.installment_no||1,'parcela',true,e.card_id||'')}
     ${receiptPickerHtml(e.image_url||'')}
     <button class="btn-primary" id="btn-save-exp" onclick="saveExpense('${expId}')">Salvar</button>
     <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
+  if(e.installment_total){ syncCardRow(); syncInstSummary(); updateValueFieldLabel(); }
 }
 
 async function saveExpense(expId){
@@ -2188,21 +2307,18 @@ async function saveExpense(expId){
     installment_group=editing?.installment_group||uid();
     if(instValueMode()==='compra') value=Math.round((value/installment_total)*100)/100;
   }
+  const card_id=repeatMode==='installment'?(document.getElementById('f-card')?.value||null):null;
   let targetMonthKey=viewMonthKey, targetDate=date, skippedToNextMonth=false;
   if(repeatMode==='installment'&&!expId){
-    const cb=document.getElementById('f-installment-thismonth');
-    if(cb&&!cb.checked){
-      targetMonthKey=nextMonthKey(viewMonthKey);
-      targetDate=`${targetMonthKey}-01`;
-      skippedToNextMonth=true;
-    }
+    targetMonthKey=invoiceTargetMonth();
+    if(targetMonthKey!==monthKeyOf(new Date(date+'T12:00'))) targetDate=`${targetMonthKey}-01`;
+    skippedToNextMonth=targetMonthKey!==viewMonthKey;
   }
   const btn=document.getElementById('btn-save-exp'); btn.disabled=true; btn.textContent='Salvando...';
   try{
     let image_url=expId?(expenses.find(x=>x.id===expId)?.image_url||null):null;
     const newFile=document.getElementById('f-receipt')?.files?.[0];
     if(newFile){ btn.textContent='Enviando foto...'; try{ image_url=await getReceiptUrl(); }catch(upErr){ showToast(`Foto não enviada: ${upErr.message}`,'error'); } btn.textContent='Salvando...'; }
-    const card_id=repeatMode==='installment'?(document.getElementById('f-card')?.value||null):null;
     const payload={cat_id:catId,name,value,date:targetDate,recurring,image_url,installment_total,installment_no,installment_group,card_id};
     if(expId) await api.updateExpense(expId,payload);
     else{
@@ -2955,7 +3071,7 @@ const TUTORIAL_STEPS = [
   },
   {
     title: 'Categorias',
-    body: 'Crie categorias como "Mercado", "Academia" ou "Aluguel", cada uma com seu orçamento mensal — o total orçado de todas aparece no topo da lista. Arraste pela alça para reordenar e toque no lápis para editar. Ao lançar um gasto, escolha "Recorrente" para repetir todo mês ou "Cartão" para compras na fatura. Cadastre seus cartões em <strong>Sua conta › Meus cartões</strong> com o dia de fechamento e o app calcula sozinho em qual fatura cada compra cai — você também pode não escolher cartão nenhum e decidir na mão. Ao editar a categoria dá para mandar a sobra e/ou o estouro do mês seguirem automaticamente para o mês seguinte. E no ícone <i class="fa-solid fa-right-left"></i> do topo do card você transfere um pedaço do limite de uma categoria para outra, só neste mês.',
+    body: 'Crie categorias como "Mercado", "Academia" ou "Aluguel", cada uma com seu orçamento mensal — o total orçado de todas aparece no topo da lista. Arraste pela alça para reordenar e toque no lápis para editar. Ao lançar um gasto, escolha "Recorrente" para repetir todo mês ou "Cartão" para compras na fatura. Em "Cartão" o app já pergunta qual é o cartão: escolhendo um, ele descobre sozinho em qual fatura a compra cai pelo dia de fechamento; escolhendo "Não quero especificar", você decide na mão se cai neste mês ou no próximo. As parcelas você acerta arrastando os números (ou nos botões + e −) e o app mostra na hora quantas cobranças vai lançar e de quanto. Cadastre seus cartões em <strong>Sua conta › Meus cartões</strong>. Ao editar a categoria dá para mandar a sobra e/ou o estouro do mês seguirem automaticamente para o mês seguinte. E no ícone <i class="fa-solid fa-right-left"></i> do topo do card você transfere um pedaço do limite de uma categoria para outra, só neste mês.',
     target: ()=>tutNav('categorias'),
     action: ()=>tutGo('categorias'),
   },

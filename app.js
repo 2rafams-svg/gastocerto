@@ -44,7 +44,7 @@ function syncThemeRow(){
   if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
-const APP_VERSION = '5.4';
+const APP_VERSION = '5.5';
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
 const CORRECT_PIN = () => String(new Date().getFullYear());
@@ -108,11 +108,21 @@ async function ensureValidSession(){
   return !!session?.access_token;
 }
 async function bootstrapAuth(){
+  quickAdd=parseQuickLink();
+  if(quickAdd){ try{ history.replaceState(null,'',location.pathname+location.search); }catch{} }
   try{
     const saved=JSON.parse(localStorage.getItem(SESSION_KEY)||'null');
     if(saved?.refresh_token){ persistSession(saved); await refreshSession(); }
   }catch{ persistSession(null); }
   if(session?.access_token) enterApp();
+  else{
+    endQuickSplash();
+    if(quickAdd){
+      quickAdd=null;
+      const nota=document.getElementById('quick-auth-note');
+      if(nota) nota.hidden=false;
+    }
+  }
 }
 function enterApp(){
   document.getElementById('auth-screen').style.display='none';
@@ -474,6 +484,7 @@ function openAccountModal(){
       <label class="switch"><input type="checkbox" id="theme-switch" ${isLight?'checked':''} onchange="toggleTheme();syncThemeRow()"><span class="switch-track"><span class="switch-thumb"></span></span></label>
     </div>
     <button class="btn-secondary" onclick="openCards()"><i class="fa-solid fa-credit-card" aria-hidden="true"></i> Meus cartões</button>
+    <button class="btn-secondary" onclick="openQuickGuide()"><i class="fa-solid fa-bolt" aria-hidden="true"></i> Lançamento rápido (iOS)</button>
     <button class="btn-secondary" onclick="openPaywall('Planos e assinatura')"><i class="fa-solid fa-crown" aria-hidden="true"></i> Ver planos</button>
     <button class="btn-secondary" onclick="_closeModal();showTutorial(true)"><i class="fa-solid fa-circle-question" aria-hidden="true"></i> Ver tutorial</button>
     ${isAdmin?`<button class="btn-secondary" style="border-color:var(--accent-line);color:var(--accent-text)" onclick="openAdminPanel()"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> Painel Admin</button>`:''}
@@ -633,7 +644,7 @@ async function init(){
     saveCache();
     document.getElementById('sync-dot')?.remove();
     render();
-    setTimeout(()=>showTutorial(),600);
+    if(quickAdd) runQuickAdd(); else setTimeout(()=>showTutorial(),600);
     api.getExpenseNames().then(rows=>{
       const freq={};
       (rows||[]).forEach(r=>{const n=(r.name||'').trim(); if(n) freq[n]=(freq[n]||0)+1;});
@@ -644,6 +655,7 @@ async function init(){
     loadPendingShares();
     startUnreadPoll();
   }catch(e){
+    endQuickSplash(); quickAdd=null;
     document.getElementById('sync-dot')?.remove();
     if(!hadCache){
       document.getElementById('content').innerHTML=`<div class="empty"><div class="empty-icon"><i class="fa-solid fa-triangle-exclamation"></i></div><div class="empty-text">Erro ao conectar.<br><small>${e.message}</small></div></div>`;
@@ -3054,6 +3066,84 @@ async function removeCard(id){
   catch{ showToast('Erro ao remover.','error'); }
 }
 
+let quickAdd=null;
+function parseQuickLink(){
+  const h=location.hash||'';
+  if(h.indexOf('#add')!==0) return null;
+  const p=new URLSearchParams(h.slice(4).replace(/^\?/,''));
+  return {
+    valor:(p.get('v')||p.get('valor')||'').replace(/[^\d.,-]/g,''),
+    nome:(p.get('n')||p.get('nome')||'').trim().slice(0,60),
+    cat:(p.get('cat')||p.get('c')||'').trim(),
+    cartao:(p.get('card')||p.get('cartao')||'').trim(),
+    parcelas:parseInt(p.get('p')||p.get('parcelas'),10)||0,
+    data:(p.get('d')||p.get('data')||'').trim()
+  };
+}
+function normNome(s){ return String(s||'').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,''); }
+function endQuickSplash(){ document.documentElement.classList.remove('gc-quick'); }
+function runQuickAdd(){
+  const q=quickAdd; quickAdd=null;
+  endQuickSplash();
+  if(!q) return;
+  const minhas=categories.filter(c=>c.user_id===currentUser.id||sharePerm(c.id)==='edit');
+  if(!minhas.length){ showToast('Crie uma categoria antes de usar o lançamento rápido.','error'); return; }
+  const alvo=q.cat?minhas.find(c=>normNome(c.name)===normNome(q.cat)):null;
+  openAddExpense((alvo||minhas[0]).id);
+  if(!document.getElementById('f-value')) return;
+  const titulo=document.querySelector('#modal-content .modal-title');
+  if(titulo) titulo.innerHTML='Lançamento rápido <span class="quick-tag"><i class="fa-solid fa-bolt" aria-hidden="true"></i> atalho</span>';
+  if(q.nome) document.getElementById('f-name').value=q.nome;
+  if(q.valor){ const el=document.getElementById('f-value'); el.value=q.valor; moneyKey(el); }
+  if(/^\d{4}-\d{2}-\d{2}$/.test(q.data)) document.getElementById('f-date').value=q.data;
+  const cartao=q.cartao?cards.find(c=>normNome(c.name)===normNome(q.cartao)):null;
+  if(cartao||q.parcelas>0){
+    const wrap=document.getElementById('f-installment-wrap');
+    if(cartao){ document.getElementById('f-card').value=cartao.id; if(wrap) wrap.dataset.asked='1'; }
+    document.querySelector('#f-repeat-seg .dm-seg-btn[data-v="installment"]')?.click();
+    if(q.parcelas>1) instSet('total',q.parcelas);
+  }
+  onExpenseValueInput();
+  vib(12);
+}
+function quickBaseUrl(){ return location.origin+location.pathname.replace(/index\.html$/,''); }
+function openQuickGuide(){
+  const base=quickBaseUrl();
+  const exemplo=`${base}#add?v=45,90&n=Padaria&cat=Mercado`;
+  openModal(`<div class="modal-title">Lançamento rápido</div>
+    <p class="modal-note"><span class="quick-tag"><i class="fa-brands fa-apple" aria-hidden="true"></i> iOS</span> Um atalho do iPhone abre o GastoCerto já no formulário, com valor e descrição preenchidos. Você só escolhe a categoria e salva — nada é gravado sozinho.</p>
+    <div class="quick-link" onclick="copyQuickLink('${base}#add')">
+      <div class="quick-link-body"><span class="quick-link-lbl">Link do atalho</span><code id="quick-url">${escapeHtml(base)}#add</code></div>
+      <i class="fa-regular fa-copy" aria-hidden="true"></i>
+    </div>
+    <div class="quick-steps">
+      <div class="quick-step"><span class="quick-step-n">1</span><div>Abra o app <strong>Atalhos</strong> e toque em <strong>+</strong> para criar um atalho novo.</div></div>
+      <div class="quick-step"><span class="quick-step-n">2</span><div>Adicione a ação <strong>Pedir Entrada</strong>, tipo <em>Número</em>, pergunta "Quanto foi?". Pule esta se o valor vier de outro lugar.</div></div>
+      <div class="quick-step"><span class="quick-step-n">3</span><div>Adicione <strong>Codificar Texto para URL</strong> com o resultado da pergunta.</div></div>
+      <div class="quick-step"><span class="quick-step-n">4</span><div>Adicione <strong>Abrir URL</strong> e monte: o link acima, depois <code>?v=</code> e o texto codificado.</div></div>
+      <div class="quick-step"><span class="quick-step-n">5</span><div>Salve como "Novo gasto". Rode pelo <strong>Botão de Ação</strong>, pela <strong>Tela Bloqueada</strong>, pelo widget de Atalhos ou por <strong>Toque nas Costas</strong>.</div></div>
+      <div class="quick-step"><span class="quick-step-n">6</span><div>Para disparar sozinho na compra: <strong>Automação › Transação</strong>, escolha o cartão na Carteira e marque <em>Executar imediatamente</em>.</div></div>
+    </div>
+    <div class="quick-params">
+      <div class="quick-param"><code>v</code><span>valor — aceita vírgula (<em>45,90</em>)</span></div>
+      <div class="quick-param"><code>n</code><span>descrição (<em>Padaria</em>)</span></div>
+      <div class="quick-param"><code>cat</code><span>nome da categoria (<em>Mercado</em>)</span></div>
+      <div class="quick-param"><code>card</code><span>nome do cartão — já entra em modo Cartão</span></div>
+      <div class="quick-param"><code>p</code><span>total de parcelas</span></div>
+      <div class="quick-param"><code>d</code><span>data no formato <em>2026-08-19</em></span></div>
+    </div>
+    <div class="quick-link" onclick="copyQuickLink('${exemplo}')">
+      <div class="quick-link-body"><span class="quick-link-lbl">Exemplo completo</span><code>${escapeHtml(exemplo)}</code></div>
+      <i class="fa-regular fa-copy" aria-hidden="true"></i>
+    </div>
+    <p class="modal-note" style="margin-top:16px"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> O atalho abre o app no navegador, então faça login uma vez por lá. Sem sessão, o formulário não abre.</p>
+    <button class="btn-secondary" onclick="openAccountModal()">Voltar</button>`);
+}
+async function copyQuickLink(url){
+  try{ await navigator.clipboard.writeText(url); vib(10); showToast('Link copiado!','success'); }
+  catch{ showToast('Copie o link manualmente.','error'); }
+}
+
 const TUTORIAL_KEY = 'gc-tutorial-v2';
 const tutNav=(tab)=>document.querySelector(`.nav-item[data-tab="${tab}"]`);
 const tutGo=(tab)=>{ const t=tutNav(tab); if(t) t.click(); };
@@ -3107,7 +3197,13 @@ const TUTORIAL_STEPS = [
   },
   {
     title: 'Sua conta',
-    body: 'Toque no ícone de perfil, no topo, para definir seu @usuário, alternar entre tema claro e escuro, ver os planos e rever este tutorial quando quiser.',
+    body: 'Toque no ícone de perfil, no topo, para definir seu @usuário, alternar entre tema claro e escuro, cadastrar seus cartões, ver os planos e rever este tutorial quando quiser.',
+    target: ()=>document.getElementById('account-btn'),
+    action: ()=>tutGo('home'),
+  },
+  {
+    title: 'Lançamento rápido pelo atalho',
+    body: '<span class="quick-tag"><i class="fa-brands fa-apple" aria-hidden="true"></i> só no iPhone</span> Dá para criar um atalho no app <strong>Atalhos</strong> que abre o GastoCerto já no formulário, com o valor preenchido — sem precisar procurar o app. Ele pode ficar no Botão de Ação, na Tela Bloqueada, num widget de Atalhos ou no Toque nas Costas, e até disparar sozinho quando você passa um cartão da Carteira. Nada é gravado automaticamente: você escolhe a categoria, ajusta o cartão e as parcelas, e salva. É preciso estar logado — sem sessão o formulário não abre. O passo a passo e o link ficam em <strong>Sua conta › Lançamento rápido (iOS)</strong>.',
     target: ()=>document.getElementById('account-btn'),
     action: ()=>tutGo('home'),
   },

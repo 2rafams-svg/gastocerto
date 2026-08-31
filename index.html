@@ -13,6 +13,7 @@
 <script>
 if(!navigator.onLine)window.location.replace('./offline.html');
 try{if(JSON.parse(localStorage.getItem('gc-auth-session-v2'))?.refresh_token)document.documentElement.classList.add('gc-has-session')}catch{}
+if(location.hash.indexOf('#add')===0&&document.documentElement.classList.contains('gc-has-session'))document.documentElement.classList.add('gc-quick');
 (function(){
   var de=document.documentElement;
   var standalone=navigator.standalone===true||(window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches);
@@ -29,7 +30,7 @@ try{if(JSON.parse(localStorage.getItem('gc-auth-session-v2'))?.refresh_token)doc
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css"/>
-<link rel="stylesheet" href="style.css?v=5.4"/>
+<link rel="stylesheet" href="style.css?v=5.5"/>
 </head>
 <body>
 
@@ -65,9 +66,17 @@ try{if(JSON.parse(localStorage.getItem('gc-auth-session-v2'))?.refresh_token)doc
   <div class="pin-error-msg" id="pin-error"></div>
 </div>
 
+<!-- QUICK -->
+<div id="quick-splash">
+  <svg class="logo-mark" width="52" height="52" viewBox="0 0 120 120"><circle cx="60" cy="60" r="44" fill="none" stroke="#27C892" stroke-width="10"/><path d="M42 62 L55 75 L80 46" fill="none" stroke="#27C892" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  <div class="quick-splash-title">Lançamento rápido</div>
+  <div class="spinner"></div>
+</div>
+
 <!-- AUTH -->
 <div id="auth-screen">
   <div class="auth-card">
+    <div class="quick-auth-note" id="quick-auth-note" hidden><i class="fa-solid fa-bolt" aria-hidden="true"></i> <span>Entre na sua conta para o lançamento rápido funcionar. Depois é só tocar no atalho de novo.</span></div>
     <div class="auth-brand">
       <svg class="logo-mark" width="34" height="34" viewBox="0 0 120 120"><circle cx="60" cy="60" r="44" fill="none" stroke="#27C892" stroke-width="10"/><path d="M42 62 L55 75 L80 46" fill="none" stroke="#27C892" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <div class="auth-title">Gasto<span>Certo</span></div>
@@ -131,6 +140,6 @@ try{if(JSON.parse(localStorage.getItem('gc-auth-session-v2'))?.refresh_token)doc
   </div>
 </div>
 
-<script src="app.js?v=5.4"></script>
+<script src="app.js?v=5.5"></script>
 </body>
 </html>

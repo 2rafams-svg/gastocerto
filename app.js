@@ -44,7 +44,7 @@ function syncThemeRow(){
   if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
-const APP_VERSION = '5.2';
+const APP_VERSION = '5.3';
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
 const CORRECT_PIN = () => String(new Date().getFullYear());
@@ -2206,6 +2206,11 @@ async function saveExpense(expId){
     const payload={cat_id:catId,name,value,date:targetDate,recurring,image_url,installment_total,installment_no,installment_group,card_id};
     if(expId) await api.updateExpense(expId,payload);
     else{
+      let ultimoMk=targetMonthKey;
+      if(repeatMode==='installment'&&installment_total>installment_no){
+        for(let n=installment_no+1;n<=installment_total;n++) ultimoMk=nextMonthKey(ultimoMk);
+      }
+      await ensureMonthsExist(targetMonthKey,ultimoMk);
       await api.insertExpense({id:uid(),month_key:targetMonthKey,...payload});
       if(repeatMode==='installment'&&installment_total>installment_no){
         btn.textContent='Criando parcelas...';
@@ -2214,7 +2219,6 @@ async function saveExpense(expId){
           mk=nextMonthKey(mk);
           await api.insertExpense({id:uid(),month_key:mk,...payload,date:`${mk}-01`,installment_no:n});
         }
-        await ensureMonthsExist(targetMonthKey,mk);
       }
     }
     logActivity(catId,expId?'edit':'create',name,value);
@@ -2232,6 +2236,8 @@ async function saveExpense(expId){
       showToast('Rode o SQL: ALTER TABLE expenses ADD COLUMN recurring boolean DEFAULT false','error');
     }else if(/installment/i.test(msg)){
       showToast('Rode o SQL: ALTER TABLE expenses ADD COLUMN installment_no integer, ADD COLUMN installment_total integer, ADD COLUMN installment_group text','error');
+    }else if(/not present in table|foreign key|violates/i.test(msg)){
+      showToast('Não consegui abrir o mês de destino. Tente de novo.','error');
     }else{
       showToast(`Erro ao salvar: ${msg.slice(0,120)}`,'error');
     }

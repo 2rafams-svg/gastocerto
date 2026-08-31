@@ -44,7 +44,7 @@ function syncThemeRow(){
   if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
-const APP_VERSION = '5.5';
+const APP_VERSION = '5.6';
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
 const CORRECT_PIN = () => String(new Date().getFullYear());
@@ -3106,6 +3106,19 @@ function runQuickAdd(){
   onExpenseValueInput();
   vib(12);
 }
+function onQuickHash(){
+  const q=parseQuickLink();
+  if(!q) return;
+  try{ history.replaceState(null,'',location.pathname+location.search); }catch{}
+  if(!session?.access_token){
+    const nota=document.getElementById('quick-auth-note');
+    if(nota) nota.hidden=false;
+    return;
+  }
+  quickAdd=q;
+  if(currentUser&&document.getElementById('app').style.display!=='none') runQuickAdd();
+}
+window.addEventListener('hashchange',onQuickHash);
 function quickBaseUrl(){ return location.origin+location.pathname.replace(/index\.html$/,''); }
 function openQuickGuide(){
   const base=quickBaseUrl();

@@ -44,7 +44,7 @@ function syncThemeRow(){
   if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
-const APP_VERSION = '5.9';
+const APP_VERSION = '5.10';
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
 const CORRECT_PIN = () => String(new Date().getFullYear());
@@ -273,6 +273,7 @@ const api={
   getExpenses:(mk)=>sbFetch(`expenses?month_key=eq.${mk}&order=date.desc`),
   getAllExpenses:()=>sbFetch('expenses?order=date.desc'),
   getExpensesFrom:(mk)=>sbFetch(`expenses?month_key=gte.${mk}&select=id,user_id,cat_id,month_key,name,value,date,recurring,installment_no,installment_total,installment_group,card_id&order=month_key.asc`),
+  getMonthTotals:()=>sbFetch('expenses?select=month_key,value&order=month_key.asc'),
   getExpenseNames:()=>sbFetch('expenses?select=name&order=date.desc'),
   insertExpense:(d)=>sbFetch('expenses',{method:'POST',body:JSON.stringify({...d,user_id:currentUser.id})}),
   updateExpense:(id,d)=>sbFetch(`expenses?id=eq.${id}`,{method:'PATCH',body:JSON.stringify(d)}),
@@ -344,7 +345,7 @@ const api={
 };
 
 let categories=[], months=[], currentMonthKey='', viewMonthKey='', expenses=[], currentTab='home', currentCatIdx=0, budgetTransfers=[], cards=[], rollovers=[], futureMonthKeys=[];
-let futureExpenses=[], recurringBase=[], projectedExpenses=[], futureOpen={};
+let futureExpenses=[], recurringBase=[], projectedExpenses=[], futureOpen={}, monthIndex={};
 let subscription=null, userPlan='free';
 let splitGroups=[], pendingShares=[], acceptedShares=[], sharedOutMap={}, pendingSplitInvites=[], acceptedGroupIds=new Set(), friends=[];
 let myProfile=null, profilesById={};
@@ -646,6 +647,7 @@ async function init(){
     rollovers=await api.getRollovers(viewMonthKey).catch(()=>[]);
     cards=await api.getCards().catch(()=>[]);
     refreshFutureMonths();
+    refreshMonthIndex();
     applyAutoRollover();
     saveCache();
     document.getElementById('sync-dot')?.remove();
@@ -2377,6 +2379,7 @@ async function saveExpense(expId){
     if(name && !expenseNames.includes(name)) expenseNames.unshift(name);
     expenses=await api.getExpenses(viewMonthKey);
     await refreshFutureMonths();
+    refreshMonthIndex();
     saveCache();
     vib(15);
     _closeModal(); render(); showToast(skippedToNextMonth?`Salvo! ${installment_total>1?'A 1ª parcela cai':'A cobrança cai'} em ${monthLabel(targetMonthKey)}.`:'Salvo!','success');
@@ -2524,7 +2527,7 @@ async function confirmDeleteExpense(expId){
       try{ const r=await api.deleteInstallmentsAfter(target.installment_group,target.installment_no); removed+=(r?.length||0); }catch{}
       await refreshFutureMonths();
     }
-    expenses=expenses.filter(e=>e.id!==expId); saveCache(); render();
+    expenses=expenses.filter(e=>e.id!==expId); saveCache(); render(); refreshMonthIndex();
     showToast(removed>1?`${removed} parcelas removidas.`:'Removido.','success');
   }
   catch{ showToast('Erro ao deletar.','error'); }
@@ -2747,6 +2750,97 @@ async function refreshFutureMonths(){
   syncProjected();
 }
 
+async function refreshMonthIndex(){
+  try{
+    const rows=await api.getMonthTotals()||[];
+    const idx={};
+    rows.forEach(r=>{ const k=r.month_key; if(!k) return; (idx[k]=idx[k]||{key:k,total:0,count:0}); idx[k].total+=parseFloat(r.value||0); idx[k].count++; });
+    monthIndex=idx;
+  }catch{}
+}
+function monthHasEntries(key){ return !!(monthIndex[key]&&monthIndex[key].count>0); }
+function navMonths(){
+  const set=new Set(Object.keys(monthIndex).filter(monthHasEntries));
+  if(currentMonthKey) set.add(currentMonthKey);
+  if(viewMonthKey) set.add(viewMonthKey);
+  return [...set].sort();
+}
+function neighborMonth(key,dir){
+  const list=navMonths();
+  const i=list.indexOf(key);
+  if(i<0) return null;
+  const j=i+dir;
+  return j>=0&&j<list.length?list[j]:null;
+}
+function monthExtra(key){
+  const m=monthIndex[key];
+  if(!m||!m.count) return 'sem lançamento';
+  return `${brl(m.total)} · ${m.count} ${m.count===1?'lançamento':'lançamentos'}`;
+}
+function stepRowHtml(key,dir){
+  const rotulo=dir>0?'Próximo':'Anterior';
+  if(!key) return `<div class="ms-row off"><span class="ms-when">${rotulo}<em>fim da linha</em></span></div>`;
+  return `<button class="ms-row" onclick="stepMonth(${dir})">
+    <span class="ms-when">${monthLabel(key)}<em>${rotulo} · ${monthExtra(key)}</em></span>
+  </button>`;
+}
+function monthStepperHtml(){
+  const proximo=neighborMonth(viewMonthKey,1);
+  const anterior=neighborMonth(viewMonthKey,-1);
+  const agora=viewMonthKey===currentMonthKey;
+  return `<button class="ms-arrow" onclick="stepMonth(1)"${proximo?'':' disabled'} aria-label="Mês seguinte"><i class="fa-solid fa-chevron-up" aria-hidden="true"></i></button>
+    ${stepRowHtml(proximo,1)}
+    <div class="ms-row on">
+      <span class="ms-when">${monthLabel(viewMonthKey)}<em>${agora?'Este mês':'Vendo agora'} · ${monthExtra(viewMonthKey)}</em></span>
+      <i class="fa-solid fa-eye ms-eye" aria-hidden="true"></i>
+    </div>
+    ${stepRowHtml(anterior,-1)}
+    <button class="ms-arrow" onclick="stepMonth(-1)"${anterior?'':' disabled'} aria-label="Mês anterior"><i class="fa-solid fa-chevron-down" aria-hidden="true"></i></button>`;
+}
+async function stepMonth(dir){
+  const alvo=neighborMonth(viewMonthKey,dir);
+  if(!alvo) return;
+  vib(6);
+  const host=document.getElementById('ms-host');
+  if(host) host.classList.add('busy');
+  await goToMonth(alvo);
+  const h=document.getElementById('ms-host');
+  if(h){ h.classList.remove('busy'); h.innerHTML=monthStepperHtml(); }
+}
+function monthGridHtml(){
+  const nav=new Set(navMonths());
+  const chaves=[...new Set([...Object.keys(monthIndex),...months.map(m=>m.key),currentMonthKey,viewMonthKey].filter(Boolean))].sort();
+  if(!chaves.length) return '';
+  const anos=[...new Set(chaves.map(k=>k.split('-')[0]))].sort();
+  const primeiro=chaves[0], ultimo=chaves[chaves.length-1];
+  return anos.map(ano=>{
+    const de=ano===primeiro.split('-')[0]?+primeiro.split('-')[1]:1;
+    const ate=ano===ultimo.split('-')[0]?+ultimo.split('-')[1]:12;
+    const chips=[];
+    for(let mes=de;mes<=ate;mes++){
+      const key=`${ano}-${String(mes).padStart(2,'0')}`;
+      const nome=monthLabel(key).split(' ')[0];
+      const pode=nav.has(key);
+      const cls=[key===viewMonthKey?'on':'',key===currentMonthKey?'now':'',pode?'has':'off'].filter(Boolean).join(' ');
+      chips.push(pode
+        ? `<button class="mg-chip ${cls}" onclick="selectMonth('${key}')">${nome}</button>`
+        : `<span class="mg-chip ${cls}">${nome}</span>`);
+    }
+    return `<div class="mg-year">${ano}</div><div class="mg-grid">${chips.join('')}</div>`;
+  }).join('');
+}
+function openMonthGrid(){
+  vib(5);
+  const grid=monthGridHtml();
+  document.getElementById('modal-content').innerHTML=`<div class="modal-title">Escolher mês</div>
+    <p class="modal-note">Só dá para abrir os meses que têm lançamento. O mês atual está sempre disponível.</p>
+    ${grid||'<div class="fut-empty">Nenhum mês para escolher ainda.</div>'}
+    <div class="mg-legend"><span><i class="mg-dot has" aria-hidden="true"></i> tem lançamento</span><span><i class="mg-dot off" aria-hidden="true"></i> vazio</span></div>
+    <button class="btn-secondary" style="margin-top:16px" onclick="openMonthPicker()">Voltar</button>`;
+  const alvo=document.querySelector('.mg-chip.on');
+  if(alvo) alvo.scrollIntoView({block:'center'});
+}
+
 const FUTURE_HORIZON=12;
 function projectedFor(monthKey){
   if(!monthKey||!currentMonthKey||monthKey<=currentMonthKey) return [];
@@ -2848,32 +2942,28 @@ function openFuturo(){
 }
 function openMonthPicker(){
   if(!isPro()){ openPaywall('Histórico de meses anteriores'); return; }
-  const row=(key,extra,tag)=>`<div class="mp-row${key===viewMonthKey?' on':''}" onclick="selectMonth('${key}')">
-      <span class="mp-name">${monthLabel(key)}${tag?`<span class="mp-tag">${tag}</span>`:''}</span>
-      ${extra?`<span class="mp-extra">${extra}</span>`:''}
-    </div>`;
-  const past=months.filter(m=>m.key<currentMonthKey).sort((a,b)=>b.key.localeCompare(a.key));
-  const proximos=futureMonthKeys.slice(0,3);
-  const restantes=futureMonthKeys.length-proximos.length;
-  openModal(`<div class="modal-title">Selecionar mês</div>
-    ${row(currentMonthKey,'','Este mês')}
-    <div class="cons-section" style="margin:18px 0 6px">Próximos meses</div>
-    <p class="modal-note" style="margin-bottom:12px">Parcelas e recorrências que já estão lançadas para frente.</p>
-    ${proximos.length?proximos.map(f=>row(f.key,`${brl(f.total)} · ${f.count} ${f.count===1?'lançamento':'lançamentos'}`,null)).join(''):'<div class="mp-row mp-empty" style="cursor:default"><span class="mp-name">Nada lançado para frente</span></div>'}
-    <button class="mp-future" onclick="openFuturo()"><i class="fa-solid fa-arrow-trend-up" aria-hidden="true"></i> Ver o saldo dos próximos meses${restantes>0?` · +${restantes}`:''}</button>
-    ${past.length?`<div class="cons-section" style="margin:18px 0 8px">Meses anteriores</div>
-    ${past.map(m=>row(m.key,'',m.closed?'Fechado':null)).join('')}`:''}`);
+  const html=`<div class="modal-title">Mês</div>
+    <div class="ms" id="ms-host">${monthStepperHtml()}</div>
+    <button class="ms-pick" onclick="openMonthGrid()"><i class="fa-solid fa-table-cells" aria-hidden="true"></i> Escolher outro mês</button>
+    <button class="mp-future" onclick="openFuturo()"><i class="fa-solid fa-arrow-trend-up" aria-hidden="true"></i> Ver o saldo dos próximos meses</button>
+    <button class="btn-secondary" style="margin-top:10px" onclick="_closeModal()">Fechar</button>`;
+  if(document.getElementById('modal-overlay').classList.contains('open')) document.getElementById('modal-content').innerHTML=html;
+  else openModal(html);
 }
 
-async function selectMonth(key){
+async function goToMonth(key){
   viewMonthKey=key; currentCatIdx=0;
-  _closeModal();
-  if(currentTab!=='home'&&currentTab!=='categorias'&&currentTab!=='historico') switchTab('home');
   syncProjected();
   expenses=await api.getExpenses(viewMonthKey);
   rollovers=await api.getRollovers(viewMonthKey).catch(()=>[]);
   syncProjected();
   render();
+}
+
+async function selectMonth(key){
+  _closeModal();
+  if(currentTab!=='home'&&currentTab!=='categorias'&&currentTab!=='historico'){ currentTab='home'; document.querySelectorAll('.nav-item').forEach(t=>t.classList.toggle('active',t.dataset.tab==='home')); }
+  await goToMonth(key);
 }
 
 function onFab(){

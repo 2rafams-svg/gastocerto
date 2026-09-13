@@ -4,7 +4,7 @@ Referência única do projeto: o que ele é, como está montado, o que está no 
 abandonado, as regras que toda alteração precisa seguir, e o passo a passo para migrar
 tudo para outra conta.
 
-Versão do app na data deste documento: **5.9** · Última atualização: **13/09/2026**
+Versão do app na data deste documento: **5.10** · Última atualização: **13/09/2026**
 
 ---
 
@@ -303,6 +303,8 @@ colunas existem, é ele a fonte da verdade.
 | `todayLocal()` | Data de hoje no fuso local — **nunca `toISOString()`** |
 | `applyAutoRollover()` | Leva sobras e estouros marcados, a partir de `rollover_from` |
 | `parseQuickLink()` e `runQuickAdd()` | Lançamento rápido pelo link `#add` |
+| `navMonths()` e `neighborMonth()` | Meses navegáveis e o vizinho de um mês no seletor |
+| `goToMonth(mês)` | Troca o mês exibido sem fechar o modal; `selectMonth()` fecha e chama ela |
 
 ---
 
@@ -324,8 +326,9 @@ colunas existem, é ele a fonte da verdade.
   partir do mês seguinte ao que foi ligado; ao desligar, o app pergunta o que fazer com o
   que já foi levado.
 - Previsão de quando o saldo acaba, no ritmo atual de gasto.
-- Navegação entre meses: mês atual em destaque, os **três próximos** meses que já têm
-  lançamento, meses anteriores. **O app sempre abre no mês atual.**
+- Navegação entre meses por **passo a passo**: próximo, atual e anterior empilhados, com
+  seta para cima e para baixo. Ver [seção 5.2](#52-o-seletor-de-mês-v510).
+  **O app sempre abre no mês atual.**
 - **Próximos meses** — saldo mês a mês do que já está comprometido. Ver
   [seção 5.1](#51-próximos-meses-v59).
 - Histórico com média diária, projeção, variação, distribuição por categoria, evolução por
@@ -385,9 +388,41 @@ e não dá para contar com ele.
 projetados, porque `buildSlide()` soma `expenses` e `projectedExpenses`. O rótulo do herói
 muda para *Deve sobrar* / *Vai estourar*.
 
-> O seletor de meses lista no máximo **três** meses futuros. Listar todos foi tentado na
-> v5.7 e poluiu — uma compra em 10x enchia o seletor de linhas iguais. O resto está em
-> Próximos meses.
+### 5.2 O seletor de mês (v5.10)
+
+A pílula do mês, no cabeçalho, abre um **passo a passo** de três linhas:
+
+```
+        [ ▲ ]
+  Out 2026    Próximo · R$ 1983,33 · 2 lançamentos
+  Set 2026    Este mês · R$ 1110,00 · 2 lançamentos     <- o que você está vendo
+  Ago 2026    Anterior · R$ 1140,00 · 2 lançamentos
+        [ ▼ ]
+```
+
+A seta — ou a própria linha de cima/de baixo — **navega na hora**, e o passo a passo se
+redesenha em volta do novo mês. Para cima é futuro, para baixo é passado. Quando não há
+para onde ir a seta fica desabilitada e a linha vira *fim da linha*.
+
+**Só entram meses que têm lançamento**, mais o mês corrente, que está sempre disponível.
+Meses vazios são pulados: de Jul 2026 a seta para baixo vai direto para Mai 2026 se Jun
+estiver vazio. Quem decide isso é `navMonths()`, a lista ordenada de meses navegáveis;
+`neighborMonth(chave, ±1)` é só o vizinho nessa lista.
+
+O botão **Escolher outro mês** troca o conteúdo do mesmo sheet por uma grade de pastilhas,
+um ano por bloco, quatro colunas. Pastilha com fundo verde-claro tem lançamento e é
+clicável; pastilha apagada está vazia e não clica. O mês que você está vendo fica sólido e
+o mês corrente ganha um anel. A grade vai do primeiro ao último mês com lançamento — não
+existe ano inteiro em branco.
+
+O índice que alimenta tudo isso é `monthIndex`, `{mês: {total, count}}`, montado por
+`refreshMonthIndex()` a partir de `api.getMonthTotals()` — uma query de duas colunas
+(`month_key`, `value`) sobre `expenses`. É recarregado no boot, ao salvar e ao excluir
+lançamento.
+
+> **Não voltar a listar todos os meses futuros numa lista corrida.** Foi tentado na v5.7 e
+> poluiu: uma compra em 10x rendia nove linhas idênticas de "1 lançamento". O passo a passo
+> e a grade existem exatamente para resolver isso.
 
 ### Plataforma
 - PWA instalável, funciona offline com os dados em cache.
@@ -483,7 +518,7 @@ cartões com dia de fechamento, parcelas, recorrentes, comprovantes e
 | Nav inferior `position: fixed` | Flutuava no PWA do iPhone. Voltou para fluxo normal com altura medida por JS |
 | Nav no topo ou lateral | Testado quando o rodapé não colava; o dono preferiu o rodapé |
 | `100vh` e `-webkit-fill-available` | Nenhum dos dois dá a altura real no PWA standalone |
-| Navegar para qualquer mês futuro pelo seletor (v5.7) | Poluía o seletor. O seletor lista no máximo 3; o resto está em Próximos meses (v5.9) |
+| Navegar para qualquer mês futuro por lista corrida (v5.7) | Poluía o seletor. Virou passo a passo de 3 linhas mais grade de pastilhas (v5.10) |
 | Campo de código de barras no gasto | Pertencia ao planejamento; saiu junto |
 | Emoji como ícone | Trocado por Font Awesome em todo o app |
 
@@ -676,6 +711,7 @@ worker continua servindo o `app.js` velho, apontado para o banco antigo.
 
 | Versão | O quê |
 |---|---|
+| 5.10 | Seletor de mês vira passo a passo (próximo · atual · anterior) com setas, mais grade de pastilhas por ano; só navega para mês com lançamento |
 | 5.9 | **Próximos meses**: saldo mês a mês do que já está comprometido; corrige `api.getExpensesFrom`, que não existia e matava a lista de meses futuros |
 | 5.8 | Categoria sem teto, view de desktop acima de 900px, seletor de meses revertido |
 | 5.7 | Sempre abre no mês atual; pílula do mês destacada fora do mês corrente |

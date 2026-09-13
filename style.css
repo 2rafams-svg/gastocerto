@@ -506,6 +506,15 @@ details summary::-webkit-details-marker{display:none}
 .info-row+.info-row{border-top:1px solid var(--border)}
 .info-row span i{color:var(--text3);margin-right:7px}
 .info-row strong{color:var(--text);font-weight:700;font-variant-numeric:tabular-nums}
+.month-pill.off-month{border-color:var(--accent-line);background:var(--accent-soft);color:var(--accent-text);font-weight:600}
+.mp-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 15px;border-radius:11px;margin-bottom:8px;background:var(--surface2);border:1px solid var(--border);color:var(--text);cursor:pointer;transition:border-color .15s}
+.mp-row:active{border-color:var(--accent-line)}
+.mp-row.on{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:600}
+.mp-name{display:flex;align-items:center;gap:8px;min-width:0;font-size:14px}
+.mp-tag{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;padding:2px 7px;border-radius:100px;background:var(--elev);color:var(--text2);white-space:nowrap}
+.mp-row.on .mp-tag{background:rgba(0,0,0,.18);color:inherit}
+.mp-extra{font-size:11.5px;opacity:.78;white-space:nowrap;font-variant-numeric:tabular-nums}
+.mp-empty{opacity:.6}
 #quick-splash{display:none}
 .gc-quick #quick-splash{position:fixed;inset:0;z-index:1200;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:40px}
 .quick-splash-title{font-family:var(--font-title);font-size:19px;font-weight:700;color:var(--text)}

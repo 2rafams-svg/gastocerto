@@ -44,7 +44,7 @@ function syncThemeRow(){
   if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
-const APP_VERSION = '5.6';
+const APP_VERSION = '5.7';
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
 const CORRECT_PIN = () => String(new Date().getFullYear());
@@ -592,9 +592,11 @@ function loadCache(){
     if(!raw) return false;
     const c=JSON.parse(raw);
     if(!c.categories||!c.months) return false;
-    categories=c.categories; months=c.months; expenses=c.expenses||[];
+    const hoje=monthKeyOf(new Date());
+    categories=c.categories; months=c.months;
+    expenses=c.currentMonthKey===hoje?(c.expenses||[]):[];
     expenseNames=c.expenseNames||[];
-    currentMonthKey=c.currentMonthKey; viewMonthKey=c.currentMonthKey;
+    currentMonthKey=hoje; viewMonthKey=hoje;
     return true;
   }catch{ return false; }
 }
@@ -634,7 +636,7 @@ async function init(){
     const prevKey=prevMonthKey(now);
     const prevMon=months.find(m=>m.key===prevKey);
     if(prevMon&&!prevMon.closed) api.closeMonth(prevKey).then(()=>{if(prevMon)prevMon.closed=true;}).catch(()=>{});
-    if(!hadCache || !months.find(m=>m.key===viewMonthKey)) viewMonthKey=now;
+    viewMonthKey=now;
     expenses=await api.getExpenses(viewMonthKey);
     budgetTransfers=await api.getBudgetTransfers(currentMonthKey).catch(()=>[]);
     rollovers=await api.getRollovers(viewMonthKey).catch(()=>[]);
@@ -1215,6 +1217,7 @@ async function loadPendingShares(){
 
 function render(){
   document.getElementById('current-month-label').textContent=monthLabel(viewMonthKey);
+  document.querySelector('.month-pill')?.classList.toggle('off-month',!!currentMonthKey&&viewMonthKey!==currentMonthKey);
   const isNow=viewMonthKey===currentMonthKey;
   document.getElementById('fab').style.display=(currentTab==='home'||currentTab==='categorias')?'flex':'none';
   const el=document.getElementById('content');
@@ -2701,20 +2704,28 @@ async function refreshFutureMonths(){
     futureMonthKeys=Object.values(by).sort((a,b)=>a.key.localeCompare(b.key));
   }catch{ futureMonthKeys=[]; }
 }
+const FUTURE_MONTHS_AHEAD = 12;
 function openMonthPicker(){
   if(!isPro()){ openPaywall('Histórico de meses anteriores'); return; }
-  const past=months.filter(m=>m.key<=currentMonthKey).sort((a,b)=>b.key.localeCompare(a.key));
-  const row=(key,extra,closed)=>`<div onclick="selectMonth('${key}')" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 16px;border-radius:10px;margin-bottom:8px;background:${key===viewMonthKey?'var(--accent)':'var(--surface2)'};color:${key===viewMonthKey?'var(--on-accent)':'var(--text)'};font-weight:${key===viewMonthKey?600:400};cursor:pointer">
-      <span>${monthLabel(key)} ${closed?'<span style="font-size:11px;opacity:.6">Fechado</span>':''}</span>
-      ${extra?`<span style="font-size:11.5px;opacity:.75;white-space:nowrap">${extra}</span>`:''}
+  const row=(key,extra,tag)=>`<div class="mp-row${key===viewMonthKey?' on':''}" onclick="selectMonth('${key}')">
+      <span class="mp-name">${monthLabel(key)}${tag?`<span class="mp-tag">${tag}</span>`:''}</span>
+      ${extra?`<span class="mp-extra">${extra}</span>`:''}
     </div>`;
-  const futureHtml=futureMonthKeys.length?`
-    <div class="cons-section" style="margin:18px 0 8px">Próximos meses · já comprometido</div>
-    <p class="modal-note" style="margin-bottom:12px">Parcelas e recorrências que já estão lançadas para frente.</p>
-    ${futureMonthKeys.map(f=>row(f.key,`${brl(f.total)} · ${f.count} ${f.count===1?'lançamento':'lançamentos'}`,false)).join('')}`:'';
-  openModal(`<div class="modal-title">Selecionar Mês</div>
-    ${past.map(m=>row(m.key,'',m.closed)).join('')}
-    ${futureHtml}`);
+  const futuros=[];
+  let k=nextMonthKey(currentMonthKey);
+  for(let i=0;i<FUTURE_MONTHS_AHEAD;i++){
+    const f=futureMonthKeys.find(x=>x.key===k);
+    futuros.push(row(k,f?`${brl(f.total)} · ${f.count} ${f.count===1?'lançamento':'lançamentos'}`:'<span class="mp-empty">sem lançamentos</span>',null));
+    k=nextMonthKey(k);
+  }
+  const past=months.filter(m=>m.key<currentMonthKey).sort((a,b)=>b.key.localeCompare(a.key));
+  openModal(`<div class="modal-title">Selecionar mês</div>
+    ${row(currentMonthKey,'','Este mês')}
+    <div class="cons-section" style="margin:18px 0 6px">Próximos meses</div>
+    <p class="modal-note" style="margin-bottom:12px">Dá para lançar e ajustar orçamento à frente. O valor mostrado é o que já está comprometido com parcelas e recorrências.</p>
+    ${futuros.join('')}
+    ${past.length?`<div class="cons-section" style="margin:18px 0 8px">Meses anteriores</div>
+    ${past.map(m=>row(m.key,'',m.closed?'Fechado':null)).join('')}`:''}`);
 }
 
 async function selectMonth(key){
@@ -2738,7 +2749,7 @@ async function switchTab(tab){
   vib(5);
   currentTab=tab; currentCatIdx=0;
   document.querySelectorAll('.nav-item').forEach(t=>t.classList.toggle('active',t.dataset.tab===tab));
-  viewMonthKey=currentMonthKey;
+  if(!months.find(m=>m.key===viewMonthKey)&&viewMonthKey<currentMonthKey) viewMonthKey=currentMonthKey;
   expenses=await api.getExpenses(viewMonthKey);
   render();
 }

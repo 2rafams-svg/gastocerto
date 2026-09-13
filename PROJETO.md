@@ -4,7 +4,7 @@ Referência única do projeto: o que ele é, como está montado, o que está no 
 abandonado, as regras que toda alteração precisa seguir, e o passo a passo para migrar
 tudo para outra conta.
 
-Versão do app na data deste documento: **5.8** · Última atualização: **13/09/2026**
+Versão do app na data deste documento: **5.9** · Última atualização: **13/09/2026**
 
 ---
 
@@ -14,8 +14,10 @@ PWA de controle de gastos por categoria, em português, focado em celular (iPhon
 especial). Cada categoria tem um teto mensal e o app existe para você respeitar esse teto.
 Tem ainda um módulo de dividir contas com amigos, separado do controle pessoal.
 
-**Não é** ferramenta de planejamento futuro. Isso foi tentado e removido — ver
-[seção 8](#8-o-que-foi-abandonado).
+**Não é** ferramenta de planejamento futuro no sentido de projetar receita e saldo em
+conta — isso foi tentado e removido, ver [seção 8](#8-o-que-foi-abandonado). O que existe
+desde a v5.9 é uma leitura do que **já está comprometido** para frente, derivada só do que
+está lançado: [seção 5.1](#51-próximos-meses-v59).
 
 ### Stack
 
@@ -322,8 +324,10 @@ colunas existem, é ele a fonte da verdade.
   partir do mês seguinte ao que foi ligado; ao desligar, o app pergunta o que fazer com o
   que já foi levado.
 - Previsão de quando o saldo acaba, no ritmo atual de gasto.
-- Navegação entre meses: mês atual em destaque, meses futuros **que já têm lançamento**,
-  meses anteriores. **O app sempre abre no mês atual.**
+- Navegação entre meses: mês atual em destaque, os **três próximos** meses que já têm
+  lançamento, meses anteriores. **O app sempre abre no mês atual.**
+- **Próximos meses** — saldo mês a mês do que já está comprometido. Ver
+  [seção 5.1](#51-próximos-meses-v59).
 - Histórico com média diária, projeção, variação, distribuição por categoria, evolução por
   mês e consolidado.
 - Exportar a categoria como imagem pronta para compartilhar.
@@ -334,6 +338,56 @@ colunas existem, é ele a fonte da verdade.
 - Divisão de despesa no chat: 50/50 ou personalizada, com saldo e extrato.
 - Divisão em grupo para três ou mais pessoas, com acerto de contas.
 - Notificação no navegador quando chega mensagem.
+
+### 5.1 Próximos meses (v5.9)
+
+Responde a uma pergunta só: **quanto sobra do orçamento nos meses que vêm, considerando o
+que já está comprometido.** Não inventa receita, não projeta ritmo de gasto, não pede nada
+ao usuário — lê o que já está lançado.
+
+Abre por dois caminhos: o seletor de meses (botão *Ver o saldo dos próximos meses*) e o
+card de resumo do **Histórico**. É recurso Pro, como o resto do histórico.
+
+**O que entra na conta de um mês futuro:**
+
+| Origem | De onde vem |
+|---|---|
+| Parcelas de cartão | Linhas reais em `expenses`. `saveExpense()` já grava **todas** as parcelas no ato da compra, uma por `month_key` |
+| Lançamentos jogados para frente | Linhas reais em `expenses` com `month_key` à frente |
+| Gastos recorrentes | **Projetados, não existem no banco.** `autoCreateRecurring()` só materializa o mês corrente |
+| Orçamento | `baseBudget(cat, mês)` — respeita `month_budgets` do mês |
+
+A projeção de recorrente é a única parte sintética. `projectedFor(mês)` repete cada
+recorrente do mês corrente (`recurringBase`) nos meses seguintes, **pulando** os que já têm
+linha real com mesma categoria e mesmo nome, para não contar duas vezes. Esses itens
+carregam `previsto:true`, aparecem com a etiqueta *previsto* e **não têm botão de editar
+nem de excluir** — não existem para apagar.
+
+Categoria **sem teto** fica fora do saldo (ela não tem orçamento) e aparece numa linha à
+parte, igual ao resto do app.
+
+O saldo usa `baseBudget`, não `effBudget`: o rollover de um mês futuro ainda não aconteceu
+e não dá para contar com ele.
+
+**Funções:**
+
+| Função | Papel |
+|---|---|
+| `api.getExpensesFrom(mk)` | Uma query só, `month_key=gte`, **sem `image_url`** (é base64, não pode vir) |
+| `refreshFutureMonths()` | Preenche `futureExpenses`, `recurringBase` e `futureMonthKeys` |
+| `projectedFor(mês)` | Recorrentes projetados naquele mês |
+| `syncProjected()` | Atualiza `projectedExpenses` quando `viewMonthKey` muda |
+| `futureMonthData(mês)` | `{itens, comprometido, semOrcamento, orcamento, resta}` |
+| `futurePlan(n)` | Os `n` próximos meses (padrão 12) |
+| `openFuturo()` | A tela |
+
+**Navegando para um mês futuro**, a home mostra as parcelas reais **mais** os recorrentes
+projetados, porque `buildSlide()` soma `expenses` e `projectedExpenses`. O rótulo do herói
+muda para *Deve sobrar* / *Vai estourar*.
+
+> O seletor de meses lista no máximo **três** meses futuros. Listar todos foi tentado na
+> v5.7 e poluiu — uma compra em 10x enchia o seletor de linhas iguais. O resto está em
+> Próximos meses.
 
 ### Plataforma
 - PWA instalável, funciona offline com os dados em cache.
@@ -398,6 +452,10 @@ O passo a passo para montar o atalho está dentro do app, em
 
 ### Módulo de Planejamento futuro — removido na v5.1
 
+> A v5.9 trouxe **Próximos meses**, que não é a volta disso. Aquele módulo pedia receita,
+> âncoras de saldo e importação de planilha. Este só soma o que já está lançado e compara
+> com o teto das categorias — zero dado novo, zero tela de cadastro.
+
 Entre as v3.15 e v5.0 foi construído um módulo completo de projeção: saldo mês a mês,
 compromissos futuros, âncoras de saldo, extrato com saldo correndo, tabela no formato de
 planilha, e um importador que leu 41 meses de uma planilha do Google Sheets. Chegou a ser
@@ -425,7 +483,7 @@ cartões com dia de fechamento, parcelas, recorrentes, comprovantes e
 | Nav inferior `position: fixed` | Flutuava no PWA do iPhone. Voltou para fluxo normal com altura medida por JS |
 | Nav no topo ou lateral | Testado quando o rodapé não colava; o dono preferiu o rodapé |
 | `100vh` e `-webkit-fill-available` | Nenhum dos dois dá a altura real no PWA standalone |
-| Navegar para qualquer mês futuro (v5.7) | Poluía o seletor. Voltou a listar só os que já têm lançamento |
+| Navegar para qualquer mês futuro pelo seletor (v5.7) | Poluía o seletor. O seletor lista no máximo 3; o resto está em Próximos meses (v5.9) |
 | Campo de código de barras no gasto | Pertencia ao planejamento; saiu junto |
 | Emoji como ícone | Trocado por Font Awesome em todo o app |
 
@@ -618,6 +676,7 @@ worker continua servindo o `app.js` velho, apontado para o banco antigo.
 
 | Versão | O quê |
 |---|---|
+| 5.9 | **Próximos meses**: saldo mês a mês do que já está comprometido; corrige `api.getExpensesFrom`, que não existia e matava a lista de meses futuros |
 | 5.8 | Categoria sem teto, view de desktop acima de 900px, seletor de meses revertido |
 | 5.7 | Sempre abre no mês atual; pílula do mês destacada fora do mês corrente |
 | 5.6 | Atalho passa a funcionar também com a aba já aberta (`hashchange`) |

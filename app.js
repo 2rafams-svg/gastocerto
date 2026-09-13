@@ -44,7 +44,7 @@ function syncThemeRow(){
   if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
-const APP_VERSION = '5.8';
+const APP_VERSION = '5.9';
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
 const CORRECT_PIN = () => String(new Date().getFullYear());
@@ -272,6 +272,7 @@ const api={
   closeMonth:(key)=>sbFetch(`months?key=eq.${key}`,{method:'PATCH',body:JSON.stringify({closed:true})}),
   getExpenses:(mk)=>sbFetch(`expenses?month_key=eq.${mk}&order=date.desc`),
   getAllExpenses:()=>sbFetch('expenses?order=date.desc'),
+  getExpensesFrom:(mk)=>sbFetch(`expenses?month_key=gte.${mk}&select=id,user_id,cat_id,month_key,name,value,date,recurring,installment_no,installment_total,installment_group,card_id&order=month_key.asc`),
   getExpenseNames:()=>sbFetch('expenses?select=name&order=date.desc'),
   insertExpense:(d)=>sbFetch('expenses',{method:'POST',body:JSON.stringify({...d,user_id:currentUser.id})}),
   updateExpense:(id,d)=>sbFetch(`expenses?id=eq.${id}`,{method:'PATCH',body:JSON.stringify(d)}),
@@ -343,6 +344,7 @@ const api={
 };
 
 let categories=[], months=[], currentMonthKey='', viewMonthKey='', expenses=[], currentTab='home', currentCatIdx=0, budgetTransfers=[], cards=[], rollovers=[], futureMonthKeys=[];
+let futureExpenses=[], recurringBase=[], projectedExpenses=[], futureOpen={};
 let subscription=null, userPlan='free';
 let splitGroups=[], pendingShares=[], acceptedShares=[], sharedOutMap={}, pendingSplitInvites=[], acceptedGroupIds=new Set(), friends=[];
 let myProfile=null, profilesById={};
@@ -1286,7 +1288,8 @@ function renderHome(el){
 }
 
 function buildSlide(cat, isNow){
-  const catExps=expenses.filter(e=>e.cat_id===cat.id);
+  const isFuture=!!currentMonthKey&&viewMonthKey>currentMonthKey;
+  const catExps=[...expenses.filter(e=>e.cat_id===cat.id),...projectedExpenses.filter(e=>e.cat_id===cat.id)];
   const spent=catExps.reduce((s,e)=>s+parseFloat(e.value),0);
   const budget=effBudget(cat,viewMonthKey);
   const overridden=hasOverride(cat,viewMonthKey);
@@ -1311,13 +1314,13 @@ function buildSlide(cat, isNow){
     const byOther=e.user_id&&e.user_id!==currentUser.id;
     const tag=byOther?userTag(e.user_id):null;
     const byLabel=byOther?`<span style="font-size:10px;color:var(--accent-text);background:var(--accent-soft);border-radius:100px;padding:1px 7px;margin-left:5px;white-space:nowrap;display:inline-block">por ${escapeHtml(tag||'parceiro')}</span>`:'';
-    const actions=canEdit?`<div class="expense-actions">
+    const actions=canEdit&&!e.previsto?`<div class="expense-actions">
         <div class="exp-btn" onclick="openEditExpense('${e.id}')"><i class="fa-solid fa-pen" aria-label="Editar"></i></div>
         <div class="exp-btn" style="border-color:var(--red-soft);color:var(--red)" onclick="confirmDeleteExpense('${e.id}')"><i class="fa-solid fa-trash" aria-label="Excluir"></i></div>
       </div>`:'';
     return `<div class="expense-item">
     <div class="expense-left">
-      <div class="expense-name">${e.recurring?`<i class="fa-solid fa-arrows-rotate" style="font-size:10px;color:var(--accent-text);margin-right:5px" title="Recorrente" aria-hidden="true"></i>`:''}${e.installment_total?`<i class="fa-solid fa-credit-card" style="font-size:10px;color:var(--accent-text);margin-right:5px" title="Cartão" aria-hidden="true"></i>`:''}${escapeHtml(e.name)}${e.installment_total>1?`<span style="font-size:10px;color:var(--text3);font-weight:600;margin-left:5px">(${e.installment_no}/${e.installment_total})</span>`:''}${e.card_id&&cardLabel(e.card_id)?`<span style="font-size:10px;color:var(--text2);background:var(--surface2);border-radius:100px;padding:1px 7px;margin-left:5px;white-space:nowrap;display:inline-block">${escapeHtml(cardLabel(e.card_id))}</span>`:''}${byLabel}${e.image_url?`<span class="exp-receipt-dot" onclick="event.stopPropagation();viewReceipt('${e.id}')" title="Ver comprovante"><i class="fa-solid fa-image" aria-hidden="true"></i></span>`:''}</div>
+      <div class="expense-name">${e.recurring?`<i class="fa-solid fa-arrows-rotate" style="font-size:10px;color:var(--accent-text);margin-right:5px" title="Recorrente" aria-hidden="true"></i>`:''}${e.installment_total?`<i class="fa-solid fa-credit-card" style="font-size:10px;color:var(--accent-text);margin-right:5px" title="Cartão" aria-hidden="true"></i>`:''}${escapeHtml(e.name)}${e.installment_total>1?`<span style="font-size:10px;color:var(--text3);font-weight:600;margin-left:5px">(${e.installment_no}/${e.installment_total})</span>`:''}${e.card_id&&cardLabel(e.card_id)?`<span style="font-size:10px;color:var(--text2);background:var(--surface2);border-radius:100px;padding:1px 7px;margin-left:5px;white-space:nowrap;display:inline-block">${escapeHtml(cardLabel(e.card_id))}</span>`:''}${e.previsto?`<span style="font-size:10px;color:var(--text3);border:1px dashed var(--border);border-radius:100px;padding:1px 7px;margin-left:5px;white-space:nowrap;display:inline-block">previsto</span>`:''}${byLabel}${e.image_url?`<span class="exp-receipt-dot" onclick="event.stopPropagation();viewReceipt('${e.id}')" title="Ver comprovante"><i class="fa-solid fa-image" aria-hidden="true"></i></span>`:''}</div>
       <div class="expense-date">${new Date(e.date+'T12:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'})}</div>
     </div>
     <div class="expense-right">
@@ -1368,7 +1371,7 @@ function buildSlide(cat, isNow){
   const livre=semTeto(cat);
   const status=livre?'free':isOver?'over':isWarn?'warn':'ok';
   const pctLabel=budget>0?Math.round((spent/budget)*100):0;
-  const heroLabel=livre?'Gasto neste mês':available>=0?'Disponível':'Acima do orçamento';
+  const heroLabel=livre?(isFuture?'Comprometido neste mês':'Gasto neste mês'):available>=0?(isFuture?'Deve sobrar':'Disponível'):(isFuture?'Vai estourar':'Acima do orçamento');
   const heroValue=livre?brl(spent):available>=0?brl(available):brl(Math.abs(available));
 
   return `<div class="cat-slide">
@@ -1385,7 +1388,7 @@ function buildSlide(cat, isNow){
       ${livre?`<div class="hero-sub" style="margin-top:14px"><span>${catExps.length} ${catExps.length===1?'lançamento':'lançamentos'}</span><span>sem orçamento definido</span></div>`
         :`<div class="hero-bar"><span style="width:${pct}%"></span></div>
       <div class="hero-sub">
-        <span>Gasto <strong>${brl(spent)}</strong></span>
+        <span>${isFuture?'Comprometido':'Gasto'} <strong>${brl(spent)}</strong></span>
         <span>${pctLabel}% de ${brl(budget)}${overridden?' ·&nbsp;ajustado':''}</span>
       </div>
       ${forecast?`<div class="hero-forecast"><i class="fa-regular fa-clock" aria-hidden="true"></i> ${forecast}</div>`:''}`}
@@ -1613,6 +1616,7 @@ async function renderHistoricoAsync(el){
     <div class="progress-bar" style="margin-bottom:8px"><div class="progress-fill ${totalAvailSummary<0?'danger':totalPctSummary>75?'warning':''}" style="width:${totalPctSummary}%"></div></div>
     ${gastoLivre>0?`<div class="summary-free"><span><i class="fa-solid fa-infinity" aria-hidden="true"></i> Categorias sem teto</span><span>${brl(gastoLivre)}</span></div>`:''}
     <button class="summary-btn" onclick="openConsolidado()">Ver consolidado do mês <i class="fa-solid fa-chevron-right" style="font-size:10px" aria-hidden="true"></i></button>
+    <button class="summary-btn" onclick="openFuturo()">Saldo dos próximos meses <i class="fa-solid fa-chevron-right" style="font-size:10px" aria-hidden="true"></i></button>
   </div>`;
 
   const vKey=viewMonthKey;
@@ -2328,7 +2332,7 @@ async function saveExpense(expId){
   const repeatMode=repeatSegVal();
   const recurring=repeatMode==='recurring';
   if(!name||isNaN(value)||value<=0||!date){ showToast('Preencha todos os campos.','error'); return; }
-  if(!expId&&!isPro()&&expenses.filter(e=>e.date===date).length>=CONFIG.FREE_DAILY_LAUNCHES){ openPaywall('Limite diário de lançamentos atingido'); return; }
+  if(!expId&&!isPro()&&expenses.filter(e=>!e.previsto&&e.date===date).length>=CONFIG.FREE_DAILY_LAUNCHES){ openPaywall('Limite diário de lançamentos atingido'); return; }
   const editing=expId?expenses.find(x=>x.id===expId):null;
   let installment_total=null, installment_no=null, installment_group=null;
   if(repeatMode==='installment'){
@@ -2733,11 +2737,114 @@ async function ensureMonthsExist(fromKey,toKey){
 }
 async function refreshFutureMonths(){
   try{
-    const rows=await api.getExpensesFrom(nextMonthKey(currentMonthKey))||[];
+    const rows=await api.getExpensesFrom(currentMonthKey)||[];
+    futureExpenses=rows.filter(e=>e.month_key>currentMonthKey);
+    recurringBase=rows.filter(e=>e.month_key===currentMonthKey&&e.recurring);
     const by={};
-    rows.forEach(e=>{ const k=e.month_key; (by[k]=by[k]||{key:k,total:0,count:0}); by[k].total+=parseFloat(e.value||0); by[k].count++; });
+    futureExpenses.forEach(e=>{ const k=e.month_key; (by[k]=by[k]||{key:k,total:0,count:0}); by[k].total+=parseFloat(e.value||0); by[k].count++; });
     futureMonthKeys=Object.values(by).sort((a,b)=>a.key.localeCompare(b.key));
-  }catch{ futureMonthKeys=[]; }
+  }catch{ futureExpenses=[]; recurringBase=[]; futureMonthKeys=[]; }
+  syncProjected();
+}
+
+const FUTURE_HORIZON=12;
+function projectedFor(monthKey){
+  if(!monthKey||!currentMonthKey||monthKey<=currentMonthKey) return [];
+  const reais=futureExpenses.filter(e=>e.month_key===monthKey);
+  return recurringBase
+    .filter(r=>!reais.some(e=>e.cat_id===r.cat_id&&e.name===r.name))
+    .map(r=>({...r,id:`prev-${r.id}-${monthKey}`,month_key:monthKey,date:`${monthKey}-01`,previsto:true}));
+}
+function syncProjected(){ projectedExpenses=projectedFor(viewMonthKey); }
+function futureMonthData(monthKey){
+  const itens=[...futureExpenses.filter(e=>e.month_key===monthKey),...projectedFor(monthKey)];
+  const livres=new Set(categories.filter(semTeto).map(c=>c.id));
+  const comprometido=itens.filter(e=>!livres.has(e.cat_id)).reduce((s,e)=>s+parseFloat(e.value||0),0);
+  const semOrcamento=itens.filter(e=>livres.has(e.cat_id)).reduce((s,e)=>s+parseFloat(e.value||0),0);
+  const orcamento=categories.reduce((s,c)=>s+baseBudget(c,monthKey),0);
+  return {key:monthKey,itens,comprometido,semOrcamento,orcamento,resta:Math.round((orcamento-comprometido)*100)/100};
+}
+function futurePlan(n=FUTURE_HORIZON){
+  const out=[]; let k=nextMonthKey(currentMonthKey);
+  for(let i=0;i<n;i++){ out.push(futureMonthData(k)); k=nextMonthKey(k); }
+  return out;
+}
+
+function futureItemTag(e){
+  if(e.installment_total>1) return `parcela ${e.installment_no}/${e.installment_total}`;
+  if(e.previsto) return 'recorrente · previsto';
+  if(e.recurring) return 'recorrente';
+  return 'lançado';
+}
+function futureBodyHtml(m){
+  if(!m.itens.length) return `<div class="fut-empty">Nada comprometido neste mês.</div>`;
+  const grupos=categories.map(c=>({cat:c,itens:m.itens.filter(e=>e.cat_id===c.id)})).filter(g=>g.itens.length);
+  const orfaos=m.itens.filter(e=>!categories.some(c=>c.id===e.cat_id));
+  if(orfaos.length) grupos.push({cat:null,itens:orfaos});
+  return grupos.map(g=>{
+    const total=g.itens.reduce((s,e)=>s+parseFloat(e.value||0),0);
+    const teto=g.cat&&!semTeto(g.cat)?baseBudget(g.cat,m.key):null;
+    const sobra=teto!=null?Math.round((teto-total)*100)/100:null;
+    return `<div class="fut-group">
+      <div class="fut-group-head">
+        <span class="fut-group-name">${escapeHtml(g.cat?g.cat.name:'Sem categoria')}</span>
+        <span class="fut-group-num">${brl(total)}<em>${teto!=null?` de ${brl(teto)}`:' sem teto'}</em></span>
+      </div>
+      ${g.itens.map(e=>`<div class="fut-line${e.previsto?' previsto':''}">
+        <span class="fut-line-name">${escapeHtml(e.name)}<em>${futureItemTag(e)}</em></span>
+        <span class="fut-line-val">${brl(e.value)}</span>
+      </div>`).join('')}
+      ${sobra!=null?`<div class="fut-line total"><span class="fut-line-name">${sobra>=0?'Sobra prevista':'Estouro previsto'}</span><span class="fut-line-val ${sobra>=0?'pos':'neg'}">${brl(Math.abs(sobra))}</span></div>`:''}
+    </div>`;
+  }).join('');
+}
+function futureRowHtml(m){
+  const aberto=!!futureOpen[m.key];
+  const pct=m.orcamento>0?Math.min((m.comprometido/m.orcamento)*100,100):(m.comprometido>0?100:0);
+  const neg=m.resta<0;
+  return `<div class="fut-item${aberto?' open':''}" id="fut-${m.key}">
+    <button class="fut-head" onclick="toggleFuturo('${m.key}')">
+      <span class="fut-when">${monthLabel(m.key)}<em>${m.itens.length?`${m.itens.length} ${m.itens.length===1?'compromisso':'compromissos'}`:'sem compromissos'}</em></span>
+      <span class="fut-nums">
+        <span class="fut-rest ${neg?'neg':'pos'}">${neg?'-':''}${brl(Math.abs(m.resta))}</span>
+        <em>${neg?'acima do orçamento':`livre de ${brl(m.orcamento)}`}</em>
+      </span>
+      <i class="fa-solid fa-chevron-down fut-chev" aria-hidden="true"></i>
+    </button>
+    <div class="fut-bar"><span class="${neg?'neg':pct>75?'warn':''}" style="width:${pct}%"></span></div>
+    <div class="fut-body"${aberto?'':' hidden'}>
+      ${m.semOrcamento>0?`<div class="fut-note"><i class="fa-solid fa-infinity" aria-hidden="true"></i> ${brl(m.semOrcamento)} em categorias sem teto, fora da conta acima.</div>`:''}
+      ${futureBodyHtml(m)}
+      <button class="fut-open" onclick="selectMonth('${m.key}')"><i class="fa-regular fa-calendar" aria-hidden="true"></i> Abrir ${monthLabel(m.key)}</button>
+    </div>
+  </div>`;
+}
+function toggleFuturo(key){
+  vib(5);
+  futureOpen[key]=!futureOpen[key];
+  const el=document.getElementById(`fut-${key}`); if(!el) return;
+  el.classList.toggle('open',!!futureOpen[key]);
+  const body=el.querySelector('.fut-body'); if(body) body.hidden=!futureOpen[key];
+}
+function openFuturo(){
+  if(!isPro()){ openPaywall('Saldo dos próximos meses'); return; }
+  const plano=futurePlan();
+  const comCompromisso=plano.filter(m=>m.itens.length);
+  const ate=comCompromisso.length?comCompromisso[comCompromisso.length-1].key:null;
+  const visiveis=ate?plano.filter(m=>m.key<=ate):plano.slice(0,3);
+  const totalComp=visiveis.reduce((s,m)=>s+m.comprometido+m.semOrcamento,0);
+  const apertados=visiveis.filter(m=>m.resta<0);
+  openModal(`<div class="modal-title">Próximos meses</div>
+    <p class="modal-note">O que já está comprometido daqui para frente: parcelas do cartão, gastos recorrentes e lançamentos que você jogou para os meses seguintes, comparados com o teto das suas categorias.</p>
+    <div class="fut-summary">
+      <div class="fut-summary-block"><span>Comprometido</span><strong>${brl(totalComp)}</strong><em>em ${visiveis.length} ${visiveis.length===1?'mês':'meses'}</em></div>
+      <div class="fut-summary-block"><span>Meses no vermelho</span><strong class="${apertados.length?'neg':'pos'}">${apertados.length}</strong><em>${apertados.length?apertados.map(m=>monthLabel(m.key).split(' ')[0]).join(', '):'nenhum'}</em></div>
+    </div>
+    ${!comCompromisso.length?`<div class="fut-empty" style="margin:14px 0 0">Nada lançado para frente ainda. Parcelas e gastos recorrentes aparecem aqui sozinhos.</div>`:''}
+    <div class="cons-section" style="margin:20px 0 10px">Mês a mês</div>
+    ${visiveis.map(futureRowHtml).join('')}
+    ${ate&&ate<plano[plano.length-1].key?`<div class="fut-note" style="margin-top:12px"><i class="fa-regular fa-circle-check" aria-hidden="true"></i> Depois de ${monthLabel(ate)} não há nada comprometido.</div>`:''}
+    <button class="btn-secondary" style="margin-top:18px" onclick="_closeModal()">Fechar</button>`);
 }
 function openMonthPicker(){
   if(!isPro()){ openPaywall('Histórico de meses anteriores'); return; }
@@ -2746,11 +2853,14 @@ function openMonthPicker(){
       ${extra?`<span class="mp-extra">${extra}</span>`:''}
     </div>`;
   const past=months.filter(m=>m.key<currentMonthKey).sort((a,b)=>b.key.localeCompare(a.key));
+  const proximos=futureMonthKeys.slice(0,3);
+  const restantes=futureMonthKeys.length-proximos.length;
   openModal(`<div class="modal-title">Selecionar mês</div>
     ${row(currentMonthKey,'','Este mês')}
-    ${futureMonthKeys.length?`<div class="cons-section" style="margin:18px 0 6px">Próximos meses</div>
+    <div class="cons-section" style="margin:18px 0 6px">Próximos meses</div>
     <p class="modal-note" style="margin-bottom:12px">Parcelas e recorrências que já estão lançadas para frente.</p>
-    ${futureMonthKeys.map(f=>row(f.key,`${brl(f.total)} · ${f.count} ${f.count===1?'lançamento':'lançamentos'}`,null)).join('')}`:''}
+    ${proximos.length?proximos.map(f=>row(f.key,`${brl(f.total)} · ${f.count} ${f.count===1?'lançamento':'lançamentos'}`,null)).join(''):'<div class="mp-row mp-empty" style="cursor:default"><span class="mp-name">Nada lançado para frente</span></div>'}
+    <button class="mp-future" onclick="openFuturo()"><i class="fa-solid fa-arrow-trend-up" aria-hidden="true"></i> Ver o saldo dos próximos meses${restantes>0?` · +${restantes}`:''}</button>
     ${past.length?`<div class="cons-section" style="margin:18px 0 8px">Meses anteriores</div>
     ${past.map(m=>row(m.key,'',m.closed?'Fechado':null)).join('')}`:''}`);
 }
@@ -2758,8 +2868,11 @@ function openMonthPicker(){
 async function selectMonth(key){
   viewMonthKey=key; currentCatIdx=0;
   _closeModal();
+  if(currentTab!=='home'&&currentTab!=='categorias'&&currentTab!=='historico') switchTab('home');
+  syncProjected();
   expenses=await api.getExpenses(viewMonthKey);
   rollovers=await api.getRollovers(viewMonthKey).catch(()=>[]);
+  syncProjected();
   render();
 }
 
@@ -2777,6 +2890,7 @@ async function switchTab(tab){
   currentTab=tab; currentCatIdx=0;
   document.querySelectorAll('.nav-item').forEach(t=>t.classList.toggle('active',t.dataset.tab===tab));
   if(!months.find(m=>m.key===viewMonthKey)&&viewMonthKey<currentMonthKey) viewMonthKey=currentMonthKey;
+  syncProjected();
   expenses=await api.getExpenses(viewMonthKey);
   render();
 }

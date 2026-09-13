@@ -44,7 +44,7 @@ function syncThemeRow(){
   if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
-const APP_VERSION = '5.7';
+const APP_VERSION = '5.8';
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
 const CORRECT_PIN = () => String(new Date().getFullYear());
@@ -432,7 +432,9 @@ function monthOverride(cat, monthKey){
   const legado=m&&m.budgets?m.budgets[cat.id]:null;
   return (legado!=null&&!isNaN(parseFloat(legado)))?parseFloat(legado):null;
 }
+function semTeto(cat){ return !!(cat&&cat.no_limit); }
 function baseBudget(cat, monthKey){
+  if(semTeto(cat)) return 0;
   const ov=monthOverride(cat,monthKey);
   return ov!=null?ov:parseFloat(cat.budget);
 }
@@ -682,8 +684,12 @@ async function shareCategory(catId){
   const c=canvas.getContext('2d'); c.fillStyle='#0f0f0f';c.fillRect(0,0,1080,1920);c.fillStyle='#27C892';c.fillRect(0,0,18,1920);
   c.fillStyle='#f0f0f0';c.font='700 72px serif';c.fillText(cat.name,80,150);c.fillStyle='#888';c.font='34px sans-serif';c.fillText(monthLabel(viewMonthKey),80,210);
   c.fillStyle='#1a1a1a';c.beginPath();c.roundRect(70,270,940,290,32);c.fill();c.fillStyle='#888';c.font='28px sans-serif';c.fillText('TOTAL GASTO',110,340);
-  c.fillStyle='#f0f0f0';c.font='700 64px sans-serif';c.fillText(brl(spent),110,425);c.fillStyle=diff>=0?'#27C892':'#ff4f4f';c.font='600 28px sans-serif';c.fillText(diff>=0?`Dentro do orçamento · ${brl(diff)} livres`:`Orçamento excedido · ${brl(Math.abs(diff))}`,110,495);
-  c.fillStyle='#2a2a2a';c.fillRect(110,520,860,10);c.fillStyle=diff>=0?'#27C892':'#ff4f4f';c.fillRect(110,520,budget?Math.min(860,860*spent/budget):0,10);
+  c.fillStyle='#f0f0f0';c.font='700 64px sans-serif';c.fillText(brl(spent),110,425);
+  if(semTeto(cat)){ c.fillStyle='#888';c.font='600 28px sans-serif';c.fillText('Categoria sem teto · sem orçamento definido',110,495); }
+  else{
+    c.fillStyle=diff>=0?'#27C892':'#ff4f4f';c.font='600 28px sans-serif';c.fillText(diff>=0?`Dentro do orçamento · ${brl(diff)} livres`:`Orçamento excedido · ${brl(Math.abs(diff))}`,110,495);
+    c.fillStyle='#2a2a2a';c.fillRect(110,520,860,10);c.fillStyle=diff>=0?'#27C892':'#ff4f4f';c.fillRect(110,520,budget?Math.min(860,860*spent/budget):0,10);
+  }
   c.fillStyle='#888';c.font='600 27px sans-serif';c.fillText('LANÇAMENTOS',80,650);let y=730;
   for(const item of items.slice(0,12)){c.fillStyle='#f0f0f0';c.font='500 31px sans-serif';c.fillText(String(item.name).slice(0,32),80,y);c.textAlign='right';c.font='600 31px sans-serif';c.fillText(brl(item.value),990,y);c.textAlign='left';c.fillStyle='#555';c.font='24px sans-serif';c.fillText(new Date(item.date+'T12:00').toLocaleDateString('pt-BR'),80,y+42);c.fillRect(80,y+75,910,2);y+=105;}
   if(!items.length){c.fillStyle='#888';c.font='30px sans-serif';c.fillText('Nenhum lançamento neste período.',80,y);}
@@ -1359,28 +1365,30 @@ function buildSlide(cat, isNow){
 
   const sharedBadge=sharedWith?`<div style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--accent-text);background:var(--accent-soft);border:1px solid var(--accent-line);border-radius:100px;padding:3px 10px;margin-bottom:10px"><i class="fa-solid ${perm==='edit'?'fa-pen-to-square':'fa-eye'}" aria-hidden="true"></i> ${perm==='edit'?'Compartilhada · pode editar':'Compartilhada · somente leitura'}</div>`:'';
 
-  const status=isOver?'over':isWarn?'warn':'ok';
+  const livre=semTeto(cat);
+  const status=livre?'free':isOver?'over':isWarn?'warn':'ok';
   const pctLabel=budget>0?Math.round((spent/budget)*100):0;
-  const heroLabel=available>=0?'Disponível':'Acima do orçamento';
-  const heroValue=available>=0?brl(available):brl(Math.abs(available));
+  const heroLabel=livre?'Gasto neste mês':available>=0?'Disponível':'Acima do orçamento';
+  const heroValue=livre?brl(spent):available>=0?brl(available):brl(Math.abs(available));
 
   return `<div class="cat-slide">
     <div class="cat-hero ${status}">
       ${sharedBadge}
       <div class="hero-top">
-        <div class="hero-label">${heroLabel}</div>
+        <div class="hero-label">${heroLabel}${livre?'<span class="hero-free-tag">sem teto</span>':''}</div>
         <div style="display:flex;gap:6px">
-          ${isNow&&isOwned&&categories.filter(c=>c.user_id===currentUser.id).length>1?`<button class="hero-edit" onclick="openTransferBudget('${cat.id}')" title="Transferir limite para outra categoria"><i class="fa-solid fa-right-left" aria-hidden="true"></i></button>`:''}
-          ${isNow&&isOwned?`<button class="hero-edit" onclick="openMonthOverride('${cat.id}')" title="Ajustar orçamento"><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>`:''}
+          ${isNow&&isOwned&&!livre&&categories.filter(c=>c.user_id===currentUser.id&&!semTeto(c)).length>1?`<button class="hero-edit" onclick="openTransferBudget('${cat.id}')" title="Transferir limite para outra categoria"><i class="fa-solid fa-right-left" aria-hidden="true"></i></button>`:''}
+          ${isNow&&isOwned&&!livre?`<button class="hero-edit" onclick="openMonthOverride('${cat.id}')" title="Ajustar orçamento"><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>`:''}
         </div>
       </div>
-      <div class="hero-amount ${available>=0?'pos':'neg'}">${heroValue}</div>
-      <div class="hero-bar"><span style="width:${pct}%"></span></div>
+      <div class="hero-amount ${livre||available>=0?'pos':'neg'}">${heroValue}</div>
+      ${livre?`<div class="hero-sub" style="margin-top:14px"><span>${catExps.length} ${catExps.length===1?'lançamento':'lançamentos'}</span><span>sem orçamento definido</span></div>`
+        :`<div class="hero-bar"><span style="width:${pct}%"></span></div>
       <div class="hero-sub">
         <span>Gasto <strong>${brl(spent)}</strong></span>
         <span>${pctLabel}% de ${brl(budget)}${overridden?' ·&nbsp;ajustado':''}</span>
       </div>
-      ${forecast?`<div class="hero-forecast"><i class="fa-regular fa-clock" aria-hidden="true"></i> ${forecast}</div>`:''}
+      ${forecast?`<div class="hero-forecast"><i class="fa-regular fa-clock" aria-hidden="true"></i> ${forecast}</div>`:''}`}
     </div>
 
     <div class="exp-head">
@@ -1440,9 +1448,11 @@ function renderCategorias(el){
     el.innerHTML=`<div class="cat-list"><div class="empty"><div class="empty-icon"><i class="fa-regular fa-folder-open"></i></div><div class="empty-text">Nenhuma categoria ainda.</div></div></div>`;
     return;
   }
-  const totalBudget=categories.reduce((s,c)=>s+parseFloat(c.budget||0),0);
+  const comTeto=categories.filter(c=>!semTeto(c));
+  const livres=categories.length-comTeto.length;
+  const totalBudget=comTeto.reduce((s,c)=>s+parseFloat(c.budget||0),0);
   const totalHtml=`<div class="cat-total-card">
-    <span class="cat-total-label"><i class="fa-solid fa-wallet" aria-hidden="true"></i> Orçamento total · ${categories.length} ${categories.length===1?'categoria':'categorias'}</span>
+    <span class="cat-total-label"><i class="fa-solid fa-wallet" aria-hidden="true"></i> Orçamento total · ${comTeto.length} ${comTeto.length===1?'categoria':'categorias'}${livres?` <span style="opacity:.7">(+${livres} sem teto)</span>`:''}</span>
     <span class="cat-total-value">${brl(totalBudget)}/mês</span>
   </div>`;
   el.innerHTML=`<div class="cat-list" id="cat-list">
@@ -1455,7 +1465,7 @@ function renderCategorias(el){
       ${owned?'<div class="drag-handle" title="Arrastar"><i class="fa-solid fa-grip-vertical" aria-hidden="true"></i></div>':'<div class="drag-handle" style="opacity:.25;cursor:default" title="Compartilhada"><i class="fa-solid fa-grip-vertical" aria-hidden="true"></i></div>'}
       <div class="cat-manage-info">
         <div class="cat-manage-name">${escapeHtml(cat.name)}${!owned?`<span style="font-size:10px;color:var(--accent-text);background:var(--accent-soft);border-radius:100px;padding:1px 7px;margin-left:6px;font-weight:600">${perm==='edit'?'editar':'leitura'}</span>`:''}</div>
-        <div class="cat-manage-budget">${brl(cat.budget)}/mês</div>
+        <div class="cat-manage-budget">${semTeto(cat)?'<span class="free-tag">sem teto</span>':`${brl(cat.budget)}/mês`}</div>
       </div>
       <div style="display:flex;gap:8px">
         ${owned?`<div class="icon-btn" onclick="openEditCategory('${cat.id}')"><i class="fa-solid fa-pen" aria-label="Editar"></i></div>`:''}
@@ -1567,7 +1577,9 @@ async function renderHistoricoAsync(el){
   const chartMonths=months.filter(m=>byMonth[m.key]).slice(0,6).reverse();
   let chartHtml='';
   if(chartMonths.length>1){
+    const semTetoIds=new Set(categories.filter(semTeto).map(c=>c.id));
     const totals=chartMonths.map(m=>byMonth[m.key].reduce((s,e)=>s+parseFloat(e.value),0));
+    const totaisComTeto=chartMonths.map(m=>byMonth[m.key].filter(e=>!semTetoIds.has(e.cat_id)).reduce((s,e)=>s+parseFloat(e.value),0));
     const max=Math.max(...totals, ...chartMonths.map(m=>budgetOf(m.key)), 1);
     chartHtml=`<div class="chart-card">
       <div class="chart-title">Gasto total por mês</div>
@@ -1575,7 +1587,7 @@ async function renderHistoricoAsync(el){
         ${chartMonths.map((m,i)=>{
           const h=Math.max((totals[i]/max)*100,4);
           const mb=budgetOf(m.key);
-          const over=mb>0&&totals[i]>mb;
+          const over=mb>0&&totaisComTeto[i]>mb;
           return `<div class="chart-col">
             <div class="chart-val">${totals[i]>=1000?(totals[i]/1000).toFixed(1).replace('.',',')+'k':Math.round(totals[i])}</div>
             <div class="chart-bar${over?' over':''}" style="height:${h}%"></div>
@@ -1586,7 +1598,9 @@ async function renderHistoricoAsync(el){
     </div>`;
   }
 
-  const totalSpentSummary=expenses.reduce((s,e)=>s+parseFloat(e.value),0);
+  const idsLivres=new Set(categories.filter(semTeto).map(c=>c.id));
+  const gastoLivre=expenses.filter(e=>idsLivres.has(e.cat_id)).reduce((s,e)=>s+parseFloat(e.value),0);
+  const totalSpentSummary=expenses.filter(e=>!idsLivres.has(e.cat_id)).reduce((s,e)=>s+parseFloat(e.value),0);
   const totalBudgetSummary=categories.reduce((s,c)=>s+effBudget(c,viewMonthKey),0);
   const totalAvailSummary=totalBudgetSummary-totalSpentSummary;
   const totalPctSummary=totalBudgetSummary>0?Math.min((totalSpentSummary/totalBudgetSummary)*100,100):0;
@@ -1597,6 +1611,7 @@ async function renderHistoricoAsync(el){
       <div class="summary-block"><div class="summary-label">Disponível</div><div class="summary-num ${totalAvailSummary>=0?'positive':'negative'}">${brl(totalAvailSummary)}</div></div>
     </div>
     <div class="progress-bar" style="margin-bottom:8px"><div class="progress-fill ${totalAvailSummary<0?'danger':totalPctSummary>75?'warning':''}" style="width:${totalPctSummary}%"></div></div>
+    ${gastoLivre>0?`<div class="summary-free"><span><i class="fa-solid fa-infinity" aria-hidden="true"></i> Categorias sem teto</span><span>${brl(gastoLivre)}</span></div>`:''}
     <button class="summary-btn" onclick="openConsolidado()">Ver consolidado do mês <i class="fa-solid fa-chevron-right" style="font-size:10px" aria-hidden="true"></i></button>
   </div>`;
 
@@ -1637,7 +1652,7 @@ async function renderHistoricoAsync(el){
   for(const month of months){
     const exps=byMonth[month.key];
     if(!exps||exps.length===0) continue;
-    const monthSpent=exps.reduce((s,e)=>s+parseFloat(e.value),0);
+    const monthSpent=exps.filter(e=>!idsLivres.has(e.cat_id)).reduce((s,e)=>s+parseFloat(e.value),0);
     const monthDiff=budgetOf(month.key)-monthSpent;
     html+=`<div class="month-block">
       <div class="month-title">${monthLabel(month.key)}
@@ -1648,13 +1663,15 @@ async function renderHistoricoAsync(el){
       const ce=exps.filter(e=>e.cat_id===cat.id);
       if(!ce.length) return;
       const spent=ce.reduce((s,e)=>s+parseFloat(e.value),0);
+      const livre=semTeto(cat);
       const cb=effBudget(cat,month.key);
       const avail=cb-spent;
       html+=`<div class="hist-cat-item">
-        <div class="hist-cat-name"><span>${cat.name}</span>${badgeHtml(avail)}</div>
-        <div class="hist-row"><span>Orçamento</span><span>${brl(cb)}</span></div>
+        <div class="hist-cat-name"><span>${cat.name}</span>${livre?'<span class="free-tag">sem teto</span>':badgeHtml(avail)}</div>
+        ${livre?`<div class="hist-row"><span>Gasto</span><span>${brl(spent)}</span></div>`
+        :`<div class="hist-row"><span>Orçamento</span><span>${brl(cb)}</span></div>
         <div class="hist-row"><span>Gasto</span><span>${brl(spent)}</span></div>
-        <div class="hist-row"><span>Saldo</span><span style="color:${avail>=0?'var(--accent)':'var(--red)'}">${brl(avail)}</span></div>
+        <div class="hist-row"><span>Saldo</span><span style="color:${avail>=0?'var(--accent)':'var(--red)'}">${brl(avail)}</span></div>`}
         <div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px">
           ${ce.map(e=>`<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2);padding:3px 0">
             <span>${e.name} <span style="color:var(--text3)">${new Date(e.date+'T12:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'short'})}</span></span>
@@ -2546,9 +2563,27 @@ async function openActivityLog(catId){
     <button class="btn-secondary" onclick="_closeModal()">Fechar</button>`;
 }
 
+function budgetFieldsHtml(cat){
+  const livre=semTeto(cat);
+  return `<div class="form-group" id="f-budget-group" ${livre?'hidden':''}><label class="form-label">Orçamento mensal (R$)</label>
+      <input class="form-input" id="f-cbudget" type="text" inputmode="decimal" placeholder="0,00" value="${cat&&!livre?cat.budget:''}" oninput="moneyKey(this)"/></div>
+    <div class="tm-row" style="margin-top:0;margin-bottom:16px">
+      <input type="checkbox" id="f-no-limit" ${livre?'checked':''} onchange="onNoLimitToggle()"/>
+      <label for="f-no-limit">Sem teto<span>Categoria só para acompanhar o gasto, sem orçamento e sem alerta de estouro. Não entra no total orçado.</span></label>
+    </div>`;
+}
+function onNoLimitToggle(){
+  const livre=!!document.getElementById('f-no-limit')?.checked;
+  const grp=document.getElementById('f-budget-group'); if(grp) grp.hidden=livre;
+  const roll=document.getElementById('f-roll-group'); if(roll) roll.hidden=livre;
+  if(livre){
+    const p=document.getElementById('f-roll-pos'); if(p) p.checked=false;
+    const n=document.getElementById('f-roll-neg'); if(n) n.checked=false;
+  }
+}
 function rolloverFieldsHtml(cat){
   const pos=cat?.rollover_positive, neg=cat?.rollover_negative;
-  return `<div class="form-group"><label class="form-label">Saldo do mês anterior</label>
+  return `<div class="form-group" id="f-roll-group" ${semTeto(cat)?'hidden':''}><label class="form-label">Saldo do mês anterior</label>
     <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--surface2);border-radius:10px;margin-bottom:6px">
       <input type="checkbox" id="f-roll-pos" ${pos?'checked':''} style="width:18px;height:18px;accent-color:var(--accent);flex-shrink:0"/>
       <label for="f-roll-pos" style="font-size:13px;cursor:pointer;flex:1">Levar a sobra <span style="color:var(--text2);font-size:12px">(o que não gastou vira limite extra no mês seguinte)</span></label>
@@ -2567,8 +2602,7 @@ function openAddCategory(){
   openModal(`<div class="modal-title">Nova Categoria</div>
     <div class="form-group"><label class="form-label">Nome</label>
       <input class="form-input" id="f-cname" placeholder="Ex: Academia" autocomplete="off"/></div>
-    <div class="form-group"><label class="form-label">Orçamento mensal (R$)</label>
-      <input class="form-input" id="f-cbudget" type="text" inputmode="decimal" placeholder="0,00" oninput="moneyKey(this)"/></div>
+    ${budgetFieldsHtml(null)}
     ${rolloverFieldsHtml(null)}
     <button class="btn-primary" id="btn-save-cat" onclick="saveCategory(null)">Salvar</button>
     <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
@@ -2579,8 +2613,7 @@ function openEditCategory(catId){
   openModal(`<div class="modal-title">Editar Categoria</div>
     <div class="form-group"><label class="form-label">Nome</label>
       <input class="form-input" id="f-cname" value="${cat.name}" autocomplete="off"/></div>
-    <div class="form-group"><label class="form-label">Orçamento mensal (R$)</label>
-      <input class="form-input" id="f-cbudget" type="text" inputmode="decimal" value="${cat.budget}" oninput="moneyKey(this)"/></div>
+    ${budgetFieldsHtml(cat)}
     ${rolloverFieldsHtml(cat)}
     <button class="btn-primary" id="btn-save-cat" onclick="saveCategory('${catId}')">Salvar</button>
     <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
@@ -2588,10 +2621,12 @@ function openEditCategory(catId){
 
 async function saveCategory(catId){
   const name=document.getElementById('f-cname').value.trim();
-  const budget=parseNum(document.getElementById('f-cbudget').value);
-  const rollover_positive=!!document.getElementById('f-roll-pos')?.checked;
-  const rollover_negative=!!document.getElementById('f-roll-neg')?.checked;
-  if(!name||isNaN(budget)||budget<=0){ showToast('Preencha todos os campos.','error'); return; }
+  const no_limit=!!document.getElementById('f-no-limit')?.checked;
+  const budget=no_limit?0:parseNum(document.getElementById('f-cbudget').value);
+  const rollover_positive=!no_limit&&!!document.getElementById('f-roll-pos')?.checked;
+  const rollover_negative=!no_limit&&!!document.getElementById('f-roll-neg')?.checked;
+  if(!name){ showToast('Informe o nome da categoria.','error'); return; }
+  if(!no_limit&&(isNaN(budget)||budget<=0)){ showToast('Informe o orçamento ou marque "Sem teto".','error'); return; }
   const catAtual=catId?categories.find(c=>c.id===catId):null;
   const eraAtivo=!!(catAtual&&(catAtual.rollover_positive||catAtual.rollover_negative));
   const ficaAtivo=rollover_positive||rollover_negative;
@@ -2606,8 +2641,8 @@ async function saveCategory(catId){
   if(!catId&&!isPro()&&categories.length>=CONFIG.FREE_MAX_CATEGORIES){ openPaywall('Limite de categorias atingido'); return; }
   const btn=document.getElementById('btn-save-cat'); btn.disabled=true; btn.textContent='Salvando...';
   try{
-    if(catId){ await api.updateCategory(catId,{name,budget,rollover_positive,rollover_negative,rollover_from}); logActivity(catId,'cat_edit',name,budget); }
-    else{ const nid=uid(); await api.insertCategory({id:nid,name,budget,position:categories.length,rollover_positive,rollover_negative,rollover_from}); logActivity(nid,'cat_create',name,budget); }
+    if(catId){ await api.updateCategory(catId,{name,budget,no_limit,rollover_positive,rollover_negative,rollover_from}); logActivity(catId,'cat_edit',name,budget); }
+    else{ const nid=uid(); await api.insertCategory({id:nid,name,budget,no_limit,position:categories.length,rollover_positive,rollover_negative,rollover_from}); logActivity(nid,'cat_create',name,budget); }
     categories=await api.getCategories();
     saveCache();
     vib(15);
@@ -2704,26 +2739,18 @@ async function refreshFutureMonths(){
     futureMonthKeys=Object.values(by).sort((a,b)=>a.key.localeCompare(b.key));
   }catch{ futureMonthKeys=[]; }
 }
-const FUTURE_MONTHS_AHEAD = 12;
 function openMonthPicker(){
   if(!isPro()){ openPaywall('Histórico de meses anteriores'); return; }
   const row=(key,extra,tag)=>`<div class="mp-row${key===viewMonthKey?' on':''}" onclick="selectMonth('${key}')">
       <span class="mp-name">${monthLabel(key)}${tag?`<span class="mp-tag">${tag}</span>`:''}</span>
       ${extra?`<span class="mp-extra">${extra}</span>`:''}
     </div>`;
-  const futuros=[];
-  let k=nextMonthKey(currentMonthKey);
-  for(let i=0;i<FUTURE_MONTHS_AHEAD;i++){
-    const f=futureMonthKeys.find(x=>x.key===k);
-    futuros.push(row(k,f?`${brl(f.total)} · ${f.count} ${f.count===1?'lançamento':'lançamentos'}`:'<span class="mp-empty">sem lançamentos</span>',null));
-    k=nextMonthKey(k);
-  }
   const past=months.filter(m=>m.key<currentMonthKey).sort((a,b)=>b.key.localeCompare(a.key));
   openModal(`<div class="modal-title">Selecionar mês</div>
     ${row(currentMonthKey,'','Este mês')}
-    <div class="cons-section" style="margin:18px 0 6px">Próximos meses</div>
-    <p class="modal-note" style="margin-bottom:12px">Dá para lançar e ajustar orçamento à frente. O valor mostrado é o que já está comprometido com parcelas e recorrências.</p>
-    ${futuros.join('')}
+    ${futureMonthKeys.length?`<div class="cons-section" style="margin:18px 0 6px">Próximos meses</div>
+    <p class="modal-note" style="margin-bottom:12px">Parcelas e recorrências que já estão lançadas para frente.</p>
+    ${futureMonthKeys.map(f=>row(f.key,`${brl(f.total)} · ${f.count} ${f.count===1?'lançamento':'lançamentos'}`,null)).join('')}`:''}
     ${past.length?`<div class="cons-section" style="margin:18px 0 8px">Meses anteriores</div>
     ${past.map(m=>row(m.key,'',m.closed?'Fechado':null)).join('')}`:''}`);
 }
@@ -2833,6 +2860,7 @@ async function openConsolidado(){
 
 function openMonthOverride(catId){
   const cat=categories.find(c=>c.id===catId); if(!cat) return;
+  if(semTeto(cat)){ showToast('Esta categoria é sem teto — não tem orçamento para ajustar.','error'); return; }
   const eff=baseBudget(cat,currentMonthKey);
   const ov=hasOverride(cat,currentMonthKey);
   openModal(`<div class="modal-title">Ajustar orçamento · ${escapeHtml(cat.name)}</div>
@@ -2877,13 +2905,13 @@ function transferAvailable(catId){
   return Math.round((effBudget(cat,currentMonthKey)-spent)*100)/100;
 }
 function openTransferBudget(catId){
-  const owned=categories.filter(c=>c.user_id===currentUser.id);
-  if(owned.length<2){ showToast('Você precisa de ao menos 2 categorias para transferir.','error'); return; }
+  const owned=categories.filter(c=>c.user_id===currentUser.id&&!semTeto(c));
+  if(owned.length<2){ showToast('Você precisa de ao menos 2 categorias com orçamento para transferir.','error'); return; }
   const fromId=catId&&owned.some(c=>c.id===catId)?catId:owned[0].id;
   openModal(transferBudgetHtml(fromId));
 }
 function transferBudgetHtml(fromId){
-  const owned=categories.filter(c=>c.user_id===currentUser.id);
+  const owned=categories.filter(c=>c.user_id===currentUser.id&&!semTeto(c));
   const toOptions=owned.filter(c=>c.id!==fromId);
   const avail=transferAvailable(fromId);
   return `<div class="modal-title">Transferir limite entre categorias</div>
@@ -2953,6 +2981,7 @@ function monthBalance(cat,monthKey,exps,rolls){
 }
 async function applyAutoRollover(){
   const flagged=categories.filter(c=>c.user_id===currentUser.id
+    &&!semTeto(c)
     &&(c.rollover_positive||c.rollover_negative)
     &&(!c.rollover_from||currentMonthKey>=c.rollover_from));
   if(!flagged.length) return;
@@ -3185,7 +3214,7 @@ const TUTORIAL_STEPS = [
   },
   {
     title: 'Categorias',
-    body: 'Crie categorias como "Mercado", "Academia" ou "Aluguel", cada uma com seu orçamento mensal — o total orçado de todas aparece no topo da lista. Arraste pela alça para reordenar e toque no lápis para editar. Ao lançar um gasto, escolha "Recorrente" para repetir todo mês ou "Cartão" para compras na fatura. Em "Cartão" o app já pergunta qual é o cartão: escolhendo um, ele descobre sozinho em qual fatura a compra cai pelo dia de fechamento; escolhendo "Não quero especificar", você decide na mão se cai neste mês ou no próximo. As parcelas você acerta arrastando os números (ou nos botões + e −) e o app mostra na hora quantas cobranças vai lançar e de quanto. Cadastre seus cartões em <strong>Sua conta › Meus cartões</strong>. Ao editar a categoria dá para mandar a sobra e/ou o estouro do mês seguirem automaticamente para o mês seguinte. E no ícone <i class="fa-solid fa-right-left"></i> do topo do card você transfere um pedaço do limite de uma categoria para outra, só neste mês.',
+    body: 'Crie categorias como "Mercado", "Academia" ou "Aluguel", cada uma com seu orçamento mensal — o total orçado de todas aparece no topo da lista. Se for uma categoria só para acompanhar o gasto, marque <strong>Sem teto</strong>: ela não tem orçamento, não avisa estouro e fica de fora do total orçado. Arraste pela alça para reordenar e toque no lápis para editar. Ao lançar um gasto, escolha "Recorrente" para repetir todo mês ou "Cartão" para compras na fatura. Em "Cartão" o app já pergunta qual é o cartão: escolhendo um, ele descobre sozinho em qual fatura a compra cai pelo dia de fechamento; escolhendo "Não quero especificar", você decide na mão se cai neste mês ou no próximo. As parcelas você acerta arrastando os números (ou nos botões + e −) e o app mostra na hora quantas cobranças vai lançar e de quanto. Cadastre seus cartões em <strong>Sua conta › Meus cartões</strong>. Ao editar a categoria dá para mandar a sobra e/ou o estouro do mês seguirem automaticamente para o mês seguinte. E no ícone <i class="fa-solid fa-right-left"></i> do topo do card você transfere um pedaço do limite de uma categoria para outra, só neste mês.',
     target: ()=>tutNav('categorias'),
     action: ()=>tutGo('categorias'),
   },

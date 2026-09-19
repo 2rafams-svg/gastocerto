@@ -4,7 +4,7 @@ Referência única do projeto: o que ele é, como está montado, o que está no 
 abandonado, as regras que toda alteração precisa seguir, e o passo a passo para migrar
 tudo para outra conta.
 
-Versão do app na data deste documento: **5.10** · Última atualização: **13/09/2026**
+Versão do app na data deste documento: **5.11** · Última atualização: **19/09/2026**
 
 ---
 
@@ -176,6 +176,11 @@ de inserir o gasto** — é o que `ensureMonthsExist()` garante.
 `id` (uuid), `user_id`, `name`, `closing_day` (1–31), `due_day`. O dia de fechamento
 determina em qual fatura a compra cai (`cardInvoiceMonth()`).
 
+**RLS**: além do `user_id = auth.uid()` padrão, tem a política de leitura
+`cards_shared_read`, que deixa os dois lados de uma categoria compartilhada lerem o cartão
+um do outro — ver [seção 9.6](#96-o-cartão-do-outro-numa-categoria-compartilhada). Sem
+ela o app não tem como mostrar em qual cartão o parceiro lançou.
+
 #### `budget_rollovers`
 Saldo levado de um mês para o outro. `id`, `user_id`, `cat_id`, `from_month`, `to_month`,
 `amount` (negativo quando é estouro), `auto` (bool — distingue automático de manual),
@@ -298,6 +303,9 @@ colunas existem, é ele a fonte da verdade.
 | `semTeto(cat)` | Categoria marcada como sem limite |
 | `ensureMonthsExist(de, ate)` | Cria as linhas de `months` antes de inserir gastos |
 | `cardInvoiceMonth(card, data)` | Em qual fatura a compra cai |
+| `loadCards()` | Carrega `allCards` (tudo que dá para ver) e deriva `cards` (só os meus) |
+| `cardById(id)` | Procura em `allCards`, então acha o cartão do parceiro também |
+| `openCardInfo(expId)` | Sheet com cartão, fechamento, vencimento e fatura do lançamento |
 | `parseNum(s)` | Aceita `45,90`, `1.200,00` e `1200.00` |
 | `moneyKey(input)` | Máscara de digitação de valor |
 | `todayLocal()` | Data de hoje no fuso local — **nunca `toISOString()`** |
@@ -336,7 +344,9 @@ colunas existem, é ele a fonte da verdade.
 - Exportar a categoria como imagem pronta para compartilhar.
 
 ### Social
-- Compartilhar categoria por `@usuário` ou e-mail, com permissão de leitura ou edição.
+- Compartilhar categoria por `@usuário` ou e-mail, com permissão de leitura ou edição. O
+  cartão usado pelo parceiro aparece no lançamento e abre com os dados da fatura, mas
+  **não dá para trocar** — ver [seção 9.6](#96-o-cartão-do-outro-numa-categoria-compartilhada).
 - Amigos com amizade recíproca automática e chat 1 a 1.
 - Divisão de despesa no chat: 50/50 ou personalizada, com saldo e extrato.
 - Divisão em grupo para três ou mais pessoas, com acerto de contas.
@@ -560,7 +570,55 @@ a linha de `months` é por usuário. Por isso o valor do mês mora em
 `.plan-card` já existia no paywall e colidiu com cards novos de mesmo nome. Antes de criar
 classe, conferir se o nome já existe em `style.css`.
 
-### 9.6 Remover CSS em bloco
+### 9.6 O cartão do outro numa categoria compartilhada
+
+Um lançamento feito pelo parceiro aponta para um cartão **dele**. `api.getCards()` filtra
+`user_id = eq.<eu>`, e a RLS padrão de `cards` é `user_id = auth.uid()` — então o cartão
+não vinha, `cardLabel()` devolvia `null` e **o cartão simplesmente não aparecia**, nem na
+lista nem no formulário. Foi o defeito corrigido na v5.11.
+
+São duas metades, e uma não funciona sem a outra:
+
+**No banco**, a política de leitura que libera os dois lados:
+
+```sql
+drop policy if exists cards_shared_read on cards;
+create policy cards_shared_read on cards for select using (
+  user_id = auth.uid()
+  or user_id in (select shared_by_user_id from category_shares
+                 where status = 'accepted'
+                   and (shared_with_user_id = auth.uid()
+                        or shared_with_email = auth.jwt()->>'email'))
+  or user_id in (select shared_with_user_id from category_shares
+                 where status = 'accepted' and shared_by_user_id = auth.uid())
+);
+```
+
+As políticas são somadas com `or`, então essa convive com a que já existe. As subconsultas
+rodam como o usuário corrente e passam pela RLS de `category_shares`, que já permite os
+dois lados enxergarem a linha do compartilhamento.
+
+**No app**, `cards` passou a ser só a lista dos **meus** cartões — é ela que alimenta o
+seletor, o cadastro e a remoção — e `allCards` guarda tudo o que a RLS deixa ler.
+`cardById()` procura em `allCards`, e é ele que `cardLabel()` e `selectedCard()` usam.
+
+O cartão de outra pessoa é **somente leitura**:
+
+- na lista, a etiqueta do cartão abre `openCardInfo()` com fechamento, vencimento, data da
+  compra, fatura e parcela — funciona mesmo na categoria com permissão de só leitura, onde
+  não existe botão de editar;
+- no formulário, a linha do cartão vira `div` com `data-locked` e cadeado no lugar da seta,
+  não abre o seletor e não dispara a pergunta automática de cartão. O `card_id` continua no
+  input escondido, então salvar preserva o cartão original.
+
+Trava quando o lançamento é de outra pessoa **ou** quando o cartão é comprovadamente de
+outro dono. Cartão apagado ou desconhecido num lançamento meu **não** trava — senão a
+remoção de cartão deixaria o lançamento preso.
+
+Sem a política no banco o app não quebra: some a etiqueta e o formulário mostra *Cartão de
+outra pessoa · sem acesso aos dados deste cartão*, ainda travado.
+
+### 9.7 Remover CSS em bloco
 
 Ao apagar um trecho grande de CSS é fácil levar junto a chave de fechamento de um
 `@media`, o que engole silenciosamente todas as regras seguintes. Confira que o número de
@@ -711,6 +769,7 @@ worker continua servindo o `app.js` velho, apontado para o banco antigo.
 
 | Versão | O quê |
 |---|---|
+| 5.11 | Cartão do parceiro aparece no lançamento compartilhado, só leitura, com fechamento e vencimento; pede a política `cards_shared_read` |
 | 5.10 | Seletor de mês vira passo a passo (próximo · atual · anterior) com setas, mais grade de pastilhas por ano; só navega para mês com lançamento |
 | 5.9 | **Próximos meses**: saldo mês a mês do que já está comprometido; corrige `api.getExpensesFrom`, que não existia e matava a lista de meses futuros |
 | 5.8 | Categoria sem teto, view de desktop acima de 900px, seletor de meses revertido |

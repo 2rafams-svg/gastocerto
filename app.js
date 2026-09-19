@@ -44,7 +44,7 @@ function syncThemeRow(){
   if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
-const APP_VERSION = '5.10';
+const APP_VERSION = '5.11';
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
 const CORRECT_PIN = () => String(new Date().getFullYear());
@@ -159,7 +159,7 @@ function userTag(uid){
 async function logout(){
   const token=session?.access_token;
   if(token) fetch(`${SUPABASE_URL}/auth/v1/logout`,{method:'POST',headers:{apikey:SUPABASE_KEY,Authorization:`Bearer ${token}`}}).catch(()=>{});
-  persistSession(null); categories=[]; months=[]; expenses=[]; expenseNames=[]; acceptedShares=[]; sharedOutMap={}; pendingSplitInvites=[]; acceptedGroupIds=new Set(); friends=[]; budgetTransfers=[]; cards=[]; rollovers=[]; futureMonthKeys=[];
+  persistSession(null); categories=[]; months=[]; expenses=[]; expenseNames=[]; acceptedShares=[]; sharedOutMap={}; pendingSplitInvites=[]; acceptedGroupIds=new Set(); friends=[]; budgetTransfers=[]; cards=[]; allCards=[]; rollovers=[]; futureMonthKeys=[];
   stopUnreadPoll(); unreadDm={}; updateAmigosBadge();
   document.documentElement.classList.remove('gc-has-session');
   document.getElementById('app').style.display='none';
@@ -284,6 +284,7 @@ const api={
   getBudgetTransfers:(monthKey)=>sbFetch(`budget_transfers?month_key=eq.${monthKey}&order=created_at.desc`),
   insertBudgetTransfer:(d)=>sbFetch('budget_transfers',{method:'POST',body:JSON.stringify({...d,user_id:currentUser.id})}),
   getCards:()=>sbFetch(`cards?user_id=eq.${currentUser.id}&order=name.asc`),
+  getVisibleCards:()=>sbFetch('cards?order=name.asc'),
   insertCard:(d)=>sbFetch('cards',{method:'POST',body:JSON.stringify({...d,user_id:currentUser.id})}),
   updateCard:(id,d)=>sbFetch(`cards?id=eq.${id}`,{method:'PATCH',body:JSON.stringify(d)}),
   deleteCard:(id)=>sbFetch(`cards?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
@@ -345,7 +346,7 @@ const api={
 };
 
 let categories=[], months=[], currentMonthKey='', viewMonthKey='', expenses=[], currentTab='home', currentCatIdx=0, budgetTransfers=[], cards=[], rollovers=[], futureMonthKeys=[];
-let futureExpenses=[], recurringBase=[], projectedExpenses=[], futureOpen={}, monthIndex={};
+let futureExpenses=[], recurringBase=[], projectedExpenses=[], futureOpen={}, monthIndex={}, allCards=[];
 let subscription=null, userPlan='free';
 let splitGroups=[], pendingShares=[], acceptedShares=[], sharedOutMap={}, pendingSplitInvites=[], acceptedGroupIds=new Set(), friends=[];
 let myProfile=null, profilesById={};
@@ -645,7 +646,7 @@ async function init(){
     expenses=await api.getExpenses(viewMonthKey);
     budgetTransfers=await api.getBudgetTransfers(currentMonthKey).catch(()=>[]);
     rollovers=await api.getRollovers(viewMonthKey).catch(()=>[]);
-    cards=await api.getCards().catch(()=>[]);
+    await loadCards();
     refreshFutureMonths();
     refreshMonthIndex();
     applyAutoRollover();
@@ -1322,7 +1323,7 @@ function buildSlide(cat, isNow){
       </div>`:'';
     return `<div class="expense-item">
     <div class="expense-left">
-      <div class="expense-name">${e.recurring?`<i class="fa-solid fa-arrows-rotate" style="font-size:10px;color:var(--accent-text);margin-right:5px" title="Recorrente" aria-hidden="true"></i>`:''}${e.installment_total?`<i class="fa-solid fa-credit-card" style="font-size:10px;color:var(--accent-text);margin-right:5px" title="Cartão" aria-hidden="true"></i>`:''}${escapeHtml(e.name)}${e.installment_total>1?`<span style="font-size:10px;color:var(--text3);font-weight:600;margin-left:5px">(${e.installment_no}/${e.installment_total})</span>`:''}${e.card_id&&cardLabel(e.card_id)?`<span style="font-size:10px;color:var(--text2);background:var(--surface2);border-radius:100px;padding:1px 7px;margin-left:5px;white-space:nowrap;display:inline-block">${escapeHtml(cardLabel(e.card_id))}</span>`:''}${e.previsto?`<span style="font-size:10px;color:var(--text3);border:1px dashed var(--border);border-radius:100px;padding:1px 7px;margin-left:5px;white-space:nowrap;display:inline-block">previsto</span>`:''}${byLabel}${e.image_url?`<span class="exp-receipt-dot" onclick="event.stopPropagation();viewReceipt('${e.id}')" title="Ver comprovante"><i class="fa-solid fa-image" aria-hidden="true"></i></span>`:''}</div>
+      <div class="expense-name">${e.recurring?`<i class="fa-solid fa-arrows-rotate" style="font-size:10px;color:var(--accent-text);margin-right:5px" title="Recorrente" aria-hidden="true"></i>`:''}${e.installment_total?`<i class="fa-solid fa-credit-card" style="font-size:10px;color:var(--accent-text);margin-right:5px" title="Cartão" aria-hidden="true"></i>`:''}${escapeHtml(e.name)}${e.installment_total>1?`<span style="font-size:10px;color:var(--text3);font-weight:600;margin-left:5px">(${e.installment_no}/${e.installment_total})</span>`:''}${e.card_id&&cardLabel(e.card_id)?`<span class="exp-card-tag" onclick="event.stopPropagation();openCardInfo('${e.id}')" title="Ver dados do cartão">${escapeHtml(cardLabel(e.card_id))}<i class="fa-solid fa-circle-info" aria-hidden="true"></i></span>`:''}${e.previsto?`<span style="font-size:10px;color:var(--text3);border:1px dashed var(--border);border-radius:100px;padding:1px 7px;margin-left:5px;white-space:nowrap;display:inline-block">previsto</span>`:''}${byLabel}${e.image_url?`<span class="exp-receipt-dot" onclick="event.stopPropagation();viewReceipt('${e.id}')" title="Ver comprovante"><i class="fa-solid fa-image" aria-hidden="true"></i></span>`:''}</div>
       <div class="expense-date">${new Date(e.date+'T12:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'})}</div>
     </div>
     <div class="expense-right">
@@ -2123,7 +2124,7 @@ function openAddExpense(catId){
     <button class="btn-primary" id="btn-save-exp" onclick="saveExpense(null)">Salvar</button>
     <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
 }
-function repeatFieldHtml(mode='none',installmentTotal='',installmentNo=1,valueMode='compra',isEdit=false,cardId=''){
+function repeatFieldHtml(mode='none',installmentTotal='',installmentNo=1,valueMode='compra',isEdit=false,cardId='',lockCard=false){
   const total=Math.max(1,parseInt(installmentTotal,10)||1);
   const no=Math.min(total,Math.max(1,parseInt(installmentNo,10)||1));
   return `<div class="form-group"><label class="form-label">Repetição</label>
@@ -2136,11 +2137,11 @@ function repeatFieldHtml(mode='none',installmentTotal='',installmentNo=1,valueMo
       <input type="hidden" id="f-card" value="${cardId||''}"/>
       <input type="hidden" id="f-installment-no" value="${no}"/>
       <input type="hidden" id="f-installment-total" value="${total}"/>
-      <button type="button" class="pick-row" id="f-card-row" onclick="openCardPicker()">
+      <div class="pick-row${lockCard?' locked':''}" id="f-card-row"${lockCard?' data-locked="1"':' role="button" tabindex="0" onclick="openCardPicker()"'}>
         <span class="pick-ico"><i class="fa-solid fa-credit-card" aria-hidden="true"></i></span>
         <span class="pick-body"><span class="pick-name" id="f-card-val">Sem cartão específico</span><span class="pick-sub" id="f-card-sub">Toque para escolher</span></span>
-        <i class="fa-solid fa-chevron-right pick-arrow" aria-hidden="true"></i>
-      </button>
+        <i class="fa-solid fa-${lockCard?'lock':'chevron-right'} pick-arrow" aria-hidden="true"></i>
+      </div>
       <div class="dm-seg" id="f-installment-vmode" style="margin:12px 0">
         <button type="button" class="dm-seg-btn${valueMode==='parcela'?'':' active'}" data-v="compra" onclick="instVModeSeg(this)">Valor da compra</button>
         <button type="button" class="dm-seg-btn${valueMode==='parcela'?' active':''}" data-v="parcela" onclick="instVModeSeg(this)">Valor da parcela</button>
@@ -2208,7 +2209,7 @@ document.addEventListener('pointerdown',stepDown,{passive:false});
 document.addEventListener('pointermove',stepMove);
 document.addEventListener('pointerup',stepUp);
 document.addEventListener('pointercancel',stepUp);
-function selectedCard(){ const el=document.getElementById('f-card'); return el&&el.value?(cards.find(c=>c.id===el.value)||null):null; }
+function selectedCard(){ const el=document.getElementById('f-card'); return el&&el.value?cardById(el.value):null; }
 function openCardPicker(){
   if(!cards.length){ showToast('Cadastre um cartão em Sua conta › Meus cartões.','error'); return; }
   const cur=document.getElementById('f-card')?.value||'';
@@ -2234,11 +2235,20 @@ function pickCard(id){
 function syncCardRow(){
   const row=document.getElementById('f-card-row'); if(!row) return;
   const c=selectedCard();
+  const travado=!!row.dataset.locked;
   const val=document.getElementById('f-card-val');
   const sub=document.getElementById('f-card-sub');
   row.classList.toggle('on',!!c);
-  if(val) val.textContent=c?c.name:(cards.length?'Sem cartão específico':'Nenhum cartão cadastrado');
-  if(sub) sub.textContent=c?`Fecha dia ${c.closing_day}${c.due_day?` · vence dia ${c.due_day}`:''}`:(cards.length?'Toque para escolher':'Cadastre em Sua conta › Meus cartões');
+  if(travado){
+    const temId=!!document.getElementById('f-card')?.value;
+    if(val) val.textContent=c?c.name:(temId?'Cartão de outra pessoa':'Sem cartão específico');
+    if(sub) sub.textContent=c
+      ? `${cardDatesLabel(c)}${cardIsMine(c)?'':` · de ${cardOwnerLabel(c)}`}`
+      : (temId?'Sem acesso aos dados deste cartão':'Quem lançou não informou o cartão');
+  }else{
+    if(val) val.textContent=c?c.name:(cards.length?'Sem cartão específico':'Nenhum cartão cadastrado');
+    if(sub) sub.textContent=c?cardDatesLabel(c):(cards.length?'Toque para escolher':'Cadastre em Sua conta › Meus cartões');
+  }
   const tm=document.getElementById('f-thismonth-row');
   if(tm&&!tm.dataset.edit) tm.hidden=!!c;
 }
@@ -2252,7 +2262,8 @@ function repeatSeg(btn){
   if(isInst){
     syncCardRow(); syncInstSummary(); syncInvoiceHint();
     const jaTem=document.getElementById('f-card')?.value;
-    if(wrap&&!jaTem&&cards.length&&!wrap.dataset.asked){ wrap.dataset.asked='1'; openCardPicker(); }
+    const travado=!!document.getElementById('f-card-row')?.dataset.locked;
+    if(wrap&&!jaTem&&!travado&&cards.length&&!wrap.dataset.asked){ wrap.dataset.asked='1'; openCardPicker(); }
   }
 }
 function repeatSegVal(){ const el=document.querySelector('#f-repeat-seg .dm-seg-btn.active'); return el?el.dataset.v:'none'; }
@@ -2307,6 +2318,9 @@ function updateValueFieldLabel(){
 
 function openEditExpense(expId){
   const e=expenses.find(x=>x.id===expId); if(!e) return;
+  const alheio=!!e.user_id&&e.user_id!==currentUser.id;
+  const cartaoConhecido=e.card_id?cardById(e.card_id):null;
+  const cartaoTravado=alheio||(!!cartaoConhecido&&!cardIsMine(cartaoConhecido));
   openModal(`<div class="modal-title">Editar Gasto</div>
     <div class="form-group"><label class="form-label">Categoria</label>
       <select class="form-input" id="f-catId">${categories.filter(c=>c.user_id===currentUser.id||sharePerm(c.id)==='edit').map(c=>`<option value="${c.id}"${c.id===e.cat_id?' selected':''}>${escapeHtml(c.name)}</option>`).join('')}</select></div>
@@ -2319,11 +2333,11 @@ function openEditExpense(expId){
       <input class="form-input" id="f-value" type="text" inputmode="decimal" value="${e.value}" oninput="moneyKey(this);onExpenseValueInput()"/></div>
     <div class="form-group"><label class="form-label">Data</label>
       <input class="form-input" id="f-date" type="date" value="${e.date}" onchange="onExpenseDateChange()"/></div>
-    ${repeatFieldHtml(e.installment_total?'installment':(e.recurring?'recurring':'none'),e.installment_total||'',e.installment_no||1,'parcela',true,e.card_id||'')}
+    ${repeatFieldHtml((e.installment_total||e.card_id)?'installment':(e.recurring?'recurring':'none'),e.installment_total||'',e.installment_no||1,'parcela',true,e.card_id||'',cartaoTravado)}
     ${receiptPickerHtml(e.image_url||'')}
     <button class="btn-primary" id="btn-save-exp" onclick="saveExpense('${expId}')">Salvar</button>
     <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
-  if(e.installment_total){ syncCardRow(); syncInstSummary(); updateValueFieldLabel(); }
+  if(e.installment_total||e.card_id){ syncCardRow(); syncInstSummary(); updateValueFieldLabel(); }
 }
 
 async function saveExpense(expId){
@@ -3256,7 +3270,43 @@ function cardInvoiceMonth(card,dateStr){
   const closing=parseInt(card.closing_day,10)||1;
   return d<=closing?monthKeyOf(new Date(y,m-1,1)):monthKeyOf(new Date(y,m,1));
 }
-function cardLabel(id){ const c=cards.find(x=>x.id===id); return c?c.name:null; }
+function cardById(id){ return allCards.find(x=>x.id===id)||cards.find(x=>x.id===id)||null; }
+function cardLabel(id){ const c=cardById(id); return c?c.name:null; }
+function cardDatesLabel(c){ return c?`Fecha dia ${c.closing_day}${c.due_day?` · vence dia ${c.due_day}`:''}`:''; }
+function cardIsMine(c){ return !!c&&c.user_id===currentUser.id; }
+function cardOwnerLabel(c){ return userTag(c&&c.user_id)||'outra pessoa'; }
+async function loadCards(){
+  let rows=null;
+  try{ rows=await api.getVisibleCards(); }catch{}
+  if(!rows){ try{ rows=await api.getCards(); }catch{ rows=[]; } }
+  allCards=rows||[];
+  cards=allCards.filter(cardIsMine);
+}
+function findExpense(id){
+  return expenses.find(e=>e.id===id)||projectedExpenses.find(e=>e.id===id)||futureExpenses.find(e=>e.id===id)||null;
+}
+function openCardInfo(expId){
+  const e=findExpense(expId); if(!e||!e.card_id) return;
+  const c=cardById(e.card_id);
+  if(!c){ showToast('Não consegui carregar os dados deste cartão.','error'); return; }
+  vib(6);
+  const meu=cardIsMine(c);
+  const fatura=cardInvoiceMonth(c,e.date);
+  openSheet(`<div class="modal-title">Cartão</div>
+    <div class="pick-row on locked">
+      <span class="pick-ico"><i class="fa-solid fa-credit-card" aria-hidden="true"></i></span>
+      <span class="pick-body"><span class="pick-name">${escapeHtml(c.name)}</span><span class="pick-sub">${meu?'Seu cartão':`Cartão de ${escapeHtml(cardOwnerLabel(c))}`}</span></span>
+    </div>
+    <div class="cinfo">
+      <div class="cinfo-row"><span>Fecha dia</span><strong>${c.closing_day}</strong></div>
+      ${c.due_day?`<div class="cinfo-row"><span>Vence dia</span><strong>${c.due_day}</strong></div>`:''}
+      <div class="cinfo-row"><span>Compra em</span><strong>${new Date(e.date+'T12:00').toLocaleDateString('pt-BR')}</strong></div>
+      ${fatura?`<div class="cinfo-row"><span>Entra na fatura de</span><strong>${monthLabel(fatura)}</strong></div>`:''}
+      ${e.installment_total>1?`<div class="cinfo-row"><span>Parcela</span><strong>${e.installment_no} de ${e.installment_total}</strong></div>`:''}
+    </div>
+    ${meu?'':`<div class="fut-note" style="margin-top:12px"><i class="fa-solid fa-lock" aria-hidden="true"></i> Cartão de ${escapeHtml(cardOwnerLabel(c))}. Você vê os dados, mas só quem cadastrou pode alterar.</div>`}
+    <button class="btn-secondary" style="margin-top:14px" onclick="closeSheet()">Fechar</button>`);
+}
 
 
 
@@ -3264,7 +3314,7 @@ function cardLabel(id){ const c=cards.find(x=>x.id===id); return c?c.name:null; 
 
 async function openCards(){
   openModal(`<div class="modal-title">Meus cartões</div><div class="loading"><div class="spinner"></div></div>`);
-  try{ cards=await api.getCards()||[]; }catch{}
+  await loadCards();
   renderCardsModal();
 }
 function renderCardsModal(){
@@ -3300,13 +3350,13 @@ async function saveCard(){
   const btn=document.getElementById('btn-save-card'); btn.disabled=true; btn.textContent='Salvando...';
   try{
     await api.insertCard({name,closing_day,due_day});
-    cards=await api.getCards()||[];
+    await loadCards();
     vib(12); renderCardsModal(); showToast('Cartão adicionado!','success');
   }catch{ showToast('Erro ao salvar. Confira se a tabela cards existe no Supabase.','error'); btn.disabled=false; btn.textContent='Adicionar cartão'; }
 }
 async function removeCard(id){
   if(!confirm('Remover este cartão? Os lançamentos existentes continuam, apenas sem o cartão vinculado.')) return;
-  try{ await api.deleteCard(id); cards=cards.filter(c=>c.id!==id); renderCardsModal(); showToast('Cartão removido.','success'); }
+  try{ await api.deleteCard(id); cards=cards.filter(c=>c.id!==id); allCards=allCards.filter(c=>c.id!==id); renderCardsModal(); showToast('Cartão removido.','success'); }
   catch{ showToast('Erro ao remover.','error'); }
 }
 

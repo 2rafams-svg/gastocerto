@@ -50,7 +50,108 @@ create policy cards_shared_read on cards
   );
 
 
--- 3. Conferencia --------------------------------------------------------------
+-- 3. O webhook, em SQL --------------------------------------------------------
+-- Substitui o "Database Webhook" do painel. Faz a mesma coisa e manda menos:
+-- o webhook da UI envia a linha inteira de expenses, INCLUSIVE image_url, que e
+-- o comprovante em base64. Aqui vao so os campos que a funcao usa.
+--
+-- Rode o passo 3.1 UMA VEZ, trocando a chave. Depois rode 3.2 e 3.3.
+
+create extension if not exists pg_net;
+
+-- 3.1 Guarde a service_role key no Vault (Settings > API > service_role).
+--     Descomente, troque o valor, rode, e comente de novo.
+--     Para trocar depois:
+--       select vault.update_secret(id, 'NOVA_CHAVE') from vault.secrets
+--        where name = 'notify_expense_key';
+--
+-- select vault.create_secret('COLE_AQUI_A_SERVICE_ROLE_KEY',
+--                            'notify_expense_key',
+--                            'chave usada pelo trigger de push');
+
+
+-- 3.2 A funcao que chama a Edge Function.
+-- security definer porque so o dono do banco le o Vault; o insert vem do
+-- usuario autenticado. Falha de rede nao pode derrubar o lancamento, por isso
+-- o exception no fim: se o push nao sair, o gasto e salvo do mesmo jeito.
+
+create or replace function public.notify_expense_push()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_key text;
+begin
+  select decrypted_secret into v_key
+    from vault.decrypted_secrets
+   where name = 'notify_expense_key'
+   limit 1;
+
+  if v_key is null then
+    return new;
+  end if;
+
+  perform net.http_post(
+    url := 'https://asnuusgwtsjpwuaakfuc.supabase.co/functions/v1/notify-expense',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'Authorization', 'Bearer ' || v_key
+    ),
+    body := jsonb_build_object(
+      'type',   'INSERT',
+      'table',  'expenses',
+      'schema', tg_table_schema,
+      'record', jsonb_build_object(
+        'id',                new.id,
+        'user_id',           new.user_id,
+        'cat_id',            new.cat_id,
+        'month_key',         new.month_key,
+        'name',              new.name,
+        'value',             new.value,
+        'installment_no',    new.installment_no,
+        'installment_total', new.installment_total
+      )
+    ),
+    timeout_milliseconds := 5000
+  );
+
+  return new;
+exception when others then
+  return new;
+end;
+$$;
+
+
+-- 3.3 O gatilho.
+-- O when() evita 9 chamadas inuteis numa compra em 10x: as parcelas seguintes
+-- entram no mesmo insert e a funcao ja as descartaria do outro lado.
+
+drop trigger if exists trg_notify_expense_push on expenses;
+create trigger trg_notify_expense_push
+  after insert on expenses
+  for each row
+  when (new.installment_no is null or new.installment_no <= 1)
+  execute function public.notify_expense_push();
+
+
+-- 4. Conferencia --------------------------------------------------------------
+-- O gatilho existe?
+--
+--   select tgname, tgenabled from pg_trigger
+--    where tgrelid = 'expenses'::regclass and not tgisinternal;
+--
+-- A chave esta no Vault?
+--
+--   select name, created_at from vault.secrets where name = 'notify_expense_key';
+--
+-- Lance um gasto no app e veja o que o Postgres recebeu de volta. status_code
+-- 200 e a funcao respondendo; 401 e chave errada; vazio e o gatilho nao disparou:
+--
+--   select id, status_code, left(content, 200) as resposta, created
+--     from net._http_response order by created desc limit 5;
+--
 -- Depois de ativar as notificacoes no app, esta query tem que devolver 1 linha
 -- por aparelho seu:
 --

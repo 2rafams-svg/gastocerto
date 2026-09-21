@@ -4,7 +4,7 @@ Referência única do projeto: o que ele é, como está montado, o que está no 
 abandonado, as regras que toda alteração precisa seguir, e o passo a passo para migrar
 tudo para outra conta.
 
-Versão do app na data deste documento: **5.12** · Última atualização: **21/09/2026**
+Versão do app na data deste documento: **5.12** · Última atualização: **22/09/2026**
 
 ---
 
@@ -798,11 +798,17 @@ No Android e no desktop funciona direto do navegador, sem instalar.
 
 ```
 app.js         enablePush() assina e grava em push_subscriptions
-push-setup.sql tabela + RLS
-Database Webhook   INSERT em expenses  ->  chama a funcao
+push-setup.sql tabela + RLS, e o gatilho que chama a funcao
+gatilho        INSERT em expenses  ->  net.http_post  ->  notify-expense
 Edge Function  notify-expense: descobre quem avisar, assina VAPID, envia
 sw.js          push -> showNotification · notificationclick -> foca a janela
 ```
+
+O gatilho é escrito **em SQL**, não pelo *Database Webhook* do painel. Não é só gosto: o
+webhook da UI manda `to_jsonb(new)`, ou seja **a linha inteira de `expenses`, com o
+`image_url`** — que é o comprovante em base64. Um lançamento com foto viraria um POST de
+centenas de KB. O gatilho de `push-setup.sql` monta o `record` à mão com os oito campos
+que a função usa, e nada mais.
 
 A chave **pública** VAPID está em `app.js` (`VAPID_PUBLIC_KEY`) — é pública por natureza,
 igual à chave do Supabase. A **privada** vive só nos secrets do Supabase e **nunca entra no
@@ -843,10 +849,14 @@ supabase secrets set VAPID_PUBLIC_KEY=BOGPXr8rzIa2v0x9icJfeWnSp7OEfo5wDjcRV39GFq
 supabase functions deploy notify-expense
 ```
 
-**5. Crie o webhook.** No painel: **Database › Webhooks › Create a new hook**. Tabela
-`expenses`, evento **Insert**, tipo **Supabase Edge Functions**, função `notify-expense`,
-método POST. No header `Authorization` ponha `Bearer <SERVICE_ROLE_KEY>` — sem isso a
-função recusa a chamada.
+**5. Ligue o gatilho.** Volte ao `push-setup.sql`, seção 3: descomente o
+`vault.create_secret` do passo **3.1** colando sua `service_role` (Settings › API), rode, e
+comente de novo. Depois rode **3.2** e **3.3**. A chave fica no Vault, não no corpo da
+função.
+
+O painel tem **Database › Webhooks**, que faz o mesmo — mas prefira o SQL, pelo motivo da
+[seção 11.2](#112-as-peças). Se ainda assim quiser a UI, o gatilho do SQL e o webhook do
+painel **não podem conviver**: os dois disparando viram notificação dobrada.
 
 **6. Instale o app na tela de início** (iPhone: Compartilhar › Adicionar à Tela de Início),
 abra por lá, vá em **Sua conta** e ligue a chave de notificações.
@@ -857,13 +867,22 @@ Nesta ordem, que é da ponta mais provável para a menos:
 
 1. `select count(*) from push_subscriptions;` — se for zero, ninguém se inscreveu: o
    problema está no app ou na permissão, não no envio.
-2. Painel do Supabase › **Edge Functions › notify-expense › Logs**. A função devolve
+2. O Postgres guarda a resposta de cada chamada. `status_code` 200 é a função
+   respondendo, 401 é chave errada no Vault, e nenhuma linha significa que o gatilho não
+   disparou:
+
+   ```sql
+   select id, status_code, left(content, 200) as resposta, created
+     from net._http_response order by created desc limit 5;
+   ```
+
+3. Painel do Supabase › **Edge Functions › notify-expense › Logs**. A função devolve
    `{sent, gone, recipients}` ou um `skipped` dizendo por quê parou.
-3. `skipped: "ninguém para avisar"` significa que o compartilhamento não está `accepted`,
+4. `skipped: "ninguém para avisar"` significa que o compartilhamento não está `accepted`,
    ou que só existe você.
-4. Se `sent` for maior que zero e mesmo assim nada aparecer no iPhone: quase sempre é o app
+5. Se `sent` for maior que zero e mesmo assim nada aparecer no iPhone: quase sempre é o app
    aberto no Safari em aba, e não o instalado.
-5. iOS desinscreve sozinho quem fica muito tempo sem abrir. A função apaga a inscrição
+6. iOS desinscreve sozinho quem fica muito tempo sem abrir. A função apaga a inscrição
    morta (404/410); é só religar a chave em Sua conta.
 
 ## 12. Histórico de versões

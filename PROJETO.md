@@ -865,9 +865,21 @@ abra por lá, vá em **Sua conta** e ligue a chave de notificações.
 
 Nesta ordem, que é da ponta mais provável para a menos:
 
-1. `select count(*) from push_subscriptions;` — se for zero, ninguém se inscreveu: o
+1. **`pg_net` está instalado?** É ele que faz o POST de dentro do Postgres, e sem ele
+   nada sai — silenciosamente, porque o gatilho engole o erro para não derrubar o
+   lançamento.
+
+   ```sql
+   select e.extname, n.nspname as schema from pg_extension e
+     join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_net';
+   ```
+
+   Zero linhas: `create extension if not exists pg_net;`. Se `net._http_response` não
+   existir, é sempre isto.
+
+2. `select count(*) from push_subscriptions;` — se for zero, ninguém se inscreveu: o
    problema está no app ou na permissão, não no envio.
-2. O Postgres guarda a resposta de cada chamada. `status_code` 200 é a função
+3. O Postgres guarda a resposta de cada chamada. `status_code` 200 é a função
    respondendo, 401 é chave errada no Vault, e nenhuma linha significa que o gatilho não
    disparou:
 
@@ -876,14 +888,19 @@ Nesta ordem, que é da ponta mais provável para a menos:
      from net._http_response order by created desc limit 5;
    ```
 
-3. Painel do Supabase › **Edge Functions › notify-expense › Logs**. A função devolve
+4. Painel do Supabase › **Edge Functions › notify-expense › Logs**. A função devolve
    `{sent, gone, recipients}` ou um `skipped` dizendo por quê parou.
-4. `skipped: "ninguém para avisar"` significa que o compartilhamento não está `accepted`,
+5. `skipped: "ninguém para avisar"` significa que o compartilhamento não está `accepted`,
    ou que só existe você.
-5. Se `sent` for maior que zero e mesmo assim nada aparecer no iPhone: quase sempre é o app
+6. Se `sent` for maior que zero e mesmo assim nada aparecer no iPhone: quase sempre é o app
    aberto no Safari em aba, e não o instalado.
-6. iOS desinscreve sozinho quem fica muito tempo sem abrir. A função apaga a inscrição
+7. iOS desinscreve sozinho quem fica muito tempo sem abrir. A função apaga a inscrição
    morta (404/410); é só religar a chave em Sua conta.
+
+> O gatilho tem `exception when others` para que uma falha de notificação nunca derrube um
+> lançamento. Mas ele **grita antes de engolir**: o erro vira `raise warning` em
+> **Logs & Analytics › Postgres Logs**. Foi assim que um `pg_net` faltando passou
+> despercebido uma vez — o gasto salvava, e simplesmente nada acontecia.
 
 ## 12. Histórico de versões
 

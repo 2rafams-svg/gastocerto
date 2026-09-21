@@ -55,7 +55,15 @@ create policy cards_shared_read on cards
 -- o webhook da UI envia a linha inteira de expenses, INCLUSIVE image_url, que e
 -- o comprovante em base64. Aqui vao so os campos que a funcao usa.
 --
--- Rode o passo 3.1 UMA VEZ, trocando a chave. Depois rode 3.2 e 3.3.
+-- Rode o passo 3.0 e o 3.1 UMA VEZ. Depois rode 3.2 e 3.3.
+
+-- 3.0 pg_net e quem faz o POST de dentro do Postgres. SEM ELE NADA FUNCIONA,
+--     e a falha e silenciosa: o lancamento salva normal e a notificacao some.
+--     Se voce roda os blocos selecionados, nao pule este.
+--     Confira depois com:
+--       select e.extname, n.nspname as schema from pg_extension e
+--         join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_net';
+--     Tem que devolver uma linha, com schema = net.
 
 create extension if not exists pg_net;
 
@@ -72,8 +80,10 @@ create extension if not exists pg_net;
 
 -- 3.2 A funcao que chama a Edge Function.
 -- security definer porque so o dono do banco le o Vault; o insert vem do
--- usuario autenticado. Falha de rede nao pode derrubar o lancamento, por isso
+-- usuario autenticado. Falha de push nao pode derrubar o lancamento, por isso
 -- o exception no fim: se o push nao sair, o gasto e salvo do mesmo jeito.
+-- Mas o erro NAO e engolido: vira warning nos logs do Postgres
+-- (Logs & Analytics > Postgres Logs), senao um pg_net faltando fica invisivel.
 
 create or replace function public.notify_expense_push()
 returns trigger
@@ -90,6 +100,7 @@ begin
    limit 1;
 
   if v_key is null then
+    raise warning 'notify_expense_push: segredo notify_expense_key nao esta no Vault';
     return new;
   end if;
 
@@ -119,6 +130,7 @@ begin
 
   return new;
 exception when others then
+  raise warning 'notify_expense_push falhou: % (%)', sqlerrm, sqlstate;
   return new;
 end;
 $$;

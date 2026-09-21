@@ -1,5 +1,5 @@
-const CACHE = 'gastocerto-v5.11-cartao-compartilhado';
-const SHELL = ['./', './index.html', './offline.html', './style.css?v=5.11', './app.js?v=5.11', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
+const CACHE = 'gastocerto-v5.12-push';
+const SHELL = ['./', './index.html', './offline.html', './style.css?v=5.12', './app.js?v=5.12', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -27,9 +27,9 @@ self.addEventListener('push', e => {
 
 self.addEventListener('notificationclick', e => {
   e.notification.close();
-  const url = e.notification.data || './';
+  const url = new URL(e.notification.data || './', self.location.origin + self.location.pathname.replace(/sw\.js$/, '')).href;
   e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(cs => {
-    for (const c of cs) { if ('focus' in c) return c.focus(); }
+    for (const c of cs) { if (c.url.startsWith(self.registration.scope) && 'focus' in c) return c.focus(); }
     if (self.clients.openWindow) return self.clients.openWindow(url);
   }));
 });

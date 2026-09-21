@@ -4,7 +4,7 @@ Referência única do projeto: o que ele é, como está montado, o que está no 
 abandonado, as regras que toda alteração precisa seguir, e o passo a passo para migrar
 tudo para outra conta.
 
-Versão do app na data deste documento: **5.11** · Última atualização: **19/09/2026**
+Versão do app na data deste documento: **5.12** · Última atualização: **21/09/2026**
 
 ---
 
@@ -49,12 +49,17 @@ offline.html    Pagina exibida quando o dispositivo esta sem rede.
 manifest.webmanifest
 icon-192.png · icon-512.png · icon-512-maskable.png · apple-touch-icon.png
 cleanup-planejamento.sql   Migracao que removeu o planejamento. Idempotente, ja rodada.
+push-setup.sql             Tabela e RLS das notificacoes push. Idempotente.
+supabase/functions/notify-expense/index.ts
+                           Edge Function que assina e envia o push. Nao vai pro navegador.
 docs/PLANO_V2.md           Historico da v2. Desatualizado, mantido por registro.
 PROJETO.md                 Este documento.
 ```
 
 Não existe pasta `src`, nem `dist`, nem `node_modules`. O que está no repositório é
-exatamente o que o navegador baixa.
+exatamente o que o navegador baixa — com **uma exceção**: `supabase/functions/` é código
+Deno que roda no Supabase, publicado pela CLI, nunca servido pelo GitHub Pages. O app em
+si continua sem build.
 
 ---
 
@@ -189,6 +194,12 @@ Saldo levado de um mês para o outro. `id`, `user_id`, `cat_id`, `from_month`, `
 #### `budget_transfers`
 Pedaço de limite movido entre categorias dentro do mês. `user_id`, `month_key`,
 `from_cat_id`, `to_cat_id`, `amount`, `created_at`.
+
+#### `push_subscriptions`
+Uma linha **por aparelho**: `user_id`, `endpoint` (único), `p256dh`, `auth`, `user_agent`,
+`created_at`. A mesma pessoa no iPhone e no desktop tem duas linhas. RLS `ps_own`
+(`user_id = auth.uid()`); a Edge Function lê com a `service_role`, que passa por cima.
+Inscrição morta (HTTP 404 ou 410 ao enviar) é apagada sozinha pela função.
 
 #### `activity_log`
 Histórico por categoria. `category_id`, `actor_user_id`, `actor_email`, `action`
@@ -350,7 +361,9 @@ colunas existem, é ele a fonte da verdade.
 - Amigos com amizade recíproca automática e chat 1 a 1.
 - Divisão de despesa no chat: 50/50 ou personalizada, com saldo e extrato.
 - Divisão em grupo para três ou mais pessoas, com acerto de contas.
-- Notificação no navegador quando chega mensagem.
+- **Notificação push com o app fechado** quando alguém lança numa categoria compartilhada.
+  Ver [seção 11](#11-notificações-push).
+- Notificação no navegador quando chega mensagem, com o app aberto.
 
 ### 5.1 Próximos meses (v5.9)
 
@@ -456,6 +469,7 @@ lançamento.
 | `incomes` | A tabela foi removida, mas `api.getIncomes` e as três irmãs continuam em `app.js` como código morto |
 | `gc-planning` | Chave de `localStorage` que sobrou do planejamento |
 | Widget e leitura de notificação | Impossíveis em PWA. Ver [seção 7](#7-lançamento-rápido-ios) |
+| Push no Safari em aba (iPhone) | Só funciona no PWA instalado na tela de início. Ver [seção 11](#11-notificações-push) |
 | Sem testes | Nenhum teste automatizado. Verificação é manual, no navegador |
 
 ---
@@ -765,10 +779,98 @@ worker continua servindo o `app.js` velho, apontado para o banco antigo.
 
 ---
 
-## 11. Histórico de versões
+## 11. Notificações push
+
+Avisar quem compartilha a categoria quando alguém lança, **com o app fechado**. Ligado na
+v5.12.
+
+### 11.1 As três regras do iPhone
+
+| | |
+|---|---|
+| **Só no app instalado** | Web Push no iOS existe a partir do 16.4 e **apenas** para PWA na tela de início. Safari em aba não recebe nada, e não há contorno |
+| **Permissão só por toque** | `Notification.requestPermission()` fora de um gesto do usuário é ignorado. Por isso a permissão virou um botão em **Sua conta**, e não mais uma chamada solta ao abrir o chat |
+| **`new Notification()` não existe** | Em PWA no iOS só funciona `registration.showNotification()`. Era o motivo de a notificação de mensagem nunca ter aparecido no iPhone; `showLocalNotification()` resolveu |
+
+No Android e no desktop funciona direto do navegador, sem instalar.
+
+### 11.2 As peças
+
+```
+app.js         enablePush() assina e grava em push_subscriptions
+push-setup.sql tabela + RLS
+Database Webhook   INSERT em expenses  ->  chama a funcao
+Edge Function  notify-expense: descobre quem avisar, assina VAPID, envia
+sw.js          push -> showNotification · notificationclick -> foca a janela
+```
+
+A chave **pública** VAPID está em `app.js` (`VAPID_PUBLIC_KEY`) — é pública por natureza,
+igual à chave do Supabase. A **privada** vive só nos secrets do Supabase e **nunca entra no
+repositório**.
+
+### 11.3 Quem é avisado
+
+`notify-expense` monta a lista como dono da categoria **mais** todos os
+`category_shares` com `status = 'accepted'`, **menos** quem lançou. Quem lançou nunca é
+notificado do próprio lançamento.
+
+Compra parcelada gera uma linha por mês, todas no mesmo insert. A função **ignora
+`installment_no > 1`**, senão uma compra em 10x dispararia dez notificações de uma vez.
+
+### 11.4 Como publicar
+
+Tudo isto é fora do repositório e só você pode fazer.
+
+**1. Rode o SQL.** `push-setup.sql` inteiro, no SQL Editor.
+
+**2. Instale a CLI e conecte ao projeto:**
+
+```bash
+npm i -g supabase && supabase login && supabase link --project-ref asnuusgwtsjpwuaakfuc
+```
+
+**3. Guarde as chaves VAPID nos secrets:**
+
+```bash
+supabase secrets set VAPID_PUBLIC_KEY=BOGPXr8rzIa2v0x9icJfeWnSp7OEfo5wDjcRV39GFqVuctrVr5k_dfjkpHpi06obd9S5k80T9O5kadH71ITniyY VAPID_PRIVATE_KEY=<a-chave-privada> VAPID_SUBJECT=mailto:2rafab@gmail.com
+```
+
+`SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` já são injetadas sozinhas, não precisa setar.
+
+**4. Publique a função:**
+
+```bash
+supabase functions deploy notify-expense
+```
+
+**5. Crie o webhook.** No painel: **Database › Webhooks › Create a new hook**. Tabela
+`expenses`, evento **Insert**, tipo **Supabase Edge Functions**, função `notify-expense`,
+método POST. No header `Authorization` ponha `Bearer <SERVICE_ROLE_KEY>` — sem isso a
+função recusa a chamada.
+
+**6. Instale o app na tela de início** (iPhone: Compartilhar › Adicionar à Tela de Início),
+abra por lá, vá em **Sua conta** e ligue a chave de notificações.
+
+### 11.5 Quando não chegar
+
+Nesta ordem, que é da ponta mais provável para a menos:
+
+1. `select count(*) from push_subscriptions;` — se for zero, ninguém se inscreveu: o
+   problema está no app ou na permissão, não no envio.
+2. Painel do Supabase › **Edge Functions › notify-expense › Logs**. A função devolve
+   `{sent, gone, recipients}` ou um `skipped` dizendo por quê parou.
+3. `skipped: "ninguém para avisar"` significa que o compartilhamento não está `accepted`,
+   ou que só existe você.
+4. Se `sent` for maior que zero e mesmo assim nada aparecer no iPhone: quase sempre é o app
+   aberto no Safari em aba, e não o instalado.
+5. iOS desinscreve sozinho quem fica muito tempo sem abrir. A função apaga a inscrição
+   morta (404/410); é só religar a chave em Sua conta.
+
+## 12. Histórico de versões
 
 | Versão | O quê |
 |---|---|
+| 5.12 | Notificação push com o app fechado quando alguém lança em categoria compartilhada; corrige a notificação local, que nunca funcionou no iPhone |
 | 5.11 | Cartão do parceiro aparece no lançamento compartilhado, só leitura, com fechamento e vencimento; pede a política `cards_shared_read` |
 | 5.10 | Seletor de mês vira passo a passo (próximo · atual · anterior) com setas, mais grade de pastilhas por ano; só navega para mês com lançamento |
 | 5.9 | **Próximos meses**: saldo mês a mês do que já está comprometido; corrige `api.getExpensesFrom`, que não existia e matava a lista de meses futuros |

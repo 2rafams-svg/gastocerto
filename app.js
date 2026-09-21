@@ -44,9 +44,10 @@ function syncThemeRow(){
   if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
-const APP_VERSION = '5.11';
+const APP_VERSION = '5.12';
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
+const VAPID_PUBLIC_KEY = 'BOGPXr8rzIa2v0x9icJfeWnSp7OEfo5wDjcRV39GFqVuctrVr5k_dfjkpHpi06obd9S5k80T9O5kadH71ITniyY';
 const CORRECT_PIN = () => String(new Date().getFullYear());
 const SESSION_KEY = 'gc-auth-session-v2';
 const CACHE_PREFIX = 'gc-cache-v2';
@@ -285,6 +286,9 @@ const api={
   insertBudgetTransfer:(d)=>sbFetch('budget_transfers',{method:'POST',body:JSON.stringify({...d,user_id:currentUser.id})}),
   getCards:()=>sbFetch(`cards?user_id=eq.${currentUser.id}&order=name.asc`),
   getVisibleCards:()=>sbFetch('cards?order=name.asc'),
+  savePushSub:(d)=>sbFetch('push_subscriptions',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify({...d,user_id:currentUser.id})}),
+  deletePushSub:(endpoint)=>sbFetch(`push_subscriptions?endpoint=eq.${encodeURIComponent(endpoint)}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
+  countPushSubs:()=>sbFetch(`push_subscriptions?user_id=eq.${currentUser.id}&select=id`),
   insertCard:(d)=>sbFetch('cards',{method:'POST',body:JSON.stringify({...d,user_id:currentUser.id})}),
   updateCard:(id,d)=>sbFetch(`cards?id=eq.${id}`,{method:'PATCH',body:JSON.stringify(d)}),
   deleteCard:(id)=>sbFetch(`cards?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
@@ -383,9 +387,87 @@ function maybeNotify(incoming){
   const f=friends.find(x=>x.friend_user_id===latest.sender_id);
   const who=f?friendLabel(f):'Alguém';
   const kind=latest.type==='expense'?'registrou um gasto para dividir':latest.type==='payment'?'registrou um pagamento':'te enviou uma mensagem';
-  try{ new Notification('GastoCerto',{body:`${who} ${kind}`,icon:'./icon-192.png',tag:'gc-dm'}); }catch{}
+  showLocalNotification('GastoCerto',`${who} ${kind}`,'gc-dm');
 }
-function requestNotifPerm(){ try{ if('Notification'in window&&Notification.permission==='default') Notification.requestPermission().catch(()=>{}); }catch{} }
+function showLocalNotification(title,body,tag){
+  const opts={body,icon:'./icon-192.png',badge:'./icon-192.png',tag};
+  if('serviceWorker'in navigator){
+    navigator.serviceWorker.ready.then(reg=>reg.showNotification(title,opts)).catch(()=>{});
+    return;
+  }
+  try{ new Notification(title,opts); }catch{}
+}
+function pushSupported(){ return 'serviceWorker'in navigator&&'PushManager'in window&&'Notification'in window; }
+function precisaInstalar(){ return !pushSupported()&&/iphone|ipad|ipod/i.test(navigator.userAgent)&&!IS_STANDALONE; }
+function b64ToBytes(base64){
+  const pad='='.repeat((4-base64.length%4)%4);
+  const raw=atob((base64+pad).replace(/-/g,'+').replace(/_/g,'/'));
+  const out=new Uint8Array(raw.length);
+  for(let i=0;i<raw.length;i++) out[i]=raw.charCodeAt(i);
+  return out;
+}
+async function pushSub(){
+  if(!pushSupported()) return null;
+  try{ const reg=await navigator.serviceWorker.ready; return await reg.pushManager.getSubscription(); }catch{ return null; }
+}
+async function pushStatus(){
+  if(precisaInstalar()) return 'instalar';
+  if(!pushSupported()) return 'indisponivel';
+  if(Notification.permission==='denied') return 'bloqueado';
+  return (await pushSub())?'ligado':'desligado';
+}
+async function enablePush(){
+  if(!pushSupported()){ showToast('Este navegador não recebe notificações.','error'); return false; }
+  let perm=Notification.permission;
+  if(perm!=='granted'){ try{ perm=await Notification.requestPermission(); }catch{ perm='denied'; } }
+  if(perm!=='granted'){ showToast('Permissão negada. Libere nas configurações do aparelho.','error'); return false; }
+  try{
+    const reg=await navigator.serviceWorker.ready;
+    const sub=await reg.pushManager.getSubscription()
+      ||await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64ToBytes(VAPID_PUBLIC_KEY)});
+    const j=sub.toJSON();
+    await api.savePushSub({endpoint:sub.endpoint,p256dh:j.keys.p256dh,auth:j.keys.auth,user_agent:navigator.userAgent.slice(0,180)});
+    vib(15);
+    showToast('Notificações ligadas neste aparelho.','success');
+    return true;
+  }catch(err){
+    const msg=String(err?.message||err);
+    showToast(/push_subscriptions/i.test(msg)?'Falta rodar o push-setup.sql no Supabase.':`Não consegui ativar: ${msg.slice(0,90)}`,'error');
+    return false;
+  }
+}
+async function disablePush(){
+  try{
+    const sub=await pushSub();
+    if(sub){ await api.deletePushSub(sub.endpoint).catch(()=>{}); await sub.unsubscribe().catch(()=>{}); }
+    showToast('Notificações desligadas neste aparelho.','success');
+  }catch{ showToast('Não consegui desligar.','error'); }
+}
+async function togglePush(el){
+  const ligar=el.checked;
+  el.disabled=true;
+  const ok=ligar?await enablePush():(await disablePush(),true);
+  el.disabled=false;
+  if(ligar&&!ok) el.checked=false;
+  syncPushRow();
+}
+const PUSH_TXT={
+  ligado:['fa-bell','Notificações ligadas','Você é avisado quando alguém lança numa categoria compartilhada, mesmo com o app fechado.'],
+  desligado:['fa-bell-slash','Notificações desligadas','Ligue para ser avisado de lançamentos nas categorias compartilhadas.'],
+  bloqueado:['fa-ban','Notificações bloqueadas','Você negou a permissão. Libere nas configurações do aparelho e volte aqui.'],
+  instalar:['fa-arrow-up-from-bracket','Instale na tela de início','No iPhone, notificação só funciona com o app instalado: toque em Compartilhar › Adicionar à Tela de Início e abra por lá.'],
+  indisponivel:['fa-circle-info','Sem notificações aqui','Este navegador não recebe notificações. Tente pelo app instalado na tela de início.']
+};
+async function syncPushRow(){
+  const row=document.getElementById('push-row'); if(!row) return;
+  const st=await pushStatus();
+  const [ico,titulo,texto]=PUSH_TXT[st];
+  const podeMexer=st==='ligado'||st==='desligado';
+  row.innerHTML=`<span class="push-ico"><i class="fa-solid ${ico}" aria-hidden="true"></i></span>
+    <span class="push-body"><span class="push-title">${titulo}</span><span class="push-sub">${texto}</span></span>
+    ${podeMexer?`<label class="switch"><input type="checkbox" id="push-switch" ${st==='ligado'?'checked':''} onchange="togglePush(this)"><span class="switch-track"><span class="switch-thumb"></span></span></label>`:''}`;
+  row.classList.toggle('on',st==='ligado');
+}
 function startUnreadPoll(){ stopUnreadPoll(); refreshUnread(false); _unreadPoll=setInterval(()=>{ if(!document.hidden) refreshUnread(true); },25000); }
 function stopUnreadPoll(){ if(_unreadPoll){ clearInterval(_unreadPoll); _unreadPoll=null; } }
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden&&currentUser) refreshUnread(true); });
@@ -489,6 +571,7 @@ function openAccountModal(){
       <span class="theme-row-label"><i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}</span>
       <label class="switch"><input type="checkbox" id="theme-switch" ${isLight?'checked':''} onchange="toggleTheme();syncThemeRow()"><span class="switch-track"><span class="switch-thumb"></span></span></label>
     </div>
+    <div class="push-row" id="push-row"></div>
     <button class="btn-secondary" onclick="openCards()"><i class="fa-solid fa-credit-card" aria-hidden="true"></i> Meus cartões</button>
     <button class="btn-secondary" onclick="openQuickGuide()"><i class="fa-solid fa-bolt" aria-hidden="true"></i> Lançamento rápido (iOS)</button>
     <button class="btn-secondary" onclick="openPaywall('Planos e assinatura')"><i class="fa-solid fa-crown" aria-hidden="true"></i> Ver planos</button>
@@ -496,6 +579,7 @@ function openAccountModal(){
     ${isAdmin?`<button class="btn-secondary" style="border-color:var(--accent-line);color:var(--accent-text)" onclick="openAdminPanel()"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> Painel Admin</button>`:''}
     <button class="btn-secondary" onclick="logout()"><i class="fa-solid fa-right-from-bracket" aria-hidden="true"></i> Sair da conta</button>
     <div style="text-align:center;font-size:11px;color:var(--text3);margin-top:14px">GastoCerto · v${APP_VERSION}</div>`);
+  syncPushRow();
 }
 
 function openSetUsername(){
@@ -949,7 +1033,6 @@ async function startChat(friendRowId){
   if(!uid){ showToast(`${friendLabel(f)} ainda não tem conta no GastoCerto — não dá para conversar.`,'error'); return; }
   if(uid===currentUser.id){ showToast('Esse é você mesmo.','error'); return; }
   api.ensureReverseFriend(uid,currentUser.email,myProfile?.username).catch(()=>{});
-  requestNotifPerm();
   openChat(uid,friendLabel(f));
 }
 function dmBalance(entries,me){

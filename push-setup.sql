@@ -177,3 +177,61 @@ create trigger trg_notify_expense_push
 --     left join category_shares s
 --       on s.category_id = c.id and s.status = 'accepted'
 --    where c.id = 'ID_DA_CATEGORIA';
+
+
+-- 5. Teste manual, sem inserir nada -------------------------------------------
+-- Simula exatamente o POST que o gatilho faz, mas escolhendo quem "lancou".
+-- Pondo a OUTRA pessoa como ator, o destinatario e voce: da para testar a
+-- entrega no proprio celular, sozinho. Nada e gravado em expenses.
+
+-- 5.1 Quem e quem.
+--
+--   select u.id, u.email, p.username from auth.users u
+--     left join profiles p on p.id = u.id order by u.created_at;
+
+-- 5.2 Quais categorias estao compartilhadas e com quem.
+--
+--   select c.id as cat_id, c.name, c.user_id as dono,
+--          s.shared_with_user_id as convidado
+--     from categories c
+--     join category_shares s on s.category_id = c.id and s.status = 'accepted';
+
+-- 5.3 Quem tem aparelho inscrito. Sem linha aqui, nao ha o que entregar.
+--
+--   select user_id, count(*) as aparelhos from push_subscriptions group by user_id;
+
+-- 5.4 Dispare. Troque os dois ids: ator = a OUTRA pessoa, cat = a categoria
+--     compartilhada. Voce recebe a notificacao porque nao e o ator.
+--
+--   select net.http_post(
+--     url := 'https://asnuusgwtsjpwuaakfuc.supabase.co/functions/v1/notify-expense',
+--     headers := jsonb_build_object(
+--       'Content-Type', 'application/json',
+--       'Authorization', 'Bearer ' || (select decrypted_secret
+--                                        from vault.decrypted_secrets
+--                                       where name = 'notify_expense_key')
+--     ),
+--     body := jsonb_build_object(
+--       'type', 'INSERT', 'table', 'expenses', 'schema', 'public',
+--       'record', jsonb_build_object(
+--         'id',        'teste-manual',
+--         'user_id',   'ID_DE_QUEM_LANCOU',
+--         'cat_id',    'ID_DA_CATEGORIA',
+--         'month_key', to_char(now(), 'YYYY-MM'),
+--         'name',      'Teste de notificacao',
+--         'value',     12.34
+--       )
+--     )
+--   ) as request_id;
+
+-- 5.5 Espere uns segundos (o pg_net e assincrono) e leia a resposta.
+--
+--   select status_code, content, created
+--     from net._http_response order by created desc limit 3;
+--
+-- Como ler o content:
+--   {"sent":1,...}                   entregue; se nao apareceu, e o aparelho
+--   {"skipped":"ninguem para avisar"} o ator e o unico, ou o share nao esta accepted
+--   {"sent":0,"recipients":1}         ha destinatario, mas ele nao tem inscricao
+--   401                               chave errada no Vault
+--   404                               funcao nao publicada com esse nome

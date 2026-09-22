@@ -4,7 +4,7 @@ Referência única do projeto: o que ele é, como está montado, o que está no 
 abandonado, as regras que toda alteração precisa seguir, e o passo a passo para migrar
 tudo para outra conta.
 
-Versão do app na data deste documento: **5.15** · Última atualização: **22/09/2026**
+Versão do app na data deste documento: **5.16** · Última atualização: **22/09/2026**
 
 ---
 
@@ -738,7 +738,33 @@ dá para rolar até a primeira mensagem.
 depois, **se o `scrollLeft` não saiu do lugar**, atribui na marra. Só corrige quando
 literalmente nada aconteceu, então onde o suave funciona ele não atropela a animação.
 
-### 9.8 Remover CSS em bloco
+### 9.8 Apagar categoria é apagar seis tabelas
+
+`api.deleteCategory()` só apaga a linha de `categories`. Seis tabelas apontam para ela, e
+`expenses.cat_id` tem chave estrangeira — então deletar categoria com lançamento sempre
+deu erro, até a v5.16. A ordem que funciona:
+
+```
+expenses
+budget_rollovers · budget_transfers · budget_loans · category_shares · activity_log
+categories
+```
+
+Os cinco do meio vão em paralelo, cada um com `.catch(()=>{})`: nem toda instalação tem
+todas as tabelas, e uma faltando não pode travar o resto. `expenses` vai primeiro e
+sozinho, porque é o único que é chave estrangeira de verdade — se ele falhar, não adianta
+seguir.
+
+**O que sobra de propósito**: lançamento de outra pessoa numa categoria compartilhada. A
+RLS de `expenses` é `user_id = auth.uid()`, então o dono da categoria consegue *ver* mas
+não consegue *apagar* a linha do parceiro. Nesse caso a FK barra o delete da categoria e o
+app diz quantos lançamentos de outra pessoa sobraram, em vez de um "erro ao deletar" seco.
+Por isso `getExpensesOfCat()` traz `user_id`: é dali que sai a contagem.
+
+A confirmação mostra quantos lançamentos e quanto somam, **contando todos os meses** — a
+parcela de dezembro também morre, e é justo avisar antes.
+
+### 9.9 Remover CSS em bloco
 
 Ao apagar um trecho grande de CSS é fácil levar junto a chave de fechamento de um
 `@media`, o que engole silenciosamente todas as regras seguintes. Confira que o número de
@@ -1012,6 +1038,7 @@ Nesta ordem, que é da ponta mais provável para a menos:
 
 | Versão | O quê |
 |---|---|
+| 5.16 | Deletar categoria apaga os lançamentos e o resto que aponta para ela, em vez de dar erro |
 | 5.15 | Localização vira endereço aproximado, pedido automaticamente ao abrir o lançamento |
 | 5.14 | Adiantar limite do mês seguinte, tipos dentro da categoria, localização do lançamento e lançamento rápido só com o valor |
 | 5.13 | Desktop: faixa de categorias com setas, chat com fundo escurecido e mensagens no rodapé; badge de mensagem não lida passa a sincronizar entre aparelhos |

@@ -45,7 +45,7 @@ function syncThemeRow(){
   if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
-const APP_VERSION = '5.15';
+const APP_VERSION = '5.16';
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
 const VAPID_PUBLIC_KEY = 'BOGPXr8rzIa2v0x9icJfeWnSp7OEfo5wDjcRV39GFqVuctrVr5k_dfjkpHpi06obd9S5k80T9O5kadH71ITniyY';
@@ -269,6 +269,12 @@ const api={
   insertCategory:(d)=>sbFetch('categories',{method:'POST',body:JSON.stringify({...d,user_id:currentUser.id})}),
   updateCategory:(id,d)=>sbFetch(`categories?id=eq.${id}`,{method:'PATCH',body:JSON.stringify(d)}),
   deleteCategory:(id)=>sbFetch(`categories?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
+  getExpensesOfCat:(catId)=>sbFetch(`expenses?cat_id=eq.${catId}&select=id,user_id,value`),
+  deleteExpensesOfCat:(catId)=>sbFetch(`expenses?cat_id=eq.${catId}&select=id`,{method:'DELETE'}),
+  deleteTransfersOfCat:(catId)=>sbFetch(`budget_transfers?or=(from_cat_id.eq.${catId},to_cat_id.eq.${catId})&user_id=eq.${currentUser.id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
+  deleteLoansOfCat:(catId)=>sbFetch(`budget_loans?cat_id=eq.${catId}&user_id=eq.${currentUser.id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
+  deleteActivityOfCat:(catId)=>sbFetch(`activity_log?category_id=eq.${catId}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
+  deleteSharesOfCat:(catId)=>sbFetch(`category_shares?category_id=eq.${catId}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
   getMonths:()=>sbFetch('months?order=key.desc'),
   insertMonth:(d)=>sbFetch('months',{method:'POST',body:JSON.stringify({...d,user_id:currentUser.id})}),
   closeMonth:(key)=>sbFetch(`months?key=eq.${key}`,{method:'PATCH',body:JSON.stringify({closed:true})}),
@@ -3066,9 +3072,46 @@ async function confirmDeleteCategory(catId){
     }catch{ showToast('Erro ao remover acesso.','error'); }
     return;
   }
-  if(!confirm('Deletar esta categoria?')) return;
-  try{ await logActivity(catId,'cat_delete',cat.name,cat.budget); await api.deleteCategory(catId); categories=categories.filter(c=>c.id!==catId); saveCache(); render(); showToast('Removida.','success'); }
-  catch{ showToast('Erro ao deletar.','error'); }
+  let daCat=[];
+  try{ daCat=await api.getExpensesOfCat(catId)||[]; }catch{}
+  const qtd=daCat.length;
+  const soma=daCat.reduce((s,e)=>s+parseFloat(e.value||0),0);
+  const deOutros=daCat.filter(e=>e.user_id&&e.user_id!==currentUser.id).length;
+  const aviso=qtd
+    ? `Deletar "${cat.name}" e tudo que está dentro?\n\n${qtd} ${qtd===1?'lançamento':'lançamentos'} · ${brl(soma)}\nInclui parcelas futuras, adiantamentos, transferências e o histórico da categoria.\n\nNão dá para desfazer.`
+    : `Deletar a categoria "${cat.name}"?`;
+  if(!confirm(aviso)) return;
+  showToast(qtd?'Apagando a categoria e os lançamentos…':'Apagando…');
+  try{
+    await api.deleteExpensesOfCat(catId);
+    await Promise.all([
+      api.deleteRolloversOfCat(catId).catch(()=>{}),
+      api.deleteTransfersOfCat(catId).catch(()=>{}),
+      api.deleteLoansOfCat(catId).catch(()=>{}),
+      api.deleteSharesOfCat(catId).catch(()=>{}),
+      api.deleteActivityOfCat(catId).catch(()=>{}),
+    ]);
+    await api.deleteCategory(catId);
+    logActivity(catId,'cat_delete',cat.name,cat.budget);
+    categories=categories.filter(c=>c.id!==catId);
+    expenses=expenses.filter(e=>e.cat_id!==catId);
+    loans=loans.filter(l=>l.cat_id!==catId);
+    rollovers=rollovers.filter(r=>r.cat_id!==catId);
+    budgetTransfers=budgetTransfers.filter(t=>t.from_cat_id!==catId&&t.to_cat_id!==catId);
+    if(currentCatIdx>=categories.length) currentCatIdx=Math.max(0,categories.length-1);
+    saveCache(); render();
+    refreshFutureMonths(); refreshMonthIndex();
+    showToast(qtd?`Categoria e ${qtd} ${qtd===1?'lançamento':'lançamentos'} removidos.`:'Removida.','success');
+  }catch(err){
+    const msg=String(err?.message||'');
+    if(/foreign key|violates|still referenced/i.test(msg)){
+      showToast(deOutros
+        ? `${deOutros===1?'Sobrou 1 lançamento':`Sobraram ${deOutros} lançamentos`} de outra pessoa. Só quem lançou pode apagar.`
+        : 'Sobrou algo apontando para esta categoria. Recarregue e tente de novo.','error');
+    }else{
+      showToast(`Erro ao deletar: ${msg.slice(0,90)}`,'error');
+    }
+  }
 }
 
 function openCloseMonth(){

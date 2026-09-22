@@ -45,7 +45,7 @@ function syncThemeRow(){
   if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
-const APP_VERSION = '5.14';
+const APP_VERSION = '5.15';
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
 const VAPID_PUBLIC_KEY = 'BOGPXr8rzIa2v0x9icJfeWnSp7OEfo5wDjcRV39GFqVuctrVr5k_dfjkpHpi06obd9S5k80T9O5kadH71ITniyY';
@@ -571,35 +571,52 @@ function localFieldHtml(e){
     <label class="form-label">Onde foi <span class="lbl-opt">opcional</span></label>
     <input type="hidden" id="f-lat" value="${tem?e.lat:''}"/>
     <input type="hidden" id="f-lng" value="${tem?e.lng:''}"/>
+    <input type="hidden" id="f-place" value="${tem&&e.place?escapeHtml(e.place):''}"/>
     <div class="pick-row" id="f-loc-row" role="button" tabindex="0" onclick="capturarLocal()">
       <span class="pick-ico"><i class="fa-solid fa-location-dot" aria-hidden="true"></i></span>
-      <span class="pick-body"><span class="pick-name" id="f-loc-val">Salvar localização</span><span class="pick-sub" id="f-loc-sub">Toque para marcar onde você está</span></span>
+      <span class="pick-body"><span class="pick-name" id="f-loc-val">Buscar minha localização</span><span class="pick-sub" id="f-loc-sub">O app pergunta e guarda o endereço aproximado</span></span>
       <button type="button" class="loc-clear" id="f-loc-clear" onclick="event.stopPropagation();limparLocal()" aria-label="Remover localização" hidden><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
     </div>
   </div>`;
 }
-function syncLocRow(){
+function syncLocRow(estado){
   const row=document.getElementById('f-loc-row'); if(!row) return;
-  const lat=document.getElementById('f-lat').value, lng=document.getElementById('f-lng').value;
-  const tem=lat!==''&&lng!=='';
+  const lat=document.getElementById('f-lat').value;
+  const place=document.getElementById('f-place').value;
+  const tem=lat!=='';
+  const val=document.getElementById('f-loc-val'), sub=document.getElementById('f-loc-sub');
   row.classList.toggle('on',tem);
-  document.getElementById('f-loc-val').textContent=tem?'Localização salva':'Salvar localização';
-  document.getElementById('f-loc-sub').textContent=tem?`${lat}, ${lng} · toque para atualizar`:'Toque para marcar onde você está';
+  row.classList.toggle('buscando',estado==='buscando');
+  if(estado==='buscando'){ val.textContent='Procurando…'; sub.textContent='Aguardando o GPS responder'; document.getElementById('f-loc-clear').hidden=true; return; }
+  if(estado==='endereco'){ val.textContent='Localização salva'; sub.textContent='Descobrindo o endereço…'; document.getElementById('f-loc-clear').hidden=false; return; }
+  if(estado==='negado'){ val.textContent='Buscar minha localização'; sub.textContent='Permissão negada ou sem sinal. Toque para tentar de novo.'; document.getElementById('f-loc-clear').hidden=true; return; }
+  val.textContent=tem?(place||'Localização salva'):'Buscar minha localização';
+  sub.textContent=tem?(place?'Toque para atualizar':'Endereço não encontrado · toque para tentar de novo'):'O app pergunta e guarda o endereço aproximado';
   document.getElementById('f-loc-clear').hidden=!tem;
 }
 async function capturarLocal(){
-  const sub=document.getElementById('f-loc-sub'); if(!sub) return;
-  sub.textContent='Procurando o sinal…';
-  const pos=await pegarLocal();
-  if(!pos){ sub.textContent='Não consegui pegar a localização. Confira a permissão.'; return; }
-  document.getElementById('f-lat').value=pos.lat;
-  document.getElementById('f-lng').value=pos.lng;
-  vib(12); syncLocRow();
+  if(!document.getElementById('f-loc-row')) return;
+  syncLocRow('buscando');
+  const c=await coordsAgora();
+  if(!c){ syncLocRow('negado'); return; }
+  document.getElementById('f-lat').value=c.lat;
+  document.getElementById('f-lng').value=c.lng;
+  document.getElementById('f-place').value='';
+  vib(12); syncLocRow('endereco');
+  const end=await enderecoDe(c.lat,c.lng);
+  const campo=document.getElementById('f-place');
+  if(campo){ campo.value=end||''; syncLocRow(); }
 }
 function limparLocal(){
   document.getElementById('f-lat').value='';
   document.getElementById('f-lng').value='';
+  document.getElementById('f-place').value='';
   vib(5); syncLocRow();
+}
+async function autoLocal(){
+  if(!navigator.geolocation) return;
+  if(document.getElementById('f-lat')?.value) return;
+  capturarLocal();
 }
 
 function subcatsOf(catId){
@@ -607,7 +624,7 @@ function subcatsOf(catId){
   return Array.isArray(c&&c.subcats)?c.subcats.filter(Boolean):[];
 }
 function mapsUrl(lat,lng){ return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`; }
-function pegarLocal(timeout=8000){
+function coordsAgora(timeout=9000){
   return new Promise(resolve=>{
     if(!navigator.geolocation) return resolve(null);
     navigator.geolocation.getCurrentPosition(
@@ -616,6 +633,43 @@ function pegarLocal(timeout=8000){
       {enableHighAccuracy:false,timeout,maximumAge:120000}
     );
   });
+}
+function comTimeout(promessa,ms){
+  return Promise.race([promessa,new Promise(r=>setTimeout(()=>r(null),ms))]);
+}
+async function ruaDoOSM(lat,lng){
+  const r=await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=pt-BR`,{headers:{Accept:'application/json'}});
+  if(!r.ok) return null;
+  const j=await r.json();
+  const a=j.address||{};
+  const rua=a.road||a.pedestrian||a.footway||a.residential||null;
+  const numero=a.house_number?` ${a.house_number}`:'';
+  const bairro=a.suburb||a.neighbourhood||a.city_district||a.quarter||null;
+  const cidade=a.city||a.town||a.village||a.municipality||a.county||null;
+  const partes=[];
+  if(rua) partes.push(rua+numero);
+  if(bairro&&bairro!==rua) partes.push(bairro);
+  if(cidade&&cidade!==bairro) partes.push(cidade);
+  if(partes.length) return partes.join(', ');
+  return j.display_name?j.display_name.split(',').slice(0,3).join(',').trim():null;
+}
+async function cidadeDoBDC(lat,lng){
+  const r=await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=pt`);
+  if(!r.ok) return null;
+  const j=await r.json();
+  const partes=[j.locality,j.city,j.principalSubdivision].filter((v,i,arr)=>v&&arr.indexOf(v)===i);
+  return partes.length?partes.slice(0,3).join(', '):null;
+}
+async function enderecoDe(lat,lng){
+  try{ const r=await comTimeout(ruaDoOSM(lat,lng),6000); if(r) return r; }catch{}
+  try{ const r=await comTimeout(cidadeDoBDC(lat,lng),5000); if(r) return r; }catch{}
+  return null;
+}
+async function pegarLocal(timeout=9000){
+  const c=await coordsAgora(timeout);
+  if(!c) return null;
+  c.place=await enderecoDe(c.lat,c.lng);
+  return c;
 }
 function baseBudget(cat, monthKey){
   if(semTeto(cat)) return 0;
@@ -1530,8 +1584,8 @@ function buildSlide(cat, isNow){
       </div>`:'';
     return `<div class="expense-item">
     <div class="expense-left">
-      <div class="expense-name">${e.recurring?`<i class="fa-solid fa-arrows-rotate" style="font-size:10px;color:var(--accent-text);margin-right:5px" title="Recorrente" aria-hidden="true"></i>`:''}${e.installment_total?`<i class="fa-solid fa-credit-card" style="font-size:10px;color:var(--accent-text);margin-right:5px" title="Cartão" aria-hidden="true"></i>`:''}${escapeHtml(e.name)}${e.installment_total>1?`<span style="font-size:10px;color:var(--text3);font-weight:600;margin-left:5px">(${e.installment_no}/${e.installment_total})</span>`:''}${e.card_id&&cardLabel(e.card_id)?`<span class="exp-card-tag" onclick="event.stopPropagation();openCardInfo('${e.id}')" title="Ver dados do cartão">${escapeHtml(cardLabel(e.card_id))}<i class="fa-solid fa-circle-info" aria-hidden="true"></i></span>`:''}${e.subcat?`<span class="exp-sub-tag">${escapeHtml(e.subcat)}</span>`:''}${e.lat!=null&&e.lng!=null?`<a class="exp-loc-dot" href="${mapsUrl(e.lat,e.lng)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Ver no mapa"><i class="fa-solid fa-location-dot" aria-hidden="true"></i></a>`:''}${e.previsto?`<span style="font-size:10px;color:var(--text3);border:1px dashed var(--border);border-radius:100px;padding:1px 7px;margin-left:5px;white-space:nowrap;display:inline-block">previsto</span>`:''}${byLabel}${e.image_url?`<span class="exp-receipt-dot" onclick="event.stopPropagation();viewReceipt('${e.id}')" title="Ver comprovante"><i class="fa-solid fa-image" aria-hidden="true"></i></span>`:''}</div>
-      <div class="expense-date">${new Date(e.date+'T12:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'})}</div>
+      <div class="expense-name">${e.recurring?`<i class="fa-solid fa-arrows-rotate" style="font-size:10px;color:var(--accent-text);margin-right:5px" title="Recorrente" aria-hidden="true"></i>`:''}${e.installment_total?`<i class="fa-solid fa-credit-card" style="font-size:10px;color:var(--accent-text);margin-right:5px" title="Cartão" aria-hidden="true"></i>`:''}${escapeHtml(e.name)}${e.installment_total>1?`<span style="font-size:10px;color:var(--text3);font-weight:600;margin-left:5px">(${e.installment_no}/${e.installment_total})</span>`:''}${e.card_id&&cardLabel(e.card_id)?`<span class="exp-card-tag" onclick="event.stopPropagation();openCardInfo('${e.id}')" title="Ver dados do cartão">${escapeHtml(cardLabel(e.card_id))}<i class="fa-solid fa-circle-info" aria-hidden="true"></i></span>`:''}${e.subcat?`<span class="exp-sub-tag">${escapeHtml(e.subcat)}</span>`:''}${e.lat!=null&&e.lng!=null?`<a class="exp-loc-dot" href="${mapsUrl(e.lat,e.lng)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="${e.place?escapeHtml(e.place):'Ver no mapa'}"><i class="fa-solid fa-location-dot" aria-hidden="true"></i></a>`:''}${e.previsto?`<span style="font-size:10px;color:var(--text3);border:1px dashed var(--border);border-radius:100px;padding:1px 7px;margin-left:5px;white-space:nowrap;display:inline-block">previsto</span>`:''}${byLabel}${e.image_url?`<span class="exp-receipt-dot" onclick="event.stopPropagation();viewReceipt('${e.id}')" title="Ver comprovante"><i class="fa-solid fa-image" aria-hidden="true"></i></span>`:''}</div>
+      <div class="expense-date">${new Date(e.date+'T12:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'})}${e.place?` · <span class="exp-place">${escapeHtml(e.place)}</span>`:''}</div>
     </div>
     <div class="expense-right">
       <div class="expense-value">${brl(e.value)}</div>
@@ -2365,7 +2419,7 @@ function openAddExpense(catId){
     ${receiptPickerHtml()}
     <button class="btn-primary" id="btn-save-exp" onclick="saveExpense(null)">Salvar</button>
     <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
-  syncSubcatField(); syncLocRow();
+  syncSubcatField(); syncLocRow(); autoLocal();
 }
 function repeatFieldHtml(mode='none',installmentTotal='',installmentNo=1,valueMode='compra',isEdit=false,cardId='',lockCard=false){
   const total=Math.max(1,parseInt(installmentTotal,10)||1);
@@ -2619,7 +2673,8 @@ async function saveExpense(expId){
     const subcat=document.getElementById('f-subcat')?.value||null;
     const latRaw=document.getElementById('f-lat')?.value, lngRaw=document.getElementById('f-lng')?.value;
     const lat=latRaw?parseFloat(latRaw):null, lng=lngRaw?parseFloat(lngRaw):null;
-    const payload={cat_id:catId,name,value,date:targetDate,recurring,image_url,installment_total,installment_no,installment_group,card_id,subcat,lat,lng};
+    const place=document.getElementById('f-place')?.value||null;
+    const payload={cat_id:catId,name,value,date:targetDate,recurring,image_url,installment_total,installment_no,installment_group,card_id,subcat,lat,lng,place};
     if(expId) await api.updateExpense(expId,payload);
     else{
       let ultimoMk=targetMonthKey;
@@ -2655,8 +2710,8 @@ async function saveExpense(expId){
       showToast('Rode o SQL: ALTER TABLE expenses ADD COLUMN installment_no integer, ADD COLUMN installment_total integer, ADD COLUMN installment_group text','error');
     }else if(/subcat/i.test(msg)){
       showToast('Rode o SQL: ALTER TABLE expenses ADD COLUMN subcat text','error');
-    }else if(/\blat\b|\blng\b/i.test(msg)){
-      showToast('Rode o SQL: ALTER TABLE expenses ADD COLUMN lat numeric, ADD COLUMN lng numeric','error');
+    }else if(/\blat\b|\blng\b|\bplace\b/i.test(msg)){
+      showToast('Rode o SQL: ALTER TABLE expenses ADD COLUMN lat numeric, ADD COLUMN lng numeric, ADD COLUMN place text','error');
     }else if(/not present in table|foreign key|violates/i.test(msg)){
       showToast('Não consegui abrir o mês de destino. Tente de novo.','error');
     }else{
@@ -3291,13 +3346,20 @@ function nomeAgora(){
   const p=n=>String(n).padStart(2,'0');
   return `${p(d.getDate())}/${p(d.getMonth()+1)} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
-async function localSilencioso(){
-  try{
-    if(!navigator.permissions||!navigator.geolocation) return null;
-    const st=await navigator.permissions.query({name:'geolocation'});
-    if(st.state!=='granted') return null;
-    return await pegarLocal(4000);
-  }catch{ return null; }
+let quickPos=null;
+async function quickLocal(){
+  quickPos=null;
+  const hint=document.getElementById('f-quick-local');
+  if(!navigator.geolocation){ if(hint) hint.remove(); return; }
+  if(hint) hint.innerHTML='<i class="fa-solid fa-location-dot" aria-hidden="true"></i> Procurando onde você está…';
+  const c=await coordsAgora();
+  if(!c){ const h=document.getElementById('f-quick-local'); if(h) h.innerHTML='<i class="fa-solid fa-location-dot" aria-hidden="true"></i> Sem localização — o gasto salva do mesmo jeito.'; return; }
+  quickPos=c;
+  const h1=document.getElementById('f-quick-local');
+  if(h1) h1.innerHTML='<i class="fa-solid fa-location-dot" aria-hidden="true"></i> Descobrindo o endereço…';
+  c.place=await enderecoDe(c.lat,c.lng);
+  const h2=document.getElementById('f-quick-local');
+  if(h2) h2.innerHTML=`<i class="fa-solid fa-location-dot" aria-hidden="true"></i> ${c.place?escapeHtml(c.place):'Localização capturada'}`;
 }
 function openQuickValue(){
   const cat=catAlvoRapido();
@@ -3311,9 +3373,11 @@ function openQuickValue(){
              oninput="moneyKey(this)" onkeydown="if(event.key==='Enter'){event.preventDefault();saveQuickValue('${cat.id}')}"/>
     </div>
     <div class="quick-hint" id="f-quick-hint"><i class="fa-regular fa-clock" aria-hidden="true"></i> ${nomeAgora()} · ${monthLabel(viewMonthKey)}</div>
+    <div class="quick-hint" id="f-quick-local"><i class="fa-solid fa-location-dot" aria-hidden="true"></i> Procurando onde você está…</div>
     <button class="btn-primary" id="btn-quick" onclick="saveQuickValue('${cat.id}')">Salvar</button>
     <button class="btn-secondary" onclick="closeSheet()">Cancelar</button>`);
   setTimeout(()=>document.getElementById('f-quick-valor')?.focus(),120);
+  quickLocal();
 }
 async function saveQuickValue(catId){
   const valor=parseNum(document.getElementById('f-quick-valor')?.value||'');
@@ -3323,17 +3387,17 @@ async function saveQuickValue(catId){
   const btn=document.getElementById('btn-quick'); btn.disabled=true; btn.textContent='Salvando...';
   const nome=nomeAgora();
   try{
-    const pos=await localSilencioso();
+    const pos=quickPos;
     await ensureMonthsExist(viewMonthKey,viewMonthKey);
-    await api.insertExpense({id:uid(),cat_id:catId,month_key:viewMonthKey,name:nome,value:valor,date:hoje,recurring:false,lat:pos?pos.lat:null,lng:pos?pos.lng:null});
+    await api.insertExpense({id:uid(),cat_id:catId,month_key:viewMonthKey,name:nome,value:valor,date:hoje,recurring:false,lat:pos?pos.lat:null,lng:pos?pos.lng:null,place:pos&&pos.place?pos.place:null});
     logActivity(catId,'create',nome,valor);
     expenses=await api.getExpenses(viewMonthKey);
     refreshMonthIndex(); saveCache(); vib(15);
     closeSheet(); render();
-    showToast(pos?`${brl(valor)} lançado com a localização.`:`${brl(valor)} lançado.`,'success');
+    showToast(pos&&pos.place?`${brl(valor)} · ${pos.place}`:`${brl(valor)} lançado.`,'success');
   }catch(err){
     const msg=String(err?.message||'');
-    showToast(/\blat\b|\blng\b/i.test(msg)?'Rode o SQL: ALTER TABLE expenses ADD COLUMN lat numeric, ADD COLUMN lng numeric':`Erro ao salvar: ${msg.slice(0,80)}`,'error');
+    showToast(/\blat\b|\blng\b|\bplace\b/i.test(msg)?'Rode o SQL: ALTER TABLE expenses ADD COLUMN lat numeric, ADD COLUMN lng numeric, ADD COLUMN place text':`Erro ao salvar: ${msg.slice(0,80)}`,'error');
     btn.disabled=false; btn.textContent='Salvar';
   }
 }

@@ -4,7 +4,7 @@ Referência única do projeto: o que ele é, como está montado, o que está no 
 abandonado, as regras que toda alteração precisa seguir, e o passo a passo para migrar
 tudo para outra conta.
 
-Versão do app na data deste documento: **5.14** · Última atualização: **22/09/2026**
+Versão do app na data deste documento: **5.15** · Última atualização: **22/09/2026**
 
 ---
 
@@ -164,7 +164,8 @@ compartilhada. `baseBudget()` ainda lê `months.budgets` como fallback do legado
 | `installment_group` | text | Liga as parcelas de uma mesma compra |
 | `card_id` | uuid | aponta para `cards.id` |
 | `subcat` | text | Um dos `categories.subcats`. Texto solto de propósito: renomear o tipo não quebra o histórico |
-| `lat` · `lng` | numeric | Onde foi. Só coordenada, sem geocodificação — o pino abre o Google Maps |
+| `lat` · `lng` | numeric | Onde foi. Guardadas para o link do mapa |
+| `place` | text | Endereço aproximado, resolvido na hora de salvar. **É o que a tela mostra** — coordenada ninguém lê |
 
 `month_key` e `date` podem apontar para meses diferentes. É proposital: compra de 19/ago
 num cartão que fecha dia 3 entra na fatura de setembro.
@@ -355,7 +356,8 @@ colunas existem, é ele a fonte da verdade.
   [seção 5.3](#53-adiantar-limite-do-mês-seguinte-v514).
 - **Tipos dentro da categoria** — em Comida, por exemplo: Preparos, Delivery, Restaurante.
   Opcional; cadastra na categoria e escolhe no lançamento.
-- **Localização do lançamento** — coordenada opcional, com pino que abre o mapa.
+- **Localização do lançamento** — o app pede o GPS sozinho ao abrir o lançamento e guarda o
+  **endereço aproximado**. Ver [seção 5.4](#54-a-localização-do-lançamento-v515).
 - **Lançamento rápido pelo raio** — botão ao lado do + : só o valor, e a hora vira a
   descrição.
 - **Rollover** — levar a sobra e/ou o estouro para o mês seguinte, automático. Vale a
@@ -496,6 +498,36 @@ devolver — senão o mês nasceria negativo.
 > nos inserts, o que sugere índice único em (`cat_id`, `from_month`, `to_month`) — a linha
 > de devolução do primeiro mês cairia exatamente no mesmo par que o rollover automático e
 > um sobrescreveria o outro em silêncio.
+
+### 5.4 A localização do lançamento (v5.15)
+
+Abriu o formulário de gasto novo, o app já pede o GPS e preenche sozinho. No lançamento
+rápido é igual, em paralelo com a digitação do valor. Editar um gasto antigo **não**
+recaptura — sobrescreveria onde a compra realmente foi.
+
+Guarda os três: `lat`, `lng` e `place`. A coordenada serve para o link do mapa; **o que
+aparece na tela é sempre o `place`**, porque `-23.561414, -46.655881` não diz nada a
+ninguém.
+
+A geocodificação reversa é feita no cliente, em cascata, sem chave de API:
+
+| Onde | O que devolve |
+|---|---|
+| `nominatim.openstreetmap.org` | Rua com número, bairro e cidade — *Avenida Paulista 1578, Morro dos Ingleses, São Paulo* |
+| `api.bigdatacloud.net` (reserva) | Só cidade e região |
+| nenhum dos dois | Salva a coordenada sem nome; o pino continua abrindo o mapa |
+
+Cada uma tem timeout próprio (6 s e 5 s) e **nada disso bloqueia o salvamento** — o
+endereço entra no campo escondido conforme chega, e o gasto salva com o que houver.
+
+Na lista o endereço vai na mesma linha da data, **cortado com reticências em uma linha
+só** (`.expense-date` ganhou `nowrap` + `text-overflow`). Sem isso um endereço completo
+quebrava em três linhas e dobrava a altura da linha do gasto. O endereço inteiro fica no
+`title` do pino e no formulário de edição.
+
+> Nominatim é gratuito mas tem política de uso (~1 requisição por segundo). Para um app
+> pessoal, uma chamada por lançamento, está folgado. Se um dia der `429`, a reserva
+> assume sozinha.
 
 ### Plataforma
 - PWA instalável, funciona offline com os dados em cache.
@@ -980,6 +1012,7 @@ Nesta ordem, que é da ponta mais provável para a menos:
 
 | Versão | O quê |
 |---|---|
+| 5.15 | Localização vira endereço aproximado, pedido automaticamente ao abrir o lançamento |
 | 5.14 | Adiantar limite do mês seguinte, tipos dentro da categoria, localização do lançamento e lançamento rápido só com o valor |
 | 5.13 | Desktop: faixa de categorias com setas, chat com fundo escurecido e mensagens no rodapé; badge de mensagem não lida passa a sincronizar entre aparelhos |
 | 5.12 | Notificação push com o app fechado quando alguém lança em categoria compartilhada; corrige a notificação local, que nunca funcionou no iPhone |

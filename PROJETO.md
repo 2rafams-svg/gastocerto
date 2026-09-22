@@ -287,7 +287,7 @@ app.js
 | `gc-cache-v2:<user_id>` | Categorias, meses, gastos e nomes, para render instantâneo |
 | `gc-theme` | `light` ou `dark` |
 | `gc-tutorial-v2` | Tutorial já visto |
-| `gc-dm-seen` | Marcação de leitura por amigo |
+| `gc-dm-seen` | Marcação de leitura por amigo. **Espelhada em `user_metadata.dm_seen`**, senão o aparelho que não abriu a conversa mostra "não lida" para sempre |
 | `gc-planning` | **Resíduo do planejamento removido.** Pode apagar |
 
 O tema e o "tutorial já visto" também vão para o `user_metadata` do Supabase, para
@@ -455,7 +455,10 @@ lançamento.
 - Tutorial em 11 passos com destaque nos elementos.
 - **Lançamento rápido por link** (`#add?v=45,90&n=Padaria&cat=Mercado&card=Nubank&p=3`) —
   abre o formulário preenchido, para atalhos do iOS. Ver [seção 7](#7-lançamento-rápido-ios).
-- **View de desktop** acima de 900px: largura até 1180px e categorias lado a lado em grade.
+- **View de desktop** acima de 900px: largura até 1180px e as categorias numa faixa
+  horizontal com setas ‹ › nas laterais, uma categoria por passo. A faixa de chips fica
+  escondida (as setas fazem o papel dela) e o arraste do celular é desligado — quem manda
+  ali são as setas. Ver [seção 9.7](#97-o-que-quebra-só-no-desktop).
 
 ---
 
@@ -632,7 +635,28 @@ remoção de cartão deixaria o lançamento preso.
 Sem a política no banco o app não quebra: some a etiqueta e o formulário mostra *Cartão de
 outra pessoa · sem acesso aos dados deste cartão*, ainda travado.
 
-### 9.7 Remover CSS em bloco
+### 9.7 O que quebra só no desktop
+
+A view larga é a mesma tela com outro CSS, e três defeitos moraram exatamente aí.
+
+**O chat virava um painel solto.** `.dm-overlay` é `position:fixed; inset:0` com
+`max-width:900px; margin:0 auto`. No celular isso ocupa tudo; em 1240px vira uma coluna de
+900px com a tela de Amigos acesa dos dois lados, sem nada indicando que é um modal. O
+escurecimento vem de `box-shadow:0 0 0 100vmax rgba(0,0,0,.55)` — sombra com espalhamento
+gigante, que pinta fora do elemento **sem precisar de um elemento de backdrop**.
+
+**As mensagens grudavam no topo.** `.dm-body` é uma coluna flex; com pouca conversa numa
+janela alta, as bolhas ficavam lá em cima e a barra de digitar lá embaixo, com um vazio no
+meio. `.dm-body>:first-child{margin-top:auto}` empurra tudo para baixo. **Não use
+`justify-content:flex-end`** — quando a conversa passa da altura, ele corta o topo e não
+dá para rolar até a primeira mensagem.
+
+**`scrollBy` com `behavior:'smooth'` não move nada** quando o container tem
+`scroll-snap-type`. `slideCats()` calcula o alvo, tenta o `scrollTo` suave e, 400 ms
+depois, **se o `scrollLeft` não saiu do lugar**, atribui na marra. Só corrige quando
+literalmente nada aconteceu, então onde o suave funciona ele não atropela a animação.
+
+### 9.8 Remover CSS em bloco
 
 Ao apagar um trecho grande de CSS é fácil levar junto a chave de fechamento de um
 `@media`, o que engole silenciosamente todas as regras seguintes. Confira que o número de
@@ -906,6 +930,7 @@ Nesta ordem, que é da ponta mais provável para a menos:
 
 | Versão | O quê |
 |---|---|
+| 5.13 | Desktop: faixa de categorias com setas, chat com fundo escurecido e mensagens no rodapé; badge de mensagem não lida passa a sincronizar entre aparelhos |
 | 5.12 | Notificação push com o app fechado quando alguém lança em categoria compartilhada; corrige a notificação local, que nunca funcionou no iPhone |
 | 5.11 | Cartão do parceiro aparece no lançamento compartilhado, só leitura, com fechamento e vencimento; pede a política `cards_shared_read` |
 | 5.10 | Seletor de mês vira passo a passo (próximo · atual · anterior) com setas, mais grade de pastilhas por ano; só navega para mês com lançamento |

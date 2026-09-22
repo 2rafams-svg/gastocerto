@@ -4,7 +4,7 @@ Referência única do projeto: o que ele é, como está montado, o que está no 
 abandonado, as regras que toda alteração precisa seguir, e o passo a passo para migrar
 tudo para outra conta.
 
-Versão do app na data deste documento: **5.12** · Última atualização: **22/09/2026**
+Versão do app na data deste documento: **5.14** · Última atualização: **22/09/2026**
 
 ---
 
@@ -141,6 +141,7 @@ O centro do app. Uma categoria é um teto mensal com nome.
 | `rollover_negative` | bool | Levar o estouro para o mês seguinte |
 | `rollover_from` | text | Mês a partir do qual o acúmulo vale (`YYYY-MM`) |
 | `no_limit` | bool | **Sem teto**: só acompanha gasto, sem orçamento |
+| `subcats` | jsonb | `["Preparos","Delivery"]` — tipos dentro da categoria. Vazio esconde o campo no lançamento |
 
 `month_budgets` **mora na categoria de propósito.** Antes ficava em `months.budgets`, mas a
 linha de `months` é por usuário — o ajuste não aparecia para quem recebeu a categoria
@@ -162,6 +163,8 @@ compartilhada. `baseBudget()` ainda lê `months.budgets` como fallback do legado
 | `installment_no` | int | Qual parcela é esta |
 | `installment_group` | text | Liga as parcelas de uma mesma compra |
 | `card_id` | uuid | aponta para `cards.id` |
+| `subcat` | text | Um dos `categories.subcats`. Texto solto de propósito: renomear o tipo não quebra o histórico |
+| `lat` · `lng` | numeric | Onde foi. Só coordenada, sem geocodificação — o pino abre o Google Maps |
 
 `month_key` e `date` podem apontar para meses diferentes. É proposital: compra de 19/ago
 num cartão que fecha dia 3 entra na fatura de setembro.
@@ -190,6 +193,12 @@ ela o app não tem como mostrar em qual cartão o parceiro lançou.
 Saldo levado de um mês para o outro. `id`, `user_id`, `cat_id`, `from_month`, `to_month`,
 `amount` (negativo quando é estouro), `auto` (bool — distingue automático de manual),
 `created_at`.
+
+#### `budget_loans`
+Adiantamento de limite entre meses. `user_id`, `cat_id`, `loan_group`, `month_key`,
+`amount`, `created_at`. Um adiantamento é **um grupo de linhas**: uma positiva no mês que
+recebe e uma negativa por mês de devolução, todas com o mesmo `loan_group` — desfazer é
+apagar o grupo inteiro. Ver [seção 5.3](#53-adiantar-limite-do-mês-seguinte-v514).
 
 #### `budget_transfers`
 Pedaço de limite movido entre categorias dentro do mês. `user_id`, `month_key`,
@@ -341,6 +350,14 @@ colunas existem, é ele a fonte da verdade.
   com resumo ao vivo de quantas cobranças serão lançadas e de quanto.
 - **Ajuste do orçamento do mês** — muda o teto só daquele mês.
 - **Transferência de limite** entre categorias, válida só no mês corrente.
+- **Adiantar limite do mês seguinte** — puxa parte do teto dos meses à frente para o mês
+  atual, devolvendo em até 6 parcelas. Reversível. Ver
+  [seção 5.3](#53-adiantar-limite-do-mês-seguinte-v514).
+- **Tipos dentro da categoria** — em Comida, por exemplo: Preparos, Delivery, Restaurante.
+  Opcional; cadastra na categoria e escolhe no lançamento.
+- **Localização do lançamento** — coordenada opcional, com pino que abre o mapa.
+- **Lançamento rápido pelo raio** — botão ao lado do + : só o valor, e a hora vira a
+  descrição.
 - **Rollover** — levar a sobra e/ou o estouro para o mês seguinte, automático. Vale a
   partir do mês seguinte ao que foi ligado; ao desligar, o app pergunta o que fazer com o
   que já foi levado.
@@ -446,6 +463,39 @@ lançamento.
 > **Não voltar a listar todos os meses futuros numa lista corrida.** Foi tentado na v5.7 e
 > poluiu: uma compra em 10x rendia nove linhas idênticas de "1 lançamento". O passo a passo
 > e a grade existem exatamente para resolver isso.
+
+### 5.3 Adiantar limite do mês seguinte (v5.14)
+
+Puxa um pedaço do teto dos meses à frente para o mês atual. O `budget` da categoria **não
+muda** — quem muda é o efetivo do mês.
+
+Um adiantamento é um **grupo de linhas** em `budget_loans`, todas com o mesmo `loan_group`:
+uma positiva no mês que recebe e uma negativa por mês de devolução. Adiantar 300 em Set,
+devolvendo em 3:
+
+```
+2026-09  +300.00
+2026-10  -100.00
+2026-11  -100.00
+2026-12  -100.00
+```
+
+`effBudget()` soma `loanAmount()` junto com o rollover, então o limite do mês já sai certo
+em toda a tela sem nenhum caso especial. **Próximos meses** também conta, por isso a
+devolução aparece lá como teto menor.
+
+Desfazer é apagar o grupo — daí `loan_group` existir. **Um adiantamento por categoria por
+mês**: dois grupos no mesmo mês tornariam o "desfazer" ambíguo, então o app manda desfazer
+o atual antes de criar outro.
+
+A divisão arredonda para baixo e joga a sobra na última parcela: 100 em 3 vira
+33,33 + 33,33 + **33,34**. E não deixa criar parcela maior que o teto do mês que vai
+devolver — senão o mês nasceria negativo.
+
+> Uma tabela nova, e não `budget_rollovers`. Aquela tem `Prefer: resolution=merge-duplicates`
+> nos inserts, o que sugere índice único em (`cat_id`, `from_month`, `to_month`) — a linha
+> de devolução do primeiro mês cairia exatamente no mesmo par que o rollover automático e
+> um sobrescreveria o outro em silêncio.
 
 ### Plataforma
 - PWA instalável, funciona offline com os dados em cache.
@@ -930,6 +980,7 @@ Nesta ordem, que é da ponta mais provável para a menos:
 
 | Versão | O quê |
 |---|---|
+| 5.14 | Adiantar limite do mês seguinte, tipos dentro da categoria, localização do lançamento e lançamento rápido só com o valor |
 | 5.13 | Desktop: faixa de categorias com setas, chat com fundo escurecido e mensagens no rodapé; badge de mensagem não lida passa a sincronizar entre aparelhos |
 | 5.12 | Notificação push com o app fechado quando alguém lança em categoria compartilhada; corrige a notificação local, que nunca funcionou no iPhone |
 | 5.11 | Cartão do parceiro aparece no lançamento compartilhado, só leitura, com fechamento e vencimento; pede a política `cards_shared_read` |

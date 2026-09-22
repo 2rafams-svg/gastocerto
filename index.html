@@ -30,7 +30,7 @@ if(location.hash.indexOf('#add')===0&&document.documentElement.classList.contain
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css"/>
-<link rel="stylesheet" href="style.css?v=5.13"/>
+<link rel="stylesheet" href="style.css?v=5.14"/>
 </head>
 <body>
 
@@ -121,6 +121,7 @@ if(location.hash.indexOf('#add')===0&&document.documentElement.classList.contain
   <div class="content" id="content" style="flex:1;overflow-y:auto">
     <div class="loading"><div class="spinner"></div>Carregando...</div>
   </div>
+  <button class="fab-quick" id="fab-quick" onclick="openQuickValue()" style="display:none" aria-label="Lançamento rápido"><i class="fa-solid fa-bolt" aria-hidden="true"></i></button>
   <button class="fab" id="fab" onclick="onFab()" style="display:none" aria-label="Adicionar"><i class="fa-solid fa-plus" aria-hidden="true"></i></button>
   <nav class="bottom-nav" id="bottom-nav">
     <button class="nav-item active" data-tab="home" onclick="switchTab('home')"><span class="nav-ico"><i class="fa-solid fa-house" aria-hidden="true"></i></span><span class="nav-lbl">Início</span></button>
@@ -140,6 +141,6 @@ if(location.hash.indexOf('#add')===0&&document.documentElement.classList.contain
   </div>
 </div>
 
-<script src="app.js?v=5.13"></script>
+<script src="app.js?v=5.14"></script>
 </body>
 </html>

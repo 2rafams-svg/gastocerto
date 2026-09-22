@@ -45,7 +45,7 @@ function syncThemeRow(){
   if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
-const APP_VERSION = '5.13';
+const APP_VERSION = '5.14';
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
 const VAPID_PUBLIC_KEY = 'BOGPXr8rzIa2v0x9icJfeWnSp7OEfo5wDjcRV39GFqVuctrVr5k_dfjkpHpi06obd9S5k80T9O5kadH71ITniyY';
@@ -161,7 +161,7 @@ function userTag(uid){
 async function logout(){
   const token=session?.access_token;
   if(token) fetch(`${SUPABASE_URL}/auth/v1/logout`,{method:'POST',headers:{apikey:SUPABASE_KEY,Authorization:`Bearer ${token}`}}).catch(()=>{});
-  persistSession(null); categories=[]; months=[]; expenses=[]; expenseNames=[]; acceptedShares=[]; sharedOutMap={}; pendingSplitInvites=[]; acceptedGroupIds=new Set(); friends=[]; budgetTransfers=[]; cards=[]; allCards=[]; rollovers=[]; futureMonthKeys=[];
+  persistSession(null); categories=[]; months=[]; expenses=[]; expenseNames=[]; acceptedShares=[]; sharedOutMap={}; pendingSplitInvites=[]; acceptedGroupIds=new Set(); friends=[]; budgetTransfers=[]; cards=[]; allCards=[]; rollovers=[]; futureMonthKeys=[]; loans=[];
   stopUnreadPoll(); unreadDm={}; updateAmigosBadge();
   document.documentElement.classList.remove('gc-has-session');
   document.getElementById('app').style.display='none';
@@ -274,7 +274,7 @@ const api={
   closeMonth:(key)=>sbFetch(`months?key=eq.${key}`,{method:'PATCH',body:JSON.stringify({closed:true})}),
   getExpenses:(mk)=>sbFetch(`expenses?month_key=eq.${mk}&order=date.desc`),
   getAllExpenses:()=>sbFetch('expenses?order=date.desc'),
-  getExpensesFrom:(mk)=>sbFetch(`expenses?month_key=gte.${mk}&select=id,user_id,cat_id,month_key,name,value,date,recurring,installment_no,installment_total,installment_group,card_id&order=month_key.asc`),
+  getExpensesFrom:(mk)=>sbFetch(`expenses?month_key=gte.${mk}&select=id,user_id,cat_id,month_key,name,value,date,recurring,installment_no,installment_total,installment_group,card_id,subcat&order=month_key.asc`),
   getMonthTotals:()=>sbFetch('expenses?select=month_key,value&order=month_key.asc'),
   getExpenseNames:()=>sbFetch('expenses?select=name&order=date.desc'),
   insertExpense:(d)=>sbFetch('expenses',{method:'POST',body:JSON.stringify({...d,user_id:currentUser.id})}),
@@ -298,6 +298,9 @@ const api={
   deleteRollover:(id)=>sbFetch(`budget_rollovers?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
   deleteRolloversOfCat:(catId)=>sbFetch(`budget_rollovers?cat_id=eq.${catId}&user_id=eq.${currentUser.id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
   getRolloversOfCat:(catId)=>sbFetch(`budget_rollovers?cat_id=eq.${catId}&user_id=eq.${currentUser.id}&select=id`),
+  getLoans:()=>sbFetch('budget_loans?order=month_key.asc'),
+  insertLoans:(rows)=>sbFetch('budget_loans',{method:'POST',body:JSON.stringify(rows.map(r=>({...r,user_id:currentUser.id})))}),
+  deleteLoanGroup:(g)=>sbFetch(`budget_loans?loan_group=eq.${g}&user_id=eq.${currentUser.id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
   getIncomes:()=>sbFetch(`incomes?user_id=eq.${currentUser.id}&order=start_month.asc`),
   insertIncome:(d)=>sbFetch('incomes',{method:'POST',body:JSON.stringify({...d,user_id:currentUser.id})}),
   updateIncome:(id,d)=>sbFetch(`incomes?id=eq.${id}`,{method:'PATCH',body:JSON.stringify(d)}),
@@ -351,7 +354,7 @@ const api={
 };
 
 let categories=[], months=[], currentMonthKey='', viewMonthKey='', expenses=[], currentTab='home', currentCatIdx=0, budgetTransfers=[], cards=[], rollovers=[], futureMonthKeys=[];
-let futureExpenses=[], recurringBase=[], projectedExpenses=[], futureOpen={}, monthIndex={}, allCards=[];
+let futureExpenses=[], recurringBase=[], projectedExpenses=[], futureOpen={}, monthIndex={}, allCards=[], loans=[];
 let subscription=null, userPlan='free';
 let splitGroups=[], pendingShares=[], acceptedShares=[], sharedOutMap={}, pendingSplitInvites=[], acceptedGroupIds=new Set(), friends=[];
 let myProfile=null, profilesById={};
@@ -536,6 +539,84 @@ function monthOverride(cat, monthKey){
   return (legado!=null&&!isNaN(parseFloat(legado)))?parseFloat(legado):null;
 }
 function semTeto(cat){ return !!(cat&&cat.no_limit); }
+function subcatFieldHtml(atual){
+  return `<div class="form-group" id="f-subcat-group" hidden>
+    <label class="form-label">Tipo <span class="lbl-opt">opcional</span></label>
+    <input type="hidden" id="f-subcat" value="${escapeHtml(atual||'')}"/>
+    <div class="sub-chips" id="f-subcat-chips"></div>
+  </div>`;
+}
+function syncSubcatField(){
+  const grp=document.getElementById('f-subcat-group'); if(!grp) return;
+  const hidden=document.getElementById('f-subcat');
+  const lista=subcatsOf(document.getElementById('f-catId')?.value);
+  if(!lista.length){ grp.hidden=true; if(hidden) hidden.value=''; return; }
+  if(hidden&&hidden.value&&!lista.includes(hidden.value)) hidden.value='';
+  grp.hidden=false;
+  const val=hidden?hidden.value:'';
+  document.getElementById('f-subcat-chips').innerHTML=lista.map(sc=>
+    `<button type="button" class="sub-chip${sc===val?' on':''}" data-sub="${escapeHtml(sc)}" onclick="pickSubcat(this.dataset.sub)">${escapeHtml(sc)}</button>`
+  ).join('');
+}
+function pickSubcat(nome){
+  const h=document.getElementById('f-subcat'); if(!h) return;
+  h.value=h.value===nome?'':nome;
+  vib(5); syncSubcatField();
+}
+function onExpenseCatChange(){ syncSubcatField(); }
+
+function localFieldHtml(e){
+  const tem=e&&e.lat!=null&&e.lng!=null;
+  return `<div class="form-group">
+    <label class="form-label">Onde foi <span class="lbl-opt">opcional</span></label>
+    <input type="hidden" id="f-lat" value="${tem?e.lat:''}"/>
+    <input type="hidden" id="f-lng" value="${tem?e.lng:''}"/>
+    <div class="pick-row" id="f-loc-row" role="button" tabindex="0" onclick="capturarLocal()">
+      <span class="pick-ico"><i class="fa-solid fa-location-dot" aria-hidden="true"></i></span>
+      <span class="pick-body"><span class="pick-name" id="f-loc-val">Salvar localização</span><span class="pick-sub" id="f-loc-sub">Toque para marcar onde você está</span></span>
+      <button type="button" class="loc-clear" id="f-loc-clear" onclick="event.stopPropagation();limparLocal()" aria-label="Remover localização" hidden><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+    </div>
+  </div>`;
+}
+function syncLocRow(){
+  const row=document.getElementById('f-loc-row'); if(!row) return;
+  const lat=document.getElementById('f-lat').value, lng=document.getElementById('f-lng').value;
+  const tem=lat!==''&&lng!=='';
+  row.classList.toggle('on',tem);
+  document.getElementById('f-loc-val').textContent=tem?'Localização salva':'Salvar localização';
+  document.getElementById('f-loc-sub').textContent=tem?`${lat}, ${lng} · toque para atualizar`:'Toque para marcar onde você está';
+  document.getElementById('f-loc-clear').hidden=!tem;
+}
+async function capturarLocal(){
+  const sub=document.getElementById('f-loc-sub'); if(!sub) return;
+  sub.textContent='Procurando o sinal…';
+  const pos=await pegarLocal();
+  if(!pos){ sub.textContent='Não consegui pegar a localização. Confira a permissão.'; return; }
+  document.getElementById('f-lat').value=pos.lat;
+  document.getElementById('f-lng').value=pos.lng;
+  vib(12); syncLocRow();
+}
+function limparLocal(){
+  document.getElementById('f-lat').value='';
+  document.getElementById('f-lng').value='';
+  vib(5); syncLocRow();
+}
+
+function subcatsOf(catId){
+  const c=categories.find(x=>x.id===catId);
+  return Array.isArray(c&&c.subcats)?c.subcats.filter(Boolean):[];
+}
+function mapsUrl(lat,lng){ return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`; }
+function pegarLocal(timeout=8000){
+  return new Promise(resolve=>{
+    if(!navigator.geolocation) return resolve(null);
+    navigator.geolocation.getCurrentPosition(
+      p=>resolve({lat:Math.round(p.coords.latitude*1e6)/1e6,lng:Math.round(p.coords.longitude*1e6)/1e6}),
+      ()=>resolve(null),
+      {enableHighAccuracy:false,timeout,maximumAge:120000}
+    );
+  });
+}
 function baseBudget(cat, monthKey){
   if(semTeto(cat)) return 0;
   const ov=monthOverride(cat,monthKey);
@@ -552,8 +633,28 @@ function rolloverAmount(catId, monthKey){
   return rollovers.filter(r=>r.cat_id===catId&&r.to_month===monthKey)
     .reduce((s,r)=>s+parseFloat(r.amount||0),0);
 }
+function loanAmount(catId, monthKey){
+  return loans.filter(l=>l.cat_id===catId&&l.month_key===monthKey)
+    .reduce((s,l)=>s+parseFloat(l.amount||0),0);
+}
+function loanGroupsOfCat(catId){
+  const por={};
+  loans.filter(l=>l.cat_id===catId).forEach(l=>{
+    (por[l.loan_group]=por[l.loan_group]||{group:l.loan_group,linhas:[]}).linhas.push(l);
+  });
+  return Object.values(por).map(g=>{
+    g.linhas.sort((a,b)=>a.month_key.localeCompare(b.month_key));
+    const credito=g.linhas.find(l=>parseFloat(l.amount)>0);
+    const devolucoes=g.linhas.filter(l=>parseFloat(l.amount)<0);
+    g.valor=credito?parseFloat(credito.amount):0;
+    g.mes=credito?credito.month_key:g.linhas[0].month_key;
+    g.parcelas=devolucoes.length;
+    g.aPagar=devolucoes.filter(l=>l.month_key>=currentMonthKey).reduce((s,l)=>s+Math.abs(parseFloat(l.amount)),0);
+    return g;
+  }).sort((a,b)=>b.mes.localeCompare(a.mes));
+}
 function effBudget(cat, monthKey){
-  return Math.round((baseBudget(cat,monthKey)+rolloverAmount(cat.id,monthKey))*100)/100;
+  return Math.round((baseBudget(cat,monthKey)+rolloverAmount(cat.id,monthKey)+loanAmount(cat.id,monthKey))*100)/100;
 }
 function hasOverride(cat, monthKey){ return monthOverride(cat,monthKey)!=null; }
 
@@ -748,6 +849,7 @@ async function init(){
     budgetTransfers=await api.getBudgetTransfers(currentMonthKey).catch(()=>[]);
     rollovers=await api.getRollovers(viewMonthKey).catch(()=>[]);
     await loadCards();
+    loans=await api.getLoans().catch(()=>[]);
     refreshFutureMonths();
     refreshMonthIndex();
     applyAutoRollover();
@@ -1330,7 +1432,10 @@ function render(){
   document.getElementById('current-month-label').textContent=monthLabel(viewMonthKey);
   document.querySelector('.month-pill')?.classList.toggle('off-month',!!currentMonthKey&&viewMonthKey!==currentMonthKey);
   const isNow=viewMonthKey===currentMonthKey;
-  document.getElementById('fab').style.display=(currentTab==='home'||currentTab==='categorias')?'flex':'none';
+  const mostraFab=currentTab==='home'||currentTab==='categorias';
+  document.getElementById('fab').style.display=mostraFab?'flex':'none';
+  const mini=document.getElementById('fab-quick');
+  if(mini) mini.style.display=(mostraFab&&currentTab==='home'&&categories.length)?'flex':'none';
   const el=document.getElementById('content');
   if(currentTab==='home') renderHome(el);
   else if(currentTab==='categorias') renderCategorias(el);
@@ -1425,7 +1530,7 @@ function buildSlide(cat, isNow){
       </div>`:'';
     return `<div class="expense-item">
     <div class="expense-left">
-      <div class="expense-name">${e.recurring?`<i class="fa-solid fa-arrows-rotate" style="font-size:10px;color:var(--accent-text);margin-right:5px" title="Recorrente" aria-hidden="true"></i>`:''}${e.installment_total?`<i class="fa-solid fa-credit-card" style="font-size:10px;color:var(--accent-text);margin-right:5px" title="Cartão" aria-hidden="true"></i>`:''}${escapeHtml(e.name)}${e.installment_total>1?`<span style="font-size:10px;color:var(--text3);font-weight:600;margin-left:5px">(${e.installment_no}/${e.installment_total})</span>`:''}${e.card_id&&cardLabel(e.card_id)?`<span class="exp-card-tag" onclick="event.stopPropagation();openCardInfo('${e.id}')" title="Ver dados do cartão">${escapeHtml(cardLabel(e.card_id))}<i class="fa-solid fa-circle-info" aria-hidden="true"></i></span>`:''}${e.previsto?`<span style="font-size:10px;color:var(--text3);border:1px dashed var(--border);border-radius:100px;padding:1px 7px;margin-left:5px;white-space:nowrap;display:inline-block">previsto</span>`:''}${byLabel}${e.image_url?`<span class="exp-receipt-dot" onclick="event.stopPropagation();viewReceipt('${e.id}')" title="Ver comprovante"><i class="fa-solid fa-image" aria-hidden="true"></i></span>`:''}</div>
+      <div class="expense-name">${e.recurring?`<i class="fa-solid fa-arrows-rotate" style="font-size:10px;color:var(--accent-text);margin-right:5px" title="Recorrente" aria-hidden="true"></i>`:''}${e.installment_total?`<i class="fa-solid fa-credit-card" style="font-size:10px;color:var(--accent-text);margin-right:5px" title="Cartão" aria-hidden="true"></i>`:''}${escapeHtml(e.name)}${e.installment_total>1?`<span style="font-size:10px;color:var(--text3);font-weight:600;margin-left:5px">(${e.installment_no}/${e.installment_total})</span>`:''}${e.card_id&&cardLabel(e.card_id)?`<span class="exp-card-tag" onclick="event.stopPropagation();openCardInfo('${e.id}')" title="Ver dados do cartão">${escapeHtml(cardLabel(e.card_id))}<i class="fa-solid fa-circle-info" aria-hidden="true"></i></span>`:''}${e.subcat?`<span class="exp-sub-tag">${escapeHtml(e.subcat)}</span>`:''}${e.lat!=null&&e.lng!=null?`<a class="exp-loc-dot" href="${mapsUrl(e.lat,e.lng)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Ver no mapa"><i class="fa-solid fa-location-dot" aria-hidden="true"></i></a>`:''}${e.previsto?`<span style="font-size:10px;color:var(--text3);border:1px dashed var(--border);border-radius:100px;padding:1px 7px;margin-left:5px;white-space:nowrap;display:inline-block">previsto</span>`:''}${byLabel}${e.image_url?`<span class="exp-receipt-dot" onclick="event.stopPropagation();viewReceipt('${e.id}')" title="Ver comprovante"><i class="fa-solid fa-image" aria-hidden="true"></i></span>`:''}</div>
       <div class="expense-date">${new Date(e.date+'T12:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'})}</div>
     </div>
     <div class="expense-right">
@@ -1437,6 +1542,17 @@ function buildSlide(cat, isNow){
 
   const transfersOut=isNow?budgetTransfers.filter(t=>t.from_cat_id===cat.id):[];
   const transfersIn=isNow?budgetTransfers.filter(t=>t.to_cat_id===cat.id):[];
+  const catLoans=loans.filter(l=>l.cat_id===cat.id&&l.month_key===viewMonthKey);
+  const loanHtml=catLoans.map(l=>{
+    const amt=parseFloat(l.amount||0), pos=amt>=0;
+    return `<div class="expense-item">
+      <div class="expense-left">
+        <div class="expense-name"><i class="fa-solid fa-hand-holding-dollar" style="font-size:10px;color:${pos?'var(--amber-text)':'var(--text2)'};margin-right:5px" aria-hidden="true"></i>${pos?'Emprestado do mês seguinte':'Devolução do empréstimo'}</div>
+        <div class="expense-date">${pos?'Sai do limite dos meses à frente':'Descontado do limite deste mês'}</div>
+      </div>
+      <div class="expense-right"><div class="expense-value" style="color:${pos?'var(--amber-text)':'var(--red)'}">${pos?'+':'-'}${brl(Math.abs(amt))}</div></div>
+    </div>`;
+  }).join('');
   const catRolls=rollovers.filter(r=>r.cat_id===cat.id&&r.to_month===viewMonthKey);
   const rolloverHtml=catRolls.map(r=>{
     const amt=parseFloat(r.amount||0), pos=amt>=0;
@@ -1485,6 +1601,7 @@ function buildSlide(cat, isNow){
       <div class="hero-top">
         <div class="hero-label">${heroLabel}${livre?'<span class="hero-free-tag">sem teto</span>':''}</div>
         <div style="display:flex;gap:6px">
+          ${isNow&&isOwned&&!livre?`<button class="hero-edit" onclick="openLoanMonth('${cat.id}')" title="Pegar emprestado do mês seguinte"><i class="fa-solid fa-hand-holding-dollar" aria-hidden="true"></i></button>`:''}
           ${isNow&&isOwned&&!livre&&categories.filter(c=>c.user_id===currentUser.id&&!semTeto(c)).length>1?`<button class="hero-edit" onclick="openTransferBudget('${cat.id}')" title="Transferir limite para outra categoria"><i class="fa-solid fa-right-left" aria-hidden="true"></i></button>`:''}
           ${isNow&&isOwned&&!livre?`<button class="hero-edit" onclick="openMonthOverride('${cat.id}')" title="Ajustar orçamento"><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>`:''}
         </div>
@@ -1503,7 +1620,7 @@ function buildSlide(cat, isNow){
       <span class="section-label" style="margin:0">Lançamentos${catExps.length?` · ${catExps.length}`:''}</span>
       <button class="act-log-btn" onclick="openActivityLog('${cat.id}')" title="Histórico de atividades" aria-label="Histórico de atividades"><i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i></button>
     </div>
-    ${(catExps.length||transferHtml||rolloverHtml)?`<div class="exp-list">${rolloverHtml}${transferHtml}${expHtml}</div>`:`<div class="exp-empty"><i class="fa-regular fa-receipt" aria-hidden="true"></i><span>Nenhum gasto ${isNow?'este mês':'neste período'}.</span></div>`}
+    ${(catExps.length||transferHtml||rolloverHtml||loanHtml)?`<div class="exp-list">${loanHtml}${rolloverHtml}${transferHtml}${expHtml}</div>`:`<div class="exp-empty"><i class="fa-regular fa-receipt" aria-hidden="true"></i><span>Nenhum gasto ${isNow?'este mês':'neste período'}.</span></div>`}
 
     ${isOwned?`<div class="cat-actions">
       <button class="ghost-btn" onclick="openShareCategory('${cat.id}')"><i class="fa-solid fa-user-plus" aria-hidden="true"></i> Compartilhar</button>
@@ -2232,7 +2349,8 @@ function openAddExpense(catId){
   const today=todayLocal();
   openModal(`<div class="modal-title">Novo Gasto</div>
     <div class="form-group"><label class="form-label">Categoria</label>
-      <select class="form-input" id="f-catId">${categories.filter(c=>c.user_id===currentUser.id||sharePerm(c.id)==='edit').map(c=>`<option value="${c.id}"${c.id===catId?' selected':''}>${escapeHtml(c.name)}</option>`).join('')}</select></div>
+      <select class="form-input" id="f-catId" onchange="onExpenseCatChange()">${categories.filter(c=>c.user_id===currentUser.id||sharePerm(c.id)==='edit').map(c=>`<option value="${c.id}"${c.id===catId?' selected':''}>${escapeHtml(c.name)}</option>`).join('')}</select></div>
+    ${subcatFieldHtml('')}
     <div class="form-group"><label class="form-label">Descrição</label>
       <div class="ac-wrap">
         <input class="form-input" id="f-name" placeholder="Ex: Gasolina Shell" autocomplete="off" oninput="acFilter(this.value)" onfocus="acFilter(this.value)" onblur="acBlur()"/>
@@ -2243,9 +2361,11 @@ function openAddExpense(catId){
     <div class="form-group"><label class="form-label">Data</label>
       <input class="form-input" id="f-date" type="date" value="${today}" onchange="onExpenseDateChange()"/></div>
     ${repeatFieldHtml()}
+    ${localFieldHtml(null)}
     ${receiptPickerHtml()}
     <button class="btn-primary" id="btn-save-exp" onclick="saveExpense(null)">Salvar</button>
     <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
+  syncSubcatField(); syncLocRow();
 }
 function repeatFieldHtml(mode='none',installmentTotal='',installmentNo=1,valueMode='compra',isEdit=false,cardId='',lockCard=false){
   const total=Math.max(1,parseInt(installmentTotal,10)||1);
@@ -2457,10 +2577,12 @@ function openEditExpense(expId){
     <div class="form-group"><label class="form-label">Data</label>
       <input class="form-input" id="f-date" type="date" value="${e.date}" onchange="onExpenseDateChange()"/></div>
     ${repeatFieldHtml((e.installment_total||e.card_id)?'installment':(e.recurring?'recurring':'none'),e.installment_total||'',e.installment_no||1,'parcela',true,e.card_id||'',cartaoTravado)}
+    ${localFieldHtml(e)}
     ${receiptPickerHtml(e.image_url||'')}
     <button class="btn-primary" id="btn-save-exp" onclick="saveExpense('${expId}')">Salvar</button>
     <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
   if(e.installment_total||e.card_id){ syncCardRow(); syncInstSummary(); updateValueFieldLabel(); }
+  syncSubcatField(); syncLocRow();
 }
 
 async function saveExpense(expId){
@@ -2494,7 +2616,10 @@ async function saveExpense(expId){
     let image_url=expId?(expenses.find(x=>x.id===expId)?.image_url||null):null;
     const newFile=document.getElementById('f-receipt')?.files?.[0];
     if(newFile){ btn.textContent='Enviando foto...'; try{ image_url=await getReceiptUrl(); }catch(upErr){ showToast(`Foto não enviada: ${upErr.message}`,'error'); } btn.textContent='Salvando...'; }
-    const payload={cat_id:catId,name,value,date:targetDate,recurring,image_url,installment_total,installment_no,installment_group,card_id};
+    const subcat=document.getElementById('f-subcat')?.value||null;
+    const latRaw=document.getElementById('f-lat')?.value, lngRaw=document.getElementById('f-lng')?.value;
+    const lat=latRaw?parseFloat(latRaw):null, lng=lngRaw?parseFloat(lngRaw):null;
+    const payload={cat_id:catId,name,value,date:targetDate,recurring,image_url,installment_total,installment_no,installment_group,card_id,subcat,lat,lng};
     if(expId) await api.updateExpense(expId,payload);
     else{
       let ultimoMk=targetMonthKey;
@@ -2528,6 +2653,10 @@ async function saveExpense(expId){
       showToast('Rode o SQL: ALTER TABLE expenses ADD COLUMN recurring boolean DEFAULT false','error');
     }else if(/installment/i.test(msg)){
       showToast('Rode o SQL: ALTER TABLE expenses ADD COLUMN installment_no integer, ADD COLUMN installment_total integer, ADD COLUMN installment_group text','error');
+    }else if(/subcat/i.test(msg)){
+      showToast('Rode o SQL: ALTER TABLE expenses ADD COLUMN subcat text','error');
+    }else if(/\blat\b|\blng\b/i.test(msg)){
+      showToast('Rode o SQL: ALTER TABLE expenses ADD COLUMN lat numeric, ADD COLUMN lng numeric','error');
     }else if(/not present in table|foreign key|violates/i.test(msg)){
       showToast('Não consegui abrir o mês de destino. Tente de novo.','error');
     }else{
@@ -2741,15 +2870,56 @@ function rolloverFieldsHtml(cat){
       :`Passa a valer a partir de <strong>${monthLabel(nextMonthKey(currentMonthKey))}</strong> &mdash; o mês atual não é mexido.`}
       Deixe os dois desmarcados para decidir mês a mês, na mão.</span></div>`;
 }
+function subcatEditorHtml(cat){
+  const list=Array.isArray(cat&&cat.subcats)?cat.subcats.filter(Boolean):[];
+  return `<div class="form-group">
+    <label class="form-label">Tipos dentro da categoria <span class="lbl-opt">opcional</span></label>
+    <input type="hidden" id="f-subcats" value="${escapeHtml(JSON.stringify(list))}"/>
+    <div class="sub-chips" id="f-subcats-chips"></div>
+    <div class="sub-add">
+      <input class="form-input" id="f-subcat-new" maxlength="24" placeholder="Ex: Delivery" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();addSubcat()}"/>
+      <button type="button" class="sub-add-btn" onclick="addSubcat()" aria-label="Adicionar tipo"><i class="fa-solid fa-plus" aria-hidden="true"></i></button>
+    </div>
+    <span class="field-hint">Separa o que está dentro da mesma categoria — em Comida, por exemplo: Preparos, Delivery, Restaurante. Some do lançamento se você não cadastrar nenhum.</span>
+  </div>`;
+}
+function subcatsDraft(){ try{ return JSON.parse(document.getElementById('f-subcats')?.value||'[]'); }catch{ return []; } }
+function renderSubcatsDraft(){
+  const list=subcatsDraft();
+  const box=document.getElementById('f-subcats-chips'); if(!box) return;
+  box.innerHTML=list.length
+    ? list.map((sc,i)=>`<span class="sub-chip on">${escapeHtml(sc)}<i class="fa-solid fa-xmark sub-x" onclick="removeSubcat(${i})" aria-label="Remover"></i></span>`).join('')
+    : '<span class="sub-empty">Nenhum tipo cadastrado.</span>';
+}
+function addSubcat(){
+  const inp=document.getElementById('f-subcat-new'); if(!inp) return;
+  const nome=(inp.value||'').trim();
+  if(!nome) return;
+  const list=subcatsDraft();
+  if(list.some(x=>x.toLowerCase()===nome.toLowerCase())){ showToast('Esse tipo já existe.','error'); return; }
+  if(list.length>=12){ showToast('No máximo 12 tipos por categoria.','error'); return; }
+  list.push(nome);
+  document.getElementById('f-subcats').value=JSON.stringify(list);
+  inp.value=''; vib(6); renderSubcatsDraft(); inp.focus();
+}
+function removeSubcat(i){
+  const list=subcatsDraft();
+  list.splice(i,1);
+  document.getElementById('f-subcats').value=JSON.stringify(list);
+  vib(5); renderSubcatsDraft();
+}
+
 function openAddCategory(){
   if(!isPro()&&categories.length>=CONFIG.FREE_MAX_CATEGORIES){ openPaywall('Crie categorias ilimitadas'); return; }
   openModal(`<div class="modal-title">Nova Categoria</div>
     <div class="form-group"><label class="form-label">Nome</label>
       <input class="form-input" id="f-cname" placeholder="Ex: Academia" autocomplete="off"/></div>
     ${budgetFieldsHtml(null)}
+    ${subcatEditorHtml(null)}
     ${rolloverFieldsHtml(null)}
     <button class="btn-primary" id="btn-save-cat" onclick="saveCategory(null)">Salvar</button>
     <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
+  renderSubcatsDraft();
 }
 
 function openEditCategory(catId){
@@ -2758,9 +2928,11 @@ function openEditCategory(catId){
     <div class="form-group"><label class="form-label">Nome</label>
       <input class="form-input" id="f-cname" value="${cat.name}" autocomplete="off"/></div>
     ${budgetFieldsHtml(cat)}
+    ${subcatEditorHtml(cat)}
     ${rolloverFieldsHtml(cat)}
     <button class="btn-primary" id="btn-save-cat" onclick="saveCategory('${catId}')">Salvar</button>
     <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
+  renderSubcatsDraft();
 }
 
 async function saveCategory(catId){
@@ -2785,13 +2957,18 @@ async function saveCategory(catId){
   if(!catId&&!isPro()&&categories.length>=CONFIG.FREE_MAX_CATEGORIES){ openPaywall('Limite de categorias atingido'); return; }
   const btn=document.getElementById('btn-save-cat'); btn.disabled=true; btn.textContent='Salvando...';
   try{
-    if(catId){ await api.updateCategory(catId,{name,budget,no_limit,rollover_positive,rollover_negative,rollover_from}); logActivity(catId,'cat_edit',name,budget); }
-    else{ const nid=uid(); await api.insertCategory({id:nid,name,budget,no_limit,position:categories.length,rollover_positive,rollover_negative,rollover_from}); logActivity(nid,'cat_create',name,budget); }
+    const subcats=subcatsDraft();
+    if(catId){ await api.updateCategory(catId,{name,budget,no_limit,rollover_positive,rollover_negative,rollover_from,subcats}); logActivity(catId,'cat_edit',name,budget); }
+    else{ const nid=uid(); await api.insertCategory({id:nid,name,budget,no_limit,position:categories.length,rollover_positive,rollover_negative,rollover_from,subcats}); logActivity(nid,'cat_create',name,budget); }
     categories=await api.getCategories();
     saveCache();
     vib(15);
     _closeModal(); render(); showToast('Categoria salva!','success');
-  }catch{ showToast('Erro ao salvar.','error'); btn.disabled=false; btn.textContent='Salvar'; }
+  }catch(err){
+    const msg=String(err?.message||'');
+    showToast(/subcats/i.test(msg)?'Rode o SQL: ALTER TABLE categories ADD COLUMN subcats jsonb DEFAULT \'[]\'::jsonb':'Erro ao salvar.','error');
+    btn.disabled=false; btn.textContent='Salvar';
+  }
 }
 
 function perguntarDesligarRollover(catId,name,budget,qtd){
@@ -2992,7 +3169,7 @@ function futureMonthData(monthKey){
   const livres=new Set(categories.filter(semTeto).map(c=>c.id));
   const comprometido=itens.filter(e=>!livres.has(e.cat_id)).reduce((s,e)=>s+parseFloat(e.value||0),0);
   const semOrcamento=itens.filter(e=>livres.has(e.cat_id)).reduce((s,e)=>s+parseFloat(e.value||0),0);
-  const orcamento=categories.reduce((s,c)=>s+baseBudget(c,monthKey),0);
+  const orcamento=categories.reduce((s,c)=>s+baseBudget(c,monthKey)+(semTeto(c)?0:loanAmount(c.id,monthKey)),0);
   return {key:monthKey,itens,comprometido,semOrcamento,orcamento,resta:Math.round((orcamento-comprometido)*100)/100};
 }
 function futurePlan(n=FUTURE_HORIZON){
@@ -3014,7 +3191,7 @@ function futureBodyHtml(m){
   if(orfaos.length) grupos.push({cat:null,itens:orfaos});
   return grupos.map(g=>{
     const total=g.itens.reduce((s,e)=>s+parseFloat(e.value||0),0);
-    const teto=g.cat&&!semTeto(g.cat)?baseBudget(g.cat,m.key):null;
+    const teto=g.cat&&!semTeto(g.cat)?baseBudget(g.cat,m.key)+loanAmount(g.cat.id,m.key):null;
     const sobra=teto!=null?Math.round((teto-total)*100)/100:null;
     return `<div class="fut-group">
       <div class="fut-group-head">
@@ -3101,6 +3278,64 @@ async function selectMonth(key){
   _closeModal();
   if(currentTab!=='home'&&currentTab!=='categorias'&&currentTab!=='historico'){ currentTab='home'; document.querySelectorAll('.nav-item').forEach(t=>t.classList.toggle('active',t.dataset.tab==='home')); }
   await goToMonth(key);
+}
+
+function catAlvoRapido(){
+  const cat=categories[currentCatIdx]||categories[0];
+  if(!cat) return null;
+  if(cat.user_id!==currentUser.id&&sharePerm(cat.id)!=='edit') return null;
+  return cat;
+}
+function nomeAgora(){
+  const d=new Date();
+  const p=n=>String(n).padStart(2,'0');
+  return `${p(d.getDate())}/${p(d.getMonth()+1)} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+async function localSilencioso(){
+  try{
+    if(!navigator.permissions||!navigator.geolocation) return null;
+    const st=await navigator.permissions.query({name:'geolocation'});
+    if(st.state!=='granted') return null;
+    return await pegarLocal(4000);
+  }catch{ return null; }
+}
+function openQuickValue(){
+  const cat=catAlvoRapido();
+  if(!cat){ showToast(categories.length?'Esta categoria é somente leitura.':'Crie uma categoria primeiro.','error'); return; }
+  vib(8);
+  openSheet(`<div class="modal-title">Lançamento rápido</div>
+    <p class="modal-note">Vai para <strong>${escapeHtml(cat.name)}</strong>, com a hora no lugar da descrição. Dá para editar depois.</p>
+    <div class="quick-val-wrap">
+      <span class="quick-val-cur">R$</span>
+      <input class="quick-val" id="f-quick-valor" type="text" inputmode="decimal" placeholder="0,00" autocomplete="off"
+             oninput="moneyKey(this)" onkeydown="if(event.key==='Enter'){event.preventDefault();saveQuickValue('${cat.id}')}"/>
+    </div>
+    <div class="quick-hint" id="f-quick-hint"><i class="fa-regular fa-clock" aria-hidden="true"></i> ${nomeAgora()} · ${monthLabel(viewMonthKey)}</div>
+    <button class="btn-primary" id="btn-quick" onclick="saveQuickValue('${cat.id}')">Salvar</button>
+    <button class="btn-secondary" onclick="closeSheet()">Cancelar</button>`);
+  setTimeout(()=>document.getElementById('f-quick-valor')?.focus(),120);
+}
+async function saveQuickValue(catId){
+  const valor=parseNum(document.getElementById('f-quick-valor')?.value||'');
+  if(isNaN(valor)||valor<=0){ showToast('Informe um valor.','error'); return; }
+  const hoje=todayLocal();
+  if(!isPro()&&expenses.filter(e=>!e.previsto&&e.date===hoje).length>=CONFIG.FREE_DAILY_LAUNCHES){ closeSheet(); openPaywall('Limite diário de lançamentos atingido'); return; }
+  const btn=document.getElementById('btn-quick'); btn.disabled=true; btn.textContent='Salvando...';
+  const nome=nomeAgora();
+  try{
+    const pos=await localSilencioso();
+    await ensureMonthsExist(viewMonthKey,viewMonthKey);
+    await api.insertExpense({id:uid(),cat_id:catId,month_key:viewMonthKey,name:nome,value:valor,date:hoje,recurring:false,lat:pos?pos.lat:null,lng:pos?pos.lng:null});
+    logActivity(catId,'create',nome,valor);
+    expenses=await api.getExpenses(viewMonthKey);
+    refreshMonthIndex(); saveCache(); vib(15);
+    closeSheet(); render();
+    showToast(pos?`${brl(valor)} lançado com a localização.`:`${brl(valor)} lançado.`,'success');
+  }catch(err){
+    const msg=String(err?.message||'');
+    showToast(/\blat\b|\blng\b/i.test(msg)?'Rode o SQL: ALTER TABLE expenses ADD COLUMN lat numeric, ADD COLUMN lng numeric':`Erro ao salvar: ${msg.slice(0,80)}`,'error');
+    btn.disabled=false; btn.textContent='Salvar';
+  }
 }
 
 function onFab(){
@@ -3238,6 +3473,118 @@ async function revertMonthOverride(catId){
     saveCache(); vib(10);
     _closeModal(); render(); showToast('Voltou ao orçamento padrão.','success');
   }catch{ showToast('Erro ao reverter.','error'); }
+}
+
+const LOAN_MAX_PARCELAS=6;
+function loanParcelas(){ const el=document.getElementById('f-loan-n'); return el?Math.max(1,Math.min(LOAN_MAX_PARCELAS,parseInt(el.value,10)||1)):1; }
+function stepLoan(d){
+  const el=document.getElementById('f-loan-n'); if(!el) return;
+  const antes=loanParcelas();
+  el.value=Math.max(1,Math.min(LOAN_MAX_PARCELAS,antes+d));
+  if(loanParcelas()!==antes) vib(6);
+  const disp=document.getElementById('f-loan-n-val'); if(disp) disp.textContent=loanParcelas();
+  syncLoanResumo();
+}
+function loanPlano(valor,n){
+  const cada=Math.floor((valor/n)*100)/100;
+  const parcelas=[];
+  let k=currentMonthKey, somado=0;
+  for(let i=1;i<=n;i++){
+    k=nextMonthKey(k);
+    const v=i===n?Math.round((valor-somado)*100)/100:cada;
+    somado=Math.round((somado+v)*100)/100;
+    parcelas.push({month_key:k,valor:v});
+  }
+  return parcelas;
+}
+function syncLoanResumo(){
+  const box=document.getElementById('f-loan-resumo'); if(!box) return;
+  const valor=parseNum(document.getElementById('f-loan-valor')?.value||'');
+  const n=loanParcelas();
+  if(isNaN(valor)||valor<=0){ box.innerHTML='<div class="inst-sum-txt">Informe quanto você quer adiantar.</div>'; return; }
+  const plano=loanPlano(valor,n);
+  const meses=plano.map(p=>monthLabel(p.month_key)).join(', ');
+  box.innerHTML=`<div class="inst-sum-txt"><strong>${monthLabel(currentMonthKey)}</strong> ganha <strong>${brl(valor)}</strong> de limite agora.</div>
+    <div class="inst-sum-money">${n===1?`${meses} devolve ${brl(plano[0].valor)}`:`${n}× de ${brl(plano[0].valor)} — ${meses}`}</div>`;
+}
+function openLoanMonth(catId){
+  const cat=categories.find(c=>c.id===catId); if(!cat) return;
+  if(semTeto(cat)){ showToast('Categoria sem teto não tem limite para adiantar.','error'); return; }
+  const ativos=loanGroupsOfCat(catId);
+  const jaNesteMes=ativos.some(g=>g.mes===currentMonthKey);
+  openModal(`<div class="modal-title">Adiantar limite · ${escapeHtml(cat.name)}</div>
+    <p class="modal-note">Tira um pedaço do limite dos meses à frente e põe em <strong>${monthLabel(currentMonthKey)}</strong>. O orçamento padrão da categoria não muda, e dá para desfazer quando quiser.</p>
+    ${jaNesteMes?`<div class="fut-note" style="margin:0 0 14px"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> Já existe um adiantamento neste mês para esta categoria. Desfaça o atual antes de criar outro.</div>
+    <button class="btn-secondary" onclick="openLoansList('${catId}')"><i class="fa-solid fa-list" aria-hidden="true"></i> Ver adiantamentos</button>
+    <button class="btn-secondary" onclick="_closeModal()">Fechar</button>`
+    :`<div class="form-group"><label class="form-label">Quanto adiantar (R$)</label>
+      <input class="form-input" id="f-loan-valor" type="text" inputmode="decimal" placeholder="0,00" oninput="moneyKey(this);syncLoanResumo()"/></div>
+    <div class="form-group"><label class="form-label">Devolver em quantos meses</label>
+      <input type="hidden" id="f-loan-n" value="1"/>
+      <div class="stepper" style="max-width:220px">
+        <div class="stepper-ctl">
+          <button type="button" class="stepper-btn" onclick="stepLoan(-1)" aria-label="Menos meses"><i class="fa-solid fa-minus" aria-hidden="true"></i></button>
+          <span class="stepper-val" id="f-loan-n-val">1</span>
+          <button type="button" class="stepper-btn" onclick="stepLoan(1)" aria-label="Mais meses"><i class="fa-solid fa-plus" aria-hidden="true"></i></button>
+        </div>
+      </div>
+      <span class="field-hint">Em 1 mês, o mês seguinte devolve tudo. Em mais de um, a devolução é dividida.</span></div>
+    <div class="inst-sum" id="f-loan-resumo"></div>
+    <button class="btn-primary" id="btn-loan" onclick="saveLoanMonth('${catId}')">Adiantar</button>
+    ${ativos.length?`<button class="btn-secondary" onclick="openLoansList('${catId}')"><i class="fa-solid fa-list" aria-hidden="true"></i> Ver adiantamentos (${ativos.length})</button>`:''}
+    <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`}`);
+  syncLoanResumo();
+}
+async function saveLoanMonth(catId){
+  const valor=parseNum(document.getElementById('f-loan-valor').value);
+  const n=loanParcelas();
+  if(isNaN(valor)||valor<=0){ showToast('Informe um valor válido.','error'); return; }
+  const cat=categories.find(c=>c.id===catId);
+  const plano=loanPlano(valor,n);
+  const menorTeto=Math.min(...plano.map(p=>baseBudget(cat,p.month_key)+loanAmount(catId,p.month_key)));
+  if(plano.some(p=>p.valor>baseBudget(cat,p.month_key)+loanAmount(catId,p.month_key))){
+    showToast(`A parcela não cabe: o limite de um dos meses é ${brl(menorTeto)}. Divida em mais meses.`,'error'); return;
+  }
+  const btn=document.getElementById('btn-loan'); btn.disabled=true; btn.textContent='Adiantando...';
+  const grupo=uid();
+  try{
+    const rows=[{cat_id:catId,loan_group:grupo,month_key:currentMonthKey,amount:valor}]
+      .concat(plano.map(p=>({cat_id:catId,loan_group:grupo,month_key:p.month_key,amount:-p.valor})));
+    await api.insertLoans(rows);
+    loans=await api.getLoans().catch(()=>loans);
+    saveCache(); vib(15);
+    _closeModal(); render();
+    showToast(`${brl(valor)} adiantados para ${monthLabel(currentMonthKey)}.`,'success');
+  }catch(err){
+    const msg=String(err?.message||'');
+    showToast(/budget_loans/i.test(msg)?'Falta criar a tabela budget_loans no Supabase.':`Erro: ${msg.slice(0,80)}`,'error');
+    btn.disabled=false; btn.textContent='Adiantar';
+  }
+}
+function openLoansList(catId){
+  const cat=categories.find(c=>c.id===catId);
+  const grupos=loanGroupsOfCat(catId);
+  openModal(`<div class="modal-title">Adiantamentos · ${escapeHtml(cat?cat.name:'')}</div>
+    ${grupos.length?grupos.map(g=>`<div class="fut-item" style="padding:13px 14px">
+      <div class="fut-group-head" style="margin-bottom:6px">
+        <span class="fut-group-name">${brl(g.valor)} em ${monthLabel(g.mes)}</span>
+        <span class="fut-group-num">${g.parcelas}× <em>de devolução</em></span>
+      </div>
+      <div class="fut-line"><span class="fut-line-name">Ainda a devolver</span><span class="fut-line-val ${g.aPagar>0?'neg':'pos'}">${brl(g.aPagar)}</span></div>
+      <button class="fut-open" onclick="reverterLoan('${g.group}','${catId}')"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Desfazer este adiantamento</button>
+    </div>`).join('')
+    :'<div class="fut-empty">Nenhum adiantamento nesta categoria.</div>'}
+    <button class="btn-secondary" style="margin-top:14px" onclick="openLoanMonth('${catId}')">Voltar</button>`);
+}
+async function reverterLoan(grupo,catId){
+  if(!confirm('Desfazer este adiantamento? O limite volta ao normal em todos os meses envolvidos.')) return;
+  try{
+    await api.deleteLoanGroup(grupo);
+    loans=loans.filter(l=>l.loan_group!==grupo);
+    saveCache(); vib(12);
+    _closeModal(); render();
+    showToast('Adiantamento desfeito.','success');
+  }catch{ showToast('Erro ao desfazer.','error'); }
 }
 
 function transferAvailable(catId){

@@ -3,55 +3,37 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover"/>
-<meta name="theme-color" content="#0E1512"/>
-<title>Gasto Certo — Sem conexão</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"/>
-<link href="https://fonts.googleapis.com/css2?family=Sora:wght@700;800&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet"/>
+<meta name="theme-color" content="#0F0E17"/>
+<title>GastoPensado — Sem conexão</title>
 <style>
+:root{--bg:#0F0E17;--text:#EEEAF7;--text2:#A7A1B8;--text3:#6F6982;--accent:#8B7BFF;--accent-soft:rgba(139,123,255,.14);--accent-line:rgba(139,123,255,.32);--on-accent:#FFFFFF;--grad:linear-gradient(135deg,#8474FF 0%,#5E4BEA 100%)}
 *{box-sizing:border-box;margin:0;padding:0}
-body{
-  background:#0E1512;color:#EAF0EC;
-  font-family:'DM Sans',sans-serif;font-size:15px;
-  min-height:100dvh;min-height:-webkit-fill-available;
-  display:flex;flex-direction:column;align-items:center;justify-content:center;
-  padding:32px 24px;text-align:center;
-}
+body{background:var(--bg);color:var(--text);font-family:'DM Sans',system-ui,-apple-system,sans-serif;font-size:15px;min-height:100dvh;min-height:-webkit-fill-available;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 24px;text-align:center}
 .logo{margin-bottom:32px}
 .logo svg{display:block;margin:0 auto}
-.brand{font-family:'Sora',sans-serif;font-size:24px;font-weight:800;margin-top:12px;letter-spacing:-.02em}
-.brand span{color:#27C892}
-.icon-wrap{
-  width:72px;height:72px;border-radius:50%;
-  background:rgba(39,200,146,.1);border:1px solid rgba(39,200,146,.25);
-  display:flex;align-items:center;justify-content:center;
-  margin:0 auto 24px;font-size:28px;
-}
-h1{font-family:'Sora',sans-serif;font-size:22px;font-weight:700;margin-bottom:10px;letter-spacing:-.02em}
-p{color:#98A89E;font-size:14px;line-height:1.6;max-width:300px;margin:0 auto 32px}
-.retry{
-  background:linear-gradient(135deg,#2FD79D,#1FB07F);
-  color:#04140D;border:none;border-radius:14px;
-  padding:14px 28px;font:700 15px 'DM Sans',sans-serif;
-  cursor:pointer;width:100%;max-width:300px;
-  transition:transform .12s,filter .15s;
-}
+.lg-b{fill:var(--accent)}
+.lg-p{fill:none;stroke:var(--on-accent);stroke-width:11;stroke-linecap:round}
+.brand{font-family:'Bricolage Grotesque',system-ui,sans-serif;font-size:26px;font-weight:800;margin-top:12px;letter-spacing:-.03em}
+.brand span{color:var(--accent)}
+.icon-wrap{width:72px;height:72px;border-radius:50%;background:var(--accent-soft);border:1px solid var(--accent-line);display:flex;align-items:center;justify-content:center;margin:0 auto 24px}
+.icon-wrap svg{width:30px;height:30px;stroke:var(--accent);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+h1{font-family:'Bricolage Grotesque',system-ui,sans-serif;font-size:23px;font-weight:700;margin-bottom:10px;letter-spacing:-.02em}
+p{color:var(--text2);font-size:14px;line-height:1.6;max-width:300px;margin:0 auto 32px}
+.retry{background:var(--grad);color:var(--on-accent);border:none;border-radius:14px;padding:14px 28px;font:700 15px 'DM Sans',system-ui,sans-serif;cursor:pointer;width:100%;max-width:300px;transition:transform .12s,filter .15s}
 .retry:active{transform:scale(.97);filter:brightness(.95)}
-.hint{margin-top:20px;font-size:12px;color:#667068}
+.hint{margin-top:20px;font-size:12px;color:var(--text3);max-width:300px}
 </style>
 </head>
 <body>
 <div class="logo">
-  <svg width="48" height="48" viewBox="0 0 120 120">
-    <circle cx="60" cy="60" r="44" fill="none" stroke="#27C892" stroke-width="10"/>
-    <path d="M42 62 L55 75 L80 46" fill="none" stroke="#27C892" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
-  </svg>
-  <div class="brand">Gasto<span>Certo</span></div>
+  <svg class="mk" width="52" height="52" viewBox="0 0 120 120" aria-hidden="true"><circle class="lg-b" cx="66" cy="50" r="44"/><circle class="lg-b" cx="25" cy="99" r="10"/><circle class="lg-b" cx="10" cy="113" r="6"/><path class="lg-p" d="M53 30V80"/><circle class="lg-p" cx="68" cy="46" r="15"/></svg>
+  <div class="brand">Gasto<span>Pensado</span></div>
 </div>
-<div class="icon-wrap">📡</div>
+<div class="icon-wrap"><svg viewBox="0 0 24 24"><path d="M2 2l20 20"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><path d="M5 12.9a10 10 0 0 1 5.2-2.8"/><path d="M19 12.9a10 10 0 0 0-2.3-1.7"/><path d="M1.4 9a15 15 0 0 1 4.2-2.7"/><path d="M22.6 9a15 15 0 0 0-11.3-3.9"/><path d="M12 20h.01"/></svg></div>
 <h1>Você está offline</h1>
-<p>O GastoCerto precisa de conexão com a internet para acessar seus dados com segurança. Conecte-se ao Wi-Fi ou aos dados móveis e tente novamente.</p>
+<p>O GastoPensado precisa de internet para acessar seus dados com segurança. Conecte-se ao Wi-Fi ou aos dados móveis e tente de novo.</p>
 <button class="retry" onclick="window.location.replace('./')">Tentar novamente</button>
 <script>window.addEventListener('online',()=>window.location.replace('./'));</script>
-<div class="hint">Seus dados ficam salvos no servidor e estarão disponíveis assim que a conexão voltar.</div>
+<div class="hint">Seus dados ficam salvos no servidor e voltam assim que a conexão voltar.</div>
 </body>
 </html>

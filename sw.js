@@ -1,5 +1,5 @@
-const CACHE = 'gastocerto-v5.19-transferir-futuro';
-const SHELL = ['./', './index.html', './offline.html', './style.css?v=5.19', './app.js?v=5.19', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
+const CACHE = 'gastopensado-v6.0';
+const SHELL = ['./', './index.html', './offline.html', './style.css?v=6.0', './app.js?v=6.0', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -19,7 +19,7 @@ self.addEventListener('message', e => {
 self.addEventListener('push', e => {
   let data = {};
   try { data = e.data ? e.data.json() : {}; } catch { data = { body: e.data && e.data.text() }; }
-  e.waitUntil(self.registration.showNotification(data.title || 'GastoCerto', {
+  e.waitUntil(self.registration.showNotification(data.title || 'GastoPensado', {
     body: data.body || 'Você tem uma nova atividade.',
     icon: './icon-192.png', badge: './icon-192.png', tag: data.tag || 'gc', data: data.url || './'
   }));

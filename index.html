@@ -5,8 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
-<meta name="theme-color" content="#0E1512"/>
-<title>Gasto Certo</title>
+<meta name="theme-color" content="#F5F3EF" media="(prefers-color-scheme: light)"/>
+<meta name="theme-color" content="#0F0E17" media="(prefers-color-scheme: dark)"/>
+<meta name="application-name" content="GastoPensado"/>
+<meta name="apple-mobile-web-app-title" content="GastoPensado"/>
+<title>GastoPensado</title>
 <link rel="manifest" href="manifest.webmanifest"/>
 <link rel="apple-touch-icon" href="apple-touch-icon.png"/>
 <link rel="icon" type="image/png" href="icon-192.png"/>
@@ -28,20 +31,16 @@ if(location.hash.indexOf('#add')===0&&document.documentElement.classList.contain
 })();
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
-<link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=DM+Sans:opsz,wght@9..40,400..700&display=swap" rel="stylesheet"/>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css"/>
-<link rel="stylesheet" href="style.css?v=5.19"/>
+<link rel="stylesheet" href="style.css?v=6.0"/>
 </head>
 <body>
 
-<!-- PIN SCREEN -->
 <div id="pin-screen" style="display:none">
-  <svg class="pin-logo" width="72" height="72" viewBox="0 0 120 120">
-    <rect width="120" height="120" rx="28" fill="#1a1a1a"/>
-    <circle cx="60" cy="60" r="34" fill="none" stroke="#27C892" stroke-width="7"/>
-    <path d="M46 61 L56 71 L76 49" fill="none" stroke="#27C892" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
-  </svg>
-  <div class="pin-title">Gasto<span>Certo</span></div>
+  <svg class="pin-logo" width="72" height="72" viewBox="0 0 120 120" aria-hidden="true"><circle class="lg-b" cx="66" cy="50" r="44"/><circle class="lg-b" cx="25" cy="99" r="10"/><circle class="lg-b" cx="10" cy="113" r="6"/><path class="lg-p" d="M53 30V80"/><circle class="lg-p" cx="68" cy="46" r="15"/></svg>
+  <div class="pin-title">Gasto<span>Pensado</span></div>
   <div class="pin-subtitle">Digite seu PIN para entrar</div>
   <div class="pin-dots">
     <div class="pin-dot" id="d0"></div>
@@ -66,22 +65,20 @@ if(location.hash.indexOf('#add')===0&&document.documentElement.classList.contain
   <div class="pin-error-msg" id="pin-error"></div>
 </div>
 
-<!-- QUICK -->
 <div id="quick-splash">
-  <svg class="logo-mark" width="52" height="52" viewBox="0 0 120 120"><circle cx="60" cy="60" r="44" fill="none" stroke="#27C892" stroke-width="10"/><path d="M42 62 L55 75 L80 46" fill="none" stroke="#27C892" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  <svg class="logo-mark" width="56" height="56" viewBox="0 0 120 120" aria-hidden="true"><circle class="lg-b" cx="66" cy="50" r="44"/><circle class="lg-b" cx="25" cy="99" r="10"/><circle class="lg-b" cx="10" cy="113" r="6"/><path class="lg-p" d="M53 30V80"/><circle class="lg-p" cx="68" cy="46" r="15"/></svg>
   <div class="quick-splash-title">Lançamento rápido</div>
   <div class="spinner"></div>
 </div>
 
-<!-- AUTH -->
 <div id="auth-screen">
   <div class="auth-card">
     <div class="quick-auth-note" id="quick-auth-note" hidden><i class="fa-solid fa-bolt" aria-hidden="true"></i> <span>Entre na sua conta para o lançamento rápido funcionar. Depois é só tocar no atalho de novo.</span></div>
     <div class="auth-brand">
-      <svg class="logo-mark" width="34" height="34" viewBox="0 0 120 120"><circle cx="60" cy="60" r="44" fill="none" stroke="#27C892" stroke-width="10"/><path d="M42 62 L55 75 L80 46" fill="none" stroke="#27C892" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      <div class="auth-title">Gasto<span>Certo</span></div>
+      <svg class="logo-mark" width="38" height="38" viewBox="0 0 120 120" aria-hidden="true"><circle class="lg-b" cx="66" cy="50" r="44"/><circle class="lg-b" cx="25" cy="99" r="10"/><circle class="lg-b" cx="10" cy="113" r="6"/><path class="lg-p" d="M53 30V80"/><circle class="lg-p" cx="68" cy="46" r="15"/></svg>
+      <div class="auth-title">Gasto<span>Pensado</span></div>
     </div>
-    <div class="auth-copy" id="auth-copy">Entre para acessar seus gastos com segurança.</div>
+    <div class="auth-copy" id="auth-copy">Gasto bom é gasto pensado. Entre para ver quanto ainda cabe no seu mês.</div>
     <div class="auth-tabs">
       <button class="auth-tab active" id="auth-login-tab" onclick="setAuthMode('login')">Entrar</button>
       <button class="auth-tab" id="auth-signup-tab" onclick="setAuthMode('signup')">Criar conta</button>
@@ -97,16 +94,12 @@ if(location.hash.indexOf('#add')===0&&document.documentElement.classList.contain
   </div>
 </div>
 
-<!-- APP -->
 <div id="app" style="display:none">
   <div class="header">
     <div class="header-row">
       <div class="title-wrap">
-        <svg class="logo-mark" width="26" height="26" viewBox="0 0 120 120">
-          <circle cx="60" cy="60" r="44" fill="none" stroke="#27C892" stroke-width="10"/>
-          <path d="M42 62 L55 75 L80 46" fill="none" stroke="#27C892" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-        <div class="app-title">Gasto<span>Certo</span></div>
+        <svg class="logo-mark" width="28" height="28" viewBox="0 0 120 120" aria-hidden="true"><circle class="lg-b" cx="66" cy="50" r="44"/><circle class="lg-b" cx="25" cy="99" r="10"/><circle class="lg-b" cx="10" cy="113" r="6"/><path class="lg-p" d="M53 30V80"/><circle class="lg-p" cx="68" cy="46" r="15"/></svg>
+        <div class="app-title">Gasto<span>Pensado</span></div>
       </div>
       <div class="header-right">
         <div class="month-pill" onclick="openMonthPicker()">
@@ -121,7 +114,7 @@ if(location.hash.indexOf('#add')===0&&document.documentElement.classList.contain
   <div class="content" id="content" style="flex:1;overflow-y:auto">
     <div class="loading"><div class="spinner"></div>Carregando...</div>
   </div>
-  <button class="fab-quick" id="fab-quick" onclick="openQuickValue()" style="display:none" aria-label="Lançamento rápido"><i class="fa-solid fa-bolt" aria-hidden="true"></i></button>
+  <button class="fab-quick" id="fab-quick" onclick="openQuickValue()" style="display:none" aria-label="Lançamento rápido" title="Lançamento rápido"><i class="fa-solid fa-bolt" aria-hidden="true"></i></button>
   <button class="fab" id="fab" onclick="onFab()" style="display:none" aria-label="Adicionar"><i class="fa-solid fa-plus" aria-hidden="true"></i></button>
   <nav class="bottom-nav" id="bottom-nav">
     <button class="nav-item active" data-tab="home" onclick="switchTab('home')"><span class="nav-ico"><i class="fa-solid fa-house" aria-hidden="true"></i></span><span class="nav-lbl">Início</span></button>
@@ -141,6 +134,6 @@ if(location.hash.indexOf('#add')===0&&document.documentElement.classList.contain
   </div>
 </div>
 
-<script src="app.js?v=5.19"></script>
+<script src="app.js?v=6.0"></script>
 </body>
 </html>

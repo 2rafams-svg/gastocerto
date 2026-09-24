@@ -1,23 +1,66 @@
-# GastoCerto — documento do projeto
+# GastoPensado — documento do projeto
 
 Referência única do projeto: o que ele é, como está montado, o que está no ar, o que foi
 abandonado, as regras que toda alteração precisa seguir, e o passo a passo para migrar
 tudo para outra conta.
 
-Versão do app na data deste documento: **5.19** · Última atualização: **22/09/2026**
+Versão do app na data deste documento: **6.0** · Última atualização: **24/09/2026**
+
+> Até a v5.19 o app se chamava **GastoCerto**. A v6 trocou o nome e a identidade inteira —
+> ver [seção 1.1](#11-identidade-v6).
 
 ---
 
 ## 1. O que é
 
 PWA de controle de gastos por categoria, em português, focado em celular (iPhone em
-especial). Cada categoria tem um teto mensal e o app existe para você respeitar esse teto.
+especial). Cada categoria tem um teto mensal e o app existe para você respeitar esse teto —
+e, desde a v6, para dizer **quanto ainda dá para gastar por dia** até o fim do mês.
 Tem ainda um módulo de dividir contas com amigos, separado do controle pessoal.
 
 **Não é** ferramenta de planejamento futuro no sentido de projetar receita e saldo em
 conta — isso foi tentado e removido, ver [seção 8](#8-o-que-foi-abandonado). O que existe
 desde a v5.9 é uma leitura do que **já está comprometido** para frente, derivada só do que
 está lançado: [seção 5.1](#51-próximos-meses-v59).
+
+### 1.1 Identidade (v6)
+
+**Nome**: GastoPensado. Slogan: *Gasto bom é gasto pensado.*
+
+**Logo**: um "p" dentro de um balão de pensamento, com o rastro de bolinhas. Em SVG inline
+com duas classes — `.lg-b` (balão, `fill:var(--accent)`) e `.lg-p` (letra,
+`stroke:var(--on-accent)`) — então **segue o tema sozinho** e não tem cor literal. Os PNGs
+(`icon-192`, `icon-512`, `icon-512-maskable`, `apple-touch-icon`) foram gerados com o
+mesmo desenho sobre o gradiente violeta; o maskable usa 52% da área para caber na zona
+segura.
+
+**Cor de marca ≠ cor de dinheiro.** Esta é a regra que mais importa na paleta nova:
+
+| Token | Para quê |
+|---|---|
+| `--accent*` | **A marca** — violeta. Botões, FAB, chip ativo, nav ativa, foco, links |
+| `--pos*` | **Dinheiro positivo** — verde. Sobra, "cabe no mês", economizou, saldo a favor |
+| `--red*` · `--amber*` | Estouro e alerta, como antes |
+| `--spark*` | Coral de destaque. Hoje só no raio do lançamento rápido |
+| `--cat-1`…`--cat-8` e `-soft` | Cor de cada categoria (ver abaixo) |
+
+Até a v5 a marca era verde e "positivo" era a mesma cor. Na v6 são duas: **nunca use
+`--accent` para sinalizar sobra ou saldo positivo** — use `--pos-text`.
+
+**Cor da categoria** não é guardada: `catTone(cat)` faz um hash do `id` e escolhe um dos 8
+tons. Estável, e reordenar não muda a cor.
+
+**Ícone da categoria**: `catIcon(cat)` usa `categories.icon` se existir; senão
+`iconePalpite(nome)` adivinha pelo nome (Mercado → carrinho, Pet → pata, Rolê → taças,
+Combustível → bomba). Por isso as categorias antigas já nasceram com ícone, sem SQL.
+
+**O que NÃO foi renomeado, de propósito:**
+
+| | Por quê |
+|---|---|
+| Repositório e URL (`/gastocerto/`) | Mudar a URL quebra o PWA instalado e os atalhos do iPhone. Fica para uma migração planejada |
+| Chaves `gc-*` do `localStorage` | Renomear desloga todo mundo e perde tema e cache. `gc-` é só um prefixo interno |
+| Nome do cache do SW | Esse **mudou** (`gastopensado-v6.0`) — o `activate` apaga os `gastocerto-*` antigos sozinho |
 
 ### Stack
 
@@ -30,7 +73,7 @@ está lançado: [seção 5.1](#51-próximos-meses-v59).
 | Repositório | `2rafams-svg/gastocerto` |
 | URL | `https://2rafams-svg.github.io/gastocerto/` |
 | Ícones | Font Awesome 6.7.2 por CDN |
-| Fontes | Sora (títulos) + DM Sans (corpo), por Google Fonts |
+| Fontes | Bricolage Grotesque (títulos e números grandes) + DM Sans (corpo), por Google Fonts |
 
 Abrir o `index.html` num servidor estático qualquer já roda o app. Para desenvolver:
 
@@ -110,6 +153,10 @@ completo ou algo que será reusado.
 - A altura da viewport é **medida por JavaScript** (`fitViewport()`), não por `100vh`. Ver
   [seção 9.1](#91-a-altura-da-tela-no-pwa-do-iphone).
 - Toda cor sai de custom property. Nada de cor literal fora do `:root`.
+- **Marca é `--accent`, dinheiro positivo é `--pos`.** Nunca troque um pelo outro — ver
+  [seção 1.1](#11-identidade-v6).
+- Valor em dinheiro na tela leva a classe **`money`**: é ela que o modo discreto embaça.
+- Confirmação é sempre `confirmar()` ou `perguntar()`, **nunca `confirm()` nativo**.
 - Todo ícone é Font Awesome. **Emoji como ícone é proibido.**
 
 ### 2.6 Verificação
@@ -142,6 +189,7 @@ O centro do app. Uma categoria é um teto mensal com nome.
 | `rollover_from` | text | Mês a partir do qual o acúmulo vale (`YYYY-MM`) |
 | `no_limit` | bool | **Sem teto**: só acompanha gasto, sem orçamento |
 | `subcats` | jsonb | `["Preparos","Delivery"]` — tipos dentro da categoria. Vazio esconde o campo no lançamento |
+| `icon` | text | Classe Font Awesome escolhida (`fa-paw`). **Opcional**: sem ela o app adivinha pelo nome |
 
 `month_budgets` **mora na categoria de propósito.** Antes ficava em `months.budgets`, mas a
 linha de `months` é por usuário — o ajuste não aparecia para quem recebeu a categoria
@@ -299,6 +347,7 @@ app.js
 | `gc-tutorial-v2` | Tutorial já visto |
 | `gc-dm-seen` | Marcação de leitura por amigo. **Espelhada em `user_metadata.dm_seen`**, senão o aparelho que não abriu a conversa mostra "não lida" para sempre |
 | `gc-planning` | **Resíduo do planejamento removido.** Pode apagar |
+| `gp-discreto` | Modo discreto ligado (`1`). Aplicado já na primeira linha do `app.js`, antes do render, para não piscar valor |
 
 O tema e o "tutorial já visto" também vão para o `user_metadata` do Supabase, para
 acompanhar o usuário entre aparelhos.
@@ -334,10 +383,61 @@ colunas existem, é ele a fonte da verdade.
 | `parseQuickLink()` e `runQuickAdd()` | Lançamento rápido pelo link `#add` |
 | `navMonths()` e `neighborMonth()` | Meses navegáveis e o vizinho de um mês no seletor |
 | `goToMonth(mês)` | Troca o mês exibido sem fechar o modal; `selectMonth()` fecha e chama ela |
+| `brl(v)` | `R$ 1.234,56` — `Intl.NumberFormat('pt-BR')`, com milhar desde a v6 |
+| `perguntar({titulo,texto,opcoes})` | Diálogo próprio com N botões; devolve o `valor` do escolhido ou `null` |
+| `confirmar(texto,{titulo,botao,perigo})` | Atalho de `perguntar` para sim/não; devolve `true`/`false` |
+| `expenseFormHtml(e, cat)` | **O único formulário de gasto.** Novo e edição usam o mesmo |
+| `posAbrirForm(e)` | Sincroniza chips, tipo, atalhos, data e resumo depois de abrir o formulário |
+| `atalhosDe(catId)` e `valorTipico(nome,cat)` | "Seus de sempre": nomes repetidos da categoria e o valor mais frequente |
+| `catIcon`, `catTone`, `catBadge`, `iconePalpite` | Ícone e cor de categoria |
+| `ritmoDoMes(gasto, disponível)` | Quanto dá por dia e se o ritmo atual cabe no mês |
+| `openCatOptions(catId)` | O menu ⋯ do card |
+| `openExpenseDetail(expId)` | Ficha de só leitura (gasto de categoria compartilhada ou previsto) |
+| `toggleDiscreto()` | Liga e desliga o modo discreto |
 
 ---
 
 ## 5. O que está no ar
+
+### 5.0 O que a v6 mudou
+
+**Card da categoria**
+- Embaixo do disponível, dois blocos: **Por dia** — o disponível dividido pelos dias que
+  faltam, contando hoje — e **No ritmo atual**, que diz *Cabe no mês*, *Acaba dia 18* ou
+  *Estourou*. Substitui o antigo "o saldo acaba em 03 de mar.", que chegava a apontar datas
+  meses à frente.
+- Os três ícones mudos do topo (adiantar, transferir, ajustar) viraram **um menu ⋯** com
+  nome e explicação de cada ação — e absorveu Compartilhar, Exportar e Histórico de
+  atividades, que ficavam soltos no rodapé.
+- Um **olho** ao lado liga o modo discreto.
+
+**Lista de lançamentos**
+- Agrupada por dia (*Hoje*, *Ontem*, *Sáb, 05 de set*), com subtotal quando o dia tem mais
+  de um gasto.
+- **A linha inteira é tocável** e abre a edição. Saíram os botões de lápis e lixeira de
+  26px que ficavam em toda linha — a lixeira estava a um toque de apagar dado. Excluir mora
+  agora dentro da edição.
+- Categoria de só leitura ou recorrente previsto abre uma **ficha** em vez da edição.
+- Tipo, parcela, cartão, quem lançou e endereço viram uma linha de detalhes discreta.
+
+**Lançar um gasto**
+- Valor grande no topo, com o cursor já nele.
+- Categoria e tipo em chips com ícone, no lugar do `<select>`.
+- **Seus de sempre**: os nomes que você repete na categoria. Um toque preenche o nome e, se
+  o valor costuma ser o mesmo, o valor também. Lançamentos rápidos (nome = hora) ficam de
+  fora.
+- Autocompletar de descrição passou a preencher o valor típico daquele nome.
+- Data em três chips: *Hoje*, *Ontem*, *Outra data*.
+- Repetição, cartão, local e comprovante ficam em **Mais opções**, recolhido, com um
+  resumo do que está marcado.
+- O lançamento rápido do raio ganhou chips para escolher a categoria.
+
+**Diálogos**: os 16 `confirm()` nativos viraram diálogos do app. O de excluir parcela
+ganhou três botões — *Esta e as 4 seguintes*, *Só esta parcela*, *Cancelar* — no lugar do
+antigo "OK apaga as futuras, Cancelar apaga só esta".
+
+**Modo discreto**: embaça todo valor em dinheiro (classe `money` e mais uma lista de
+seletores do Histórico e de Próximos meses). Liga pelo olho do card ou em Sua conta.
 
 ### Controle pessoal
 - Categorias com teto mensal, reordenáveis por arrastar, com orçamento total no topo.
@@ -593,9 +693,8 @@ mexeu no limite → o que você gastou.
 
 | | |
 |---|---|
-| Comprovante | Guardado como data URI base64 **dentro da coluna**, não em Storage. Infla a tabela `expenses` e o cache local. Migrar para Storage é a melhoria mais óbvia pendente |
+| Comprovante | Guardado como data URI base64 **dentro da coluna**, não em Storage. Desde a v6 ele **não vai mais para o cache local** nem para a consulta do Histórico, então o estrago ficou contido — mas migrar para Storage continua sendo a melhoria mais óbvia pendente |
 | PIN | É o ano corrente. Não é segurança, é conveniência |
-| Valores | `brl()` não põe separador de milhar: mostra `R$ 1200,00` |
 | `incomes` | A tabela foi removida, mas `api.getIncomes` e as três irmãs continuam em `app.js` como código morto |
 | `gc-planning` | Chave de `localStorage` que sobrou do planejamento |
 | Widget e leitura de notificação | Impossíveis em PWA. Ver [seção 7](#7-lançamento-rápido-ios) |
@@ -679,6 +778,25 @@ cartões com dia de fechamento, parcelas, recorrentes, comprovantes e
 ---
 
 ## 9. Armadilhas que já custaram caro
+
+### 9.0 Formulário duplicado apaga dado em silêncio
+
+Até a v5.17, novo gasto e edição de gasto eram dois HTMLs escritos à mão, lado a lado. O
+campo Tipo foi colocado só no novo — e como `saveExpense()` lê os inputs pelo `id`,
+**editar qualquer gasto apagava o tipo dele**, sem erro nenhum. Na v6 existe um formulário
+só, `expenseFormHtml(e)`, e os dois caminhos passam por ele.
+
+O mesmo `saveExpense()` mandava `image_url` em toda edição, reaproveitando o valor que
+estava em memória. Com o cache sem comprovante (ver abaixo), isso faria editar um gasto
+**apagar a foto**. Agora `image_url` só vai no payload quando é gasto novo ou quando você
+escolhe outra imagem.
+
+### 9.0.1 O cache não guarda comprovante
+
+`saveCache()` troca `image_url` por `_img:1` antes de gravar no `localStorage` — a cota é
+de ~5 MB e o base64 das fotos estourava em silêncio, matando o modo offline. A lista usa
+`image_url || _img` para mostrar o clipe, e `viewReceipt()` busca a imagem com
+`getExpenseImage(id)` na hora de abrir.
 
 ### 9.1 A altura da tela no PWA do iPhone
 
@@ -1083,6 +1201,7 @@ Nesta ordem, que é da ponta mais provável para a menos:
 
 | Versão | O quê |
 |---|---|
+| **6.0** | **GastoPensado.** Nome, logo, ícones, paleta (marca violeta separada do verde de dinheiro) e tipografia novos. Card com "por dia" e ritmo, menu ⋯, lista por dia com linha tocável, formulário único de gasto com chips e "seus de sempre", ícone por categoria, diálogos próprios, modo discreto, milhar no `brl()`, cache e Histórico sem comprovante |
 | 5.19 | Transferência de limite em meses futuros; X para desfazer cada movimentação |
 | 5.18 | Orçamento do mês aceita zero |
 | 5.17 | Movimentações do limite viram bloco recolhível com data; nome da categoria nos cards do desktop; edição de gasto volta a ter o campo Tipo |
@@ -1105,5 +1224,7 @@ Nesta ordem, que é da ponta mais provável para a menos:
 | 3.15–5.0 | Módulo de planejamento, construído e depois descartado |
 | 3.34 | Nav volta ao rodapé em fluxo normal, com altura medida por JS |
 | 2.x | Contas, RLS, planos, compartilhamento de categoria |
+
+Tudo até a 5.19 foi lançado com o nome GastoCerto.
 
 `git log --oneline` traz o resto.

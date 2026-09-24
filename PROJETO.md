@@ -4,7 +4,7 @@ Referência única do projeto: o que ele é, como está montado, o que está no 
 abandonado, as regras que toda alteração precisa seguir, e o passo a passo para migrar
 tudo para outra conta.
 
-Versão do app na data deste documento: **6.0** · Última atualização: **24/09/2026**
+Versão do app na data deste documento: **6.1** · Última atualização: **24/09/2026**
 
 > Até a v5.19 o app se chamava **GastoCerto**. A v6 trocou o nome e a identidade inteira —
 > ver [seção 1.1](#11-identidade-v6).
@@ -158,6 +158,19 @@ completo ou algo que será reusado.
 - Valor em dinheiro na tela leva a classe **`money`**: é ela que o modo discreto embaça.
 - Confirmação é sempre `confirmar()` ou `perguntar()`, **nunca `confirm()` nativo**.
 - Todo ícone é Font Awesome. **Emoji como ícone é proibido.**
+- **Três faixas de largura**, e cada uma é um app diferente:
+
+  | Largura | O que é |
+  |---|---|
+  | até 699px | Celular: carrossel de categorias, chips, nav embaixo, FAB |
+  | 700–1099px | Tablet / janela pequena: faixa horizontal de cards com setas ‹ › |
+  | 1100px ou mais | **Sistema web**: sidebar, Painel, análise de categoria, Relatórios. Classe `gp-web` no `<html>` |
+
+  `telaWeb()` e `telaLarga()` são as perguntas em JS; o CSS usa os mesmos números. Mudou
+  um, mude o outro.
+- O cabeçalho do celular **nunca pode cortar a logo**: o título tem `white-space:nowrap` e
+  `font-size:clamp(...)`, o bloco da direita tem `flex-shrink:0`, e abaixo de 520px o selo
+  do plano some. Testar em 320, 360, 375, 390 e 430px.
 
 ### 2.6 Verificação
 
@@ -355,6 +368,8 @@ app.js
 | `gc-dm-seen` | Marcação de leitura por amigo. **Espelhada em `user_metadata.dm_seen`**, senão o aparelho que não abriu a conversa mostra "não lida" para sempre |
 | `gc-planning` | **Resíduo do planejamento removido.** Pode apagar |
 | `gp-discreto` | Modo discreto ligado (`1`). Aplicado já na primeira linha do `app.js`, antes do render, para não piscar valor |
+| `gp-web-layout` | `{ordem:[ids], ocultas:[ids]}` — ordem e categorias escondidas **só no Painel web**. Não toca em `categories.position`, então o celular continua igual |
+| `gp-bi` | Período, agrupamento, categoria e ordenação dos Relatórios. Busca e grupo aberto não são guardados |
 
 O tema e o "tutorial já visto" também vão para o `user_metadata` do Supabase, para
 acompanhar o usuário entre aparelhos.
@@ -404,6 +419,16 @@ colunas existem, é ele a fonte da verdade.
 | `imgSegura(url)` | Devolve a URL só se for data URI de imagem; senão `null`. Obrigatório antes de qualquer `src` vindo do banco |
 | `fotoOuLetra(uid, letra)` | Foto de perfil da pessoa, ou a inicial |
 | `salvarAvatar(input)` · `removerAvatar()` | Sobe e remove a foto de perfil |
+| `telaWeb()` | `true` a partir de 1100px — o sistema web. `render()` troca de tela quando a largura cruza |
+| `garantirTodos()` · `gastosTodos()` · `sujarTodos()` | Todo o histórico de gastos (cache de 5 min) já mesclado com o mês aberto. `sujarTodos()` depois de salvar ou apagar |
+| `futurosDe(catId, mês)` | O que já está comprometido num mês futuro: parcelas reais + recorrentes projetados |
+| `catsWeb()` · `moverCatWeb` · `ocultarCatWeb` · `toggleOrganizar` | Ordem e ocultas do Painel web (`gp-web-layout`) |
+| `renderPainel(el)` | A home do web: KPIs, cards, ritmo do mês, onde foi o dinheiro, próximos meses |
+| `abrirCatWeb(catId)` · `renderCatDetalhe(el)` | A análise completa de uma categoria. Também abre no celular pelo menu ⋯ |
+| `renderRelatorios(el)` · `atualizarBI()` | Os Relatórios. `atualizarBI` redesenha só `#bi-out`, então a busca não perde o foco |
+| `biChave(e)` · `biRotulo(k)` | Como agrupar: categoria, tipo, mês, dia da semana, cartão, local ou pessoa |
+| `exportarCSV()` | Exporta o que está filtrado, com `;` e BOM, para abrir direto no Excel em português |
+| `vbarsHtml` · `hbarsHtml` · `ritmoSvg` · `sparkSvg` · `kpiHtml` | Os gráficos, todos em HTML/SVG puro, sem biblioteca |
 
 ---
 
@@ -448,6 +473,34 @@ antigo "OK apaga as futuras, Cancelar apaga só esta".
 
 **Modo discreto**: embaça todo valor em dinheiro (classe `money` e mais uma lista de
 seletores do Histórico e de Próximos meses). Liga pelo olho do card ou em Sua conta.
+
+### 5.0.1 O sistema web (v6.1)
+
+A partir de **1100px** o app deixa de ser o celular esticado e vira outro produto, em
+tela cheia:
+
+- **Sidebar** no lugar da nav de baixo (é o mesmo `<nav>`, com outro CSS), com a logo e
+  uma aba a mais, **Relatórios**. O FAB some: *Lançar gasto* e o raio do lançamento rápido
+  moram no cabeçalho.
+- **Painel** (Início): cinco KPIs (orçamento, gasto, disponível, por dia, já comprometido
+  no mês que vem), um card por categoria com barra, por dia, ritmo e uma *sparkline* dos
+  últimos 6 meses, e embaixo **Ritmo do mês** (gasto acumulado contra a linha do teto),
+  **Onde foi o dinheiro** e **Próximos meses**.
+- **Organizar** (só no web): setas movem a categoria, o olho esconde. Fica em
+  `gp-web-layout`, não no banco. Os KPIs passam a somar só as visíveis e avisam isso.
+- **Clicar num card abre a análise da categoria**: KPIs (disponível, por dia, ritmo, contra
+  o mês anterior, média de 3 meses), **Passado e futuro** — 6 meses de gasto e 4 de
+  comprometido, com a linha do teto —, o ritmo do mês, **Por tipo**, a tabela de
+  lançamentos com busca e filtro por tipo, os próximos compromissos e as movimentações do
+  limite.
+- **Relatórios**: período (este mês, 3, 6, 12 meses, tudo), categoria, busca livre (nome,
+  tipo, local, cartão) e **agrupar por** categoria, tipo, mês, dia da semana, cartão, local
+  ou pessoa. Mostra KPIs, evolução mensal, distribuição, uma tabela ordenável que abre os
+  lançamentos de cada grupo, dia da semana, top 10 e o comprometido à frente. Exporta CSV.
+
+No **celular** nada disso atrapalha: a análise da categoria abre pelo ⋯ → *Análise
+completa*, e os Relatórios por um botão no Histórico. Abaixo de 600px as tabelas escondem
+as colunas secundárias para caber sem rolar para o lado.
 
 ### Controle pessoal
 - Categorias com teto mensal, reordenáveis por arrastar, com orçamento total no topo.
@@ -688,7 +741,8 @@ mexeu no limite → o que você gastou.
 - Tutorial em 11 passos com destaque nos elementos.
 - **Lançamento rápido por link** (`#add?v=45,90&n=Padaria&cat=Mercado&card=Nubank&p=3`) —
   abre o formulário preenchido, para atalhos do iOS. Ver [seção 7](#7-lançamento-rápido-ios).
-- **View de desktop** acima de 900px: largura até 1180px e as categorias numa faixa
+- **View de tablet** entre 700 e 1099px (era a partir de 900px até a v6.0; acima de 1100px
+  quem manda é o sistema web da [seção 5.0.1](#501-o-sistema-web-v61)): largura até 1180px e as categorias numa faixa
   horizontal com setas ‹ › nas laterais, uma categoria por passo. A faixa de chips fica
   escondida, e por isso **cada card leva o nome da categoria no topo** — sem ele não dá
   para saber de quem é cada coluna. O arraste do celular é desligado; quem manda ali são
@@ -936,6 +990,23 @@ Por isso `getExpensesOfCat()` traz `user_id`: é dali que sai a contagem.
 
 A confirmação mostra quantos lançamentos e quanto somam, **contando todos os meses** — a
 parcela de dezembro também morre, e é justo avisar antes.
+
+### 9.8.1 Estilo inline ganha da media query
+
+`enterApp()` fazia `#app.style.display='flex'`. No web o `#app` precisa ser
+`display:grid` (sidebar + conteúdo), e **estilo inline vence qualquer regra do CSS**, com
+ou sem `@media`. Resultado: a nav ocupava a largura toda e o conteúdo ia para baixo.
+Agora é `style.display=''`, que só remove o `none` e deixa o CSS decidir. Para mostrar um
+elemento que o CSS posiciona, **limpe o inline, não escreva outro valor**.
+
+O FAB do desktop tinha `right:calc(50% - 590px + 28px)` para acompanhar a coluna de
+1180px. Abaixo de 1180px de janela a conta fica negativa e o botão sai da tela. Offset fixo
+resolve.
+
+E a ordem das regras pesa: `.bi-back{display:none}` no começo do arquivo perdia para
+`.wd-back{display:inline-flex}` declarado depois, no mesmo elemento. Mesma
+especificidade, ganha a última. Para esconder, use o seletor composto
+(`.wd-back.bi-back`).
 
 ### 9.9 Remover CSS em bloco
 
@@ -1211,6 +1282,7 @@ Nesta ordem, que é da ponta mais provável para a menos:
 
 | Versão | O quê |
 |---|---|
+| **6.1** | **Sistema web.** Cabeçalho do celular que não corta a logo. Acima de 1100px: sidebar, Painel com KPIs e gráficos, organizar e ocultar categorias só no web, análise completa de cada categoria (passado, futuro, ritmo, por tipo, tabela com busca), Relatórios com período, busca, sete agrupamentos, tabela ordenável com detalhe e CSV. Botões de lançar no cabeçalho do web. FAB que saía da tela abaixo de 1180px |
 | **6.0** | **GastoPensado.** Nome, logo, ícones, paleta (marca violeta separada do verde de dinheiro) e tipografia novos. Card com "por dia" e ritmo, menu ⋯, lista por dia com linha tocável, formulário único de gasto com chips e "seus de sempre", ícone por categoria, diálogos próprios, modo discreto, milhar no `brl()`, cache e Histórico sem comprovante |
 | 5.19 | Transferência de limite em meses futuros; X para desfazer cada movimentação |
 | 5.18 | Orçamento do mês aceita zero |

@@ -45,7 +45,7 @@ function syncThemeRow(){
   if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
-const APP_VERSION = '5.17';
+const APP_VERSION = '5.18';
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
 const VAPID_PUBLIC_KEY = 'BOGPXr8rzIa2v0x9icJfeWnSp7OEfo5wDjcRV39GFqVuctrVr5k_dfjkpHpi06obd9S5k80T9O5kadH71ITniyY';
@@ -1630,7 +1630,7 @@ function buildSlide(cat, isNow){
         :`<div class="hero-bar"><span style="width:${pct}%"></span></div>
       <div class="hero-sub">
         <span>${isFuture?'Comprometido':'Gasto'} <strong>${brl(spent)}</strong></span>
-        <span>${pctLabel}% de ${brl(budget)}${overridden?' ·&nbsp;ajustado':''}</span>
+        <span>${budget>0?`${pctLabel}% de ${brl(budget)}`:'orçamento zerado'}${overridden?' ·&nbsp;ajustado':''}</span>
       </div>
       ${forecast?`<div class="hero-forecast"><i class="fa-regular fa-clock" aria-hidden="true"></i> ${forecast}</div>`:''}`}
     </div>
@@ -3590,7 +3590,7 @@ function openMonthOverride(catId){
     </div>
     <div class="form-group"><label class="form-label">Orçamento de ${monthLabel(currentMonthKey)} (R$)</label>
       <input class="form-input" id="f-ovbudget" type="text" inputmode="decimal" value="${eff}" oninput="moneyKey(this)"/>
-      <span class="field-hint">Só este mês passa a usar este valor. ${ov?'Você pode voltar ao padrão a qualquer momento.':''}</span></div>
+      <span class="field-hint">Só este mês passa a usar este valor. <strong>Zero</strong> vale: a categoria fica sem limite neste mês e qualquer gasto já conta como estouro. ${ov?'Dá para voltar ao padrão a qualquer momento.':''}</span></div>
     <button class="btn-primary" id="btn-ov" onclick="saveMonthOverride('${catId}')">Salvar só para ${monthLabel(currentMonthKey)}</button>
     ${ov?`<button class="btn-secondary" onclick="revertMonthOverride('${catId}')">Voltar ao padrão (${brl(cat.budget)}/mês)</button>`:''}
     <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
@@ -3598,12 +3598,13 @@ function openMonthOverride(catId){
 
 async function saveMonthOverride(catId){
   const v=parseNum(document.getElementById('f-ovbudget').value);
-  if(isNaN(v)||v<=0){ showToast('Informe um valor válido.','error'); return; }
+  if(isNaN(v)||v<0){ showToast('Informe um valor válido.','error'); return; }
   const btn=document.getElementById('btn-ov'); btn.disabled=true; btn.textContent='Salvando...';
   try{
     await setMonthBudget(catId, currentMonthKey, v);
     saveCache(); vib(15);
-    _closeModal(); render(); showToast('Orçamento do mês ajustado!','success');
+    _closeModal(); render();
+    showToast(v===0?`${monthLabel(currentMonthKey)} ficou sem orçamento nesta categoria.`:'Orçamento do mês ajustado!','success');
   }catch(e){
     btn.disabled=false; btn.textContent='Salvar ajuste do mês';
     showToast('Erro — rode o SQL: ALTER TABLE categories ADD COLUMN month_budgets jsonb','error');

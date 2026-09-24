@@ -4,7 +4,7 @@ Referência única do projeto: o que ele é, como está montado, o que está no 
 abandonado, as regras que toda alteração precisa seguir, e o passo a passo para migrar
 tudo para outra conta.
 
-Versão do app na data deste documento: **5.17** · Última atualização: **22/09/2026**
+Versão do app na data deste documento: **5.18** · Última atualização: **22/09/2026**
 
 ---
 
@@ -349,7 +349,9 @@ colunas existem, é ele a fonte da verdade.
   app pergunta qual é; com um cartão escolhido a fatura é calculada sozinha, sem o
   "Cai já neste mês". Parcela atual e total são dois campos que se arrasta na horizontal,
   com resumo ao vivo de quantas cobranças serão lançadas e de quanto.
-- **Ajuste do orçamento do mês** — muda o teto só daquele mês.
+- **Ajuste do orçamento do mês** — muda o teto só daquele mês. **Zero é um valor válido**:
+  a categoria fica com orçamento zerado naquele mês e qualquer gasto já conta como
+  estouro. Diferente de *sem teto*, que não tem orçamento nenhum e fica fora do total.
 - **Transferência de limite** entre categorias, válida só no mês corrente.
 - **Adiantar limite do mês seguinte** — puxa parte do teto dos meses à frente para o mês
   atual, devolvendo em até 6 parcelas. Reversível. Ver
@@ -1063,6 +1065,7 @@ Nesta ordem, que é da ponta mais provável para a menos:
 
 | Versão | O quê |
 |---|---|
+| 5.18 | Orçamento do mês aceita zero |
 | 5.17 | Movimentações do limite viram bloco recolhível com data; nome da categoria nos cards do desktop; edição de gasto volta a ter o campo Tipo |
 | 5.16 | Deletar categoria apaga os lançamentos e o resto que aponta para ela, em vez de dar erro |
 | 5.15 | Localização vira endereço aproximado, pedido automaticamente ao abrir o lançamento |

@@ -1,5 +1,5 @@
-const CACHE = 'gastocerto-v5.18-orcamento-zero';
-const SHELL = ['./', './index.html', './offline.html', './style.css?v=5.18', './app.js?v=5.18', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
+const CACHE = 'gastocerto-v5.19-transferir-futuro';
+const SHELL = ['./', './index.html', './offline.html', './style.css?v=5.19', './app.js?v=5.19', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));

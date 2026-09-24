@@ -45,7 +45,7 @@ function syncThemeRow(){
   if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
-const APP_VERSION = '5.18';
+const APP_VERSION = '5.19';
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
 const VAPID_PUBLIC_KEY = 'BOGPXr8rzIa2v0x9icJfeWnSp7OEfo5wDjcRV39GFqVuctrVr5k_dfjkpHpi06obd9S5k80T9O5kadH71ITniyY';
@@ -300,6 +300,8 @@ const api={
   updateCard:(id,d)=>sbFetch(`cards?id=eq.${id}`,{method:'PATCH',body:JSON.stringify(d)}),
   deleteCard:(id)=>sbFetch(`cards?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
   getRollovers:(monthKey)=>sbFetch(`budget_rollovers?to_month=eq.${monthKey}&order=created_at.desc`),
+  zeroRollover:(id)=>sbFetch(`budget_rollovers?id=eq.${id}`,{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify({amount:0})}),
+  deleteBudgetTransfer:(id)=>sbFetch(`budget_transfers?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
   insertRollover:(d)=>sbFetch('budget_rollovers',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=representation'},body:JSON.stringify({...d,user_id:currentUser.id})}),
   deleteRollover:(id)=>sbFetch(`budget_rollovers?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
   deleteRolloversOfCat:(catId)=>sbFetch(`budget_rollovers?cat_id=eq.${catId}&user_id=eq.${currentUser.id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
@@ -906,7 +908,7 @@ async function init(){
     if(prevMon&&!prevMon.closed) api.closeMonth(prevKey).then(()=>{if(prevMon)prevMon.closed=true;}).catch(()=>{});
     viewMonthKey=now;
     expenses=await api.getExpenses(viewMonthKey);
-    budgetTransfers=await api.getBudgetTransfers(currentMonthKey).catch(()=>[]);
+    budgetTransfers=await api.getBudgetTransfers(viewMonthKey).catch(()=>[]);
     rollovers=await api.getRollovers(viewMonthKey).catch(()=>[]);
     await loadCards();
     loans=await api.getLoans().catch(()=>[]);
@@ -1600,8 +1602,9 @@ function buildSlide(cat, isNow){
   </div>`;
   }).join('');
 
-  const transfersOut=isNow?budgetTransfers.filter(t=>t.from_cat_id===cat.id):[];
-  const transfersIn=isNow?budgetTransfers.filter(t=>t.to_cat_id===cat.id):[];
+  const doMes=budgetTransfers.filter(t=>!t.month_key||t.month_key===viewMonthKey);
+  const transfersOut=doMes.filter(t=>t.from_cat_id===cat.id);
+  const transfersIn=doMes.filter(t=>t.to_cat_id===cat.id);
   const movs=movimentosDoMes(cat,transfersOut,transfersIn);
   const movHtml=movBlockHtml(cat,movs);
 
@@ -1621,7 +1624,7 @@ function buildSlide(cat, isNow){
         <div class="hero-label">${heroLabel}${livre?'<span class="hero-free-tag">sem teto</span>':''}</div>
         <div style="display:flex;gap:6px">
           ${isNow&&isOwned&&!livre?`<button class="hero-edit" onclick="openLoanMonth('${cat.id}')" title="Pegar emprestado do mês seguinte"><i class="fa-solid fa-hand-holding-dollar" aria-hidden="true"></i></button>`:''}
-          ${isNow&&isOwned&&!livre&&categories.filter(c=>c.user_id===currentUser.id&&!semTeto(c)).length>1?`<button class="hero-edit" onclick="openTransferBudget('${cat.id}')" title="Transferir limite para outra categoria"><i class="fa-solid fa-right-left" aria-hidden="true"></i></button>`:''}
+          ${mesEditavel()&&isOwned&&!livre&&categories.filter(c=>c.user_id===currentUser.id&&!semTeto(c)).length>1?`<button class="hero-edit" onclick="openTransferBudget('${cat.id}')" title="Transferir limite para outra categoria"><i class="fa-solid fa-right-left" aria-hidden="true"></i></button>`:''}
           ${isNow&&isOwned&&!livre?`<button class="hero-edit" onclick="openMonthOverride('${cat.id}')" title="Ajustar orçamento"><i class="fa-solid fa-sliders" aria-hidden="true"></i></button>`:''}
         </div>
       </div>
@@ -1658,27 +1661,32 @@ function dataCurta(iso){
 }
 function movimentosDoMes(cat,transfersOut,transfersIn){
   const out=[];
+  const podeMexer=mesEditavel()&&cat.user_id===currentUser.id;
   loans.filter(l=>l.cat_id===cat.id&&l.month_key===viewMonthKey).forEach(l=>{
     const amt=parseFloat(l.amount||0);
-    out.push({ico:'fa-hand-holding-dollar',classe:amt>=0?'amber':'neg',
+    out.push({tipo:'loan',ref:l.loan_group,cat:cat.id,podeMexer,
+      ico:'fa-hand-holding-dollar',classe:amt>=0?'amber':'neg',
       titulo:amt>=0?'Limite adiantado':'Devolução do adiantamento',
       onde:amt>=0?'Sai dos meses à frente':'Referente ao adiantamento',
       valor:amt,quando:l.created_at});
   });
-  rollovers.filter(r=>r.cat_id===cat.id&&r.to_month===viewMonthKey).forEach(r=>{
+  rollovers.filter(r=>r.cat_id===cat.id&&r.to_month===viewMonthKey&&Math.abs(parseFloat(r.amount||0))>=0.005).forEach(r=>{
     const amt=parseFloat(r.amount||0);
-    out.push({ico:'fa-arrow-right-arrow-left fa-rotate-90',classe:amt>=0?'pos':'neg',
+    out.push({tipo:'roll',ref:r.id,cat:cat.id,podeMexer,
+      ico:'fa-arrow-right-arrow-left fa-rotate-90',classe:amt>=0?'pos':'neg',
       titulo:amt>=0?'Sobra do mês anterior':'Estouro do mês anterior',
       onde:`${monthLabel(r.from_month)}${r.auto?' · automático':''}`,
       valor:amt,quando:r.created_at});
   });
   (transfersOut||[]).forEach(t=>{
-    out.push({ico:'fa-arrow-right-from-bracket',classe:'neg',titulo:'Limite enviado',
+    out.push({tipo:'transfer',ref:t.id,cat:cat.id,podeMexer,
+      ico:'fa-arrow-right-from-bracket',classe:'neg',titulo:'Limite enviado',
       onde:`Para ${categories.find(c=>c.id===t.to_cat_id)?.name||'outra categoria'}`,
       valor:-Math.abs(parseFloat(t.amount||0)),quando:t.created_at});
   });
   (transfersIn||[]).forEach(t=>{
-    out.push({ico:'fa-arrow-right-to-bracket',classe:'pos',titulo:'Limite recebido',
+    out.push({tipo:'transfer',ref:t.id,cat:cat.id,podeMexer,
+      ico:'fa-arrow-right-to-bracket',classe:'pos',titulo:'Limite recebido',
       onde:`De ${categories.find(c=>c.id===t.from_cat_id)?.name||'outra categoria'}`,
       valor:Math.abs(parseFloat(t.amount||0)),quando:t.created_at});
   });
@@ -1713,7 +1721,45 @@ function movRowHtml(m){
       <span class="mov-sub">${escapeHtml(m.onde)}${quando?` · ${quando}`:''}</span>
     </span>
     <span class="mov-val ${pos?'pos':'neg'}">${pos?'+':'−'}${brl(Math.abs(m.valor))}</span>
+    ${m.podeMexer&&m.ref?`<button class="mov-x" onclick="desfazerMov('${m.tipo}','${m.ref}','${m.cat}')" aria-label="Desfazer" title="Desfazer"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>`:''}
   </div>`;
+}
+
+async function desfazerMov(tipo,ref,catId){
+  if(tipo==='loan') return reverterLoan(ref,catId);
+  if(tipo==='roll') return desfazerRollover(ref);
+  if(tipo==='transfer') return desfazerTransfer(ref);
+}
+async function desfazerRollover(id){
+  const r=rollovers.find(x=>String(x.id)===String(id)); if(!r) return;
+  const amt=parseFloat(r.amount||0);
+  if(!confirm(`Desfazer o saldo de ${brl(Math.abs(amt))} trazido de ${monthLabel(r.from_month)}?\n\nO limite deste mês volta ao que era. O mês de origem não muda.`)) return;
+  try{
+    await api.zeroRollover(id);
+    r.amount=0;
+    saveCache(); vib(12); render();
+    showToast('Saldo do mês anterior desfeito.','success');
+  }catch{ showToast('Erro ao desfazer.','error'); }
+}
+async function desfazerTransfer(id){
+  const t=budgetTransfers.find(x=>String(x.id)===String(id));
+  if(!t){ showToast('Transferência não encontrada.','error'); return; }
+  const mk=t.month_key||viewMonthKey;
+  const amount=Math.abs(parseFloat(t.amount||0));
+  const de=categories.find(c=>c.id===t.from_cat_id), para=categories.find(c=>c.id===t.to_cat_id);
+  if(!de||!para){ showToast('Uma das categorias não existe mais.','error'); return; }
+  const voltaPara=Math.round((baseBudget(para,mk)-amount)*100)/100;
+  if(voltaPara<0){ showToast(`Não dá: ${para.name} ficaria com orçamento negativo em ${monthLabel(mk)}.`,'error'); return; }
+  if(!confirm(`Desfazer a transferência de ${brl(amount)} de ${de.name} para ${para.name} em ${monthLabel(mk)}?`)) return;
+  try{
+    const voltaDe=Math.round((baseBudget(de,mk)+amount)*100)/100;
+    await setMonthBudget(t.from_cat_id,mk,voltaDe===parseFloat(de.budget)?null:voltaDe);
+    await setMonthBudget(t.to_cat_id,mk,voltaPara===parseFloat(para.budget)?null:voltaPara);
+    await api.deleteBudgetTransfer(id).catch(()=>{});
+    budgetTransfers=budgetTransfers.filter(x=>String(x.id)!==String(id));
+    saveCache(); vib(12); render();
+    showToast(`${brl(amount)} devolvidos para ${de.name}.`,'success');
+  }catch{ showToast('Erro ao desfazer a transferência.','error'); }
 }
 function toggleMov(catId,qtd){
   vib(5);
@@ -3404,6 +3450,7 @@ async function goToMonth(key){
   syncProjected();
   expenses=await api.getExpenses(viewMonthKey);
   rollovers=await api.getRollovers(viewMonthKey).catch(()=>[]);
+  budgetTransfers=await api.getBudgetTransfers(viewMonthKey).catch(()=>[]);
   syncProjected();
   render();
 }
@@ -3721,7 +3768,7 @@ function openLoansList(catId){
     <button class="btn-secondary" style="margin-top:14px" onclick="openLoanMonth('${catId}')">Voltar</button>`);
 }
 async function reverterLoan(grupo,catId){
-  if(!confirm('Desfazer este adiantamento? O limite volta ao normal em todos os meses envolvidos.')) return;
+  if(!confirm('Desfazer este adiantamento?\n\nEle é um conjunto: some o limite extra deste mês e também as devoluções dos meses seguintes.')) return;
   try{
     await api.deleteLoanGroup(grupo);
     loans=loans.filter(l=>l.loan_group!==grupo);
@@ -3733,10 +3780,12 @@ async function reverterLoan(grupo,catId){
 
 function transferAvailable(catId){
   const cat=categories.find(c=>c.id===catId); if(!cat) return 0;
-  const spent=expenses.filter(e=>e.cat_id===catId).reduce((s,e)=>s+parseFloat(e.value),0);
-  return Math.round((effBudget(cat,currentMonthKey)-spent)*100)/100;
+  const gasto=[...expenses,...projectedExpenses].filter(e=>e.cat_id===catId).reduce((s,e)=>s+parseFloat(e.value||0),0);
+  return Math.round((effBudget(cat,viewMonthKey)-gasto)*100)/100;
 }
+function mesEditavel(){ return !currentMonthKey||viewMonthKey>=currentMonthKey; }
 function openTransferBudget(catId){
+  if(!mesEditavel()){ showToast('Mês já passou — não dá para mexer no orçamento dele.','error'); return; }
   const owned=categories.filter(c=>c.user_id===currentUser.id&&!semTeto(c));
   if(owned.length<2){ showToast('Você precisa de ao menos 2 categorias com orçamento para transferir.','error'); return; }
   const fromId=catId&&owned.some(c=>c.id===catId)?catId:owned[0].id;
@@ -3746,8 +3795,9 @@ function transferBudgetHtml(fromId){
   const owned=categories.filter(c=>c.user_id===currentUser.id&&!semTeto(c));
   const toOptions=owned.filter(c=>c.id!==fromId);
   const avail=transferAvailable(fromId);
+  const futuro=viewMonthKey>currentMonthKey;
   return `<div class="modal-title">Transferir limite entre categorias</div>
-    <p class="modal-note">Mova uma parte do orçamento disponível deste mês de uma categoria para outra. Vale só para <strong>${monthLabel(currentMonthKey)}</strong> — o orçamento padrão de cada categoria não muda.</p>
+    <p class="modal-note">Mova uma parte do orçamento de uma categoria para outra. Vale só para <strong>${monthLabel(viewMonthKey)}</strong> — o orçamento padrão de cada categoria não muda.${futuro?' Como é um mês à frente, dá para deixar tudo arrumado antes de ele começar.':''}</p>
     <div class="form-group"><label class="form-label">De (categoria com sobra)</label>
       <select class="form-input" id="f-transfer-from" onchange="onTransferFromChange()">
         ${owned.map(c=>`<option value="${c.id}"${c.id===fromId?' selected':''}>${escapeHtml(c.name)}</option>`).join('')}
@@ -3759,7 +3809,7 @@ function transferBudgetHtml(fromId){
       </select></div>
     <div class="form-group"><label class="form-label">Quanto transferir (R$)</label>
       <input class="form-input" id="f-transfer-amount" type="text" inputmode="decimal" placeholder="0,00" oninput="moneyKey(this)"/></div>
-    <button class="btn-primary" id="btn-transfer" onclick="saveTransferBudget()">Transferir</button>
+    <button class="btn-primary" id="btn-transfer" onclick="saveTransferBudget()">Transferir em ${monthLabel(viewMonthKey)}</button>
     <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`;
 }
 function onTransferFromChange(){
@@ -3773,6 +3823,7 @@ function onTransferFromChange(){
   if(owned.some(c=>c.id===prevVal)) toSel.value=prevVal;
 }
 async function saveTransferBudget(){
+  const mk=viewMonthKey;
   const fromId=document.getElementById('f-transfer-from').value;
   const toId=document.getElementById('f-transfer-to').value;
   const amount=parseNum(document.getElementById('f-transfer-amount').value);
@@ -3781,19 +3832,20 @@ async function saveTransferBudget(){
   const avail=transferAvailable(fromId);
   if(amount>avail+0.005){ showToast(`Só há ${brl(avail)} disponível nessa categoria.`,'error'); return; }
   const fromCat=categories.find(c=>c.id===fromId), toCat=categories.find(c=>c.id===toId);
-  const newFromBudget=Math.round((baseBudget(fromCat,currentMonthKey)-amount)*100)/100;
-  const newToBudget=Math.round((baseBudget(toCat,currentMonthKey)+amount)*100)/100;
+  const newFromBudget=Math.round((baseBudget(fromCat,mk)-amount)*100)/100;
+  const newToBudget=Math.round((baseBudget(toCat,mk)+amount)*100)/100;
   const btn=document.getElementById('btn-transfer'); btn.disabled=true; btn.textContent='Transferindo...';
   try{
-    await setMonthBudget(fromId, currentMonthKey, newFromBudget);
-    await setMonthBudget(toId, currentMonthKey, newToBudget);
+    await ensureMonthsExist(mk,mk);
+    await setMonthBudget(fromId, mk, newFromBudget);
+    await setMonthBudget(toId, mk, newToBudget);
     try{
-      const row=await api.insertBudgetTransfer({month_key:currentMonthKey,from_cat_id:fromId,to_cat_id:toId,amount});
-      budgetTransfers.unshift(row?.[0]||{month_key:currentMonthKey,from_cat_id:fromId,to_cat_id:toId,amount,created_at:new Date().toISOString()});
+      const row=await api.insertBudgetTransfer({month_key:mk,from_cat_id:fromId,to_cat_id:toId,amount});
+      budgetTransfers.unshift(row?.[0]||{id:uid(),month_key:mk,from_cat_id:fromId,to_cat_id:toId,amount,created_at:new Date().toISOString()});
     }catch{}
     saveCache(); vib(15);
     _closeModal(); render();
-    showToast(`${brl(amount)} transferido de ${fromCat.name} para ${toCat.name}.`,'success');
+    showToast(`${brl(amount)} de ${fromCat.name} para ${toCat.name} em ${monthLabel(mk)}.`,'success');
   }catch{
     btn.disabled=false; btn.textContent='Transferir';
     showToast('Erro — confira se a coluna "budgets" existe no Supabase.','error');

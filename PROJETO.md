@@ -4,7 +4,7 @@ Referência única do projeto: o que ele é, como está montado, o que está no 
 abandonado, as regras que toda alteração precisa seguir, e o passo a passo para migrar
 tudo para outra conta.
 
-Versão do app na data deste documento: **5.18** · Última atualização: **22/09/2026**
+Versão do app na data deste documento: **5.19** · Última atualização: **22/09/2026**
 
 ---
 
@@ -352,7 +352,8 @@ colunas existem, é ele a fonte da verdade.
 - **Ajuste do orçamento do mês** — muda o teto só daquele mês. **Zero é um valor válido**:
   a categoria fica com orçamento zerado naquele mês e qualquer gasto já conta como
   estouro. Diferente de *sem teto*, que não tem orçamento nenhum e fica fora do total.
-- **Transferência de limite** entre categorias, válida só no mês corrente.
+- **Transferência de limite** entre categorias, no mês corrente **ou num mês à frente**,
+  para deixar arrumado antes de ele começar. Mês passado não aceita.
 - **Adiantar limite do mês seguinte** — puxa parte do teto dos meses à frente para o mês
   atual, devolvendo em até 6 parcelas. Reversível. Ver
   [seção 5.3](#53-adiantar-limite-do-mês-seguinte-v514).
@@ -532,6 +533,23 @@ quebrava em três linhas e dobrava a altura da linha do gasto. O endereço intei
 > assume sozinha.
 
 ### 5.5 O bloco de movimentações (v5.17)
+
+Cada linha tem um **X que desfaz**, e desfazer quer dizer três coisas diferentes:
+
+| Tipo | O que o X faz |
+|---|---|
+| Transferência | Devolve o valor no `month_budgets` das **duas** categorias e apaga a linha de `budget_transfers`. Se a categoria voltar ao orçamento padrão, o ajuste do mês é removido junto, e a etiqueta *ajustado* some |
+| Saldo do mês anterior | **Zera o `amount`**, não apaga a linha |
+| Adiantamento | Desfaz o **grupo inteiro** — o crédito deste mês e as devoluções dos meses seguintes. Uma perna sozinha deixaria a conta torta |
+
+O rollover é zerado em vez de apagado porque `applyAutoRollover()` só cria quando não
+existe linha para aquele par (`cat_id`, `from_month`, `to_month`). Apagar faria o próximo
+boot **recriar** o saldo que você acabou de dispensar. Com a linha zerada ele entende que
+aquele mês já foi resolvido, e o valor zero não muda o teto. Por isso
+`movimentosDoMes()` descarta rollover com `|amount| < 0,005`: zerado não é movimentação,
+é lápide.
+
+O X só aparece em mês corrente ou futuro, e só na categoria que é sua.
 
 Adiantamento, rollover e transferência de limite **não são gastos**, mas até a v5.16
 usavam `.expense-item`, com o mesmo peso visual e empilhados por cima dos lançamentos de
@@ -1065,6 +1083,7 @@ Nesta ordem, que é da ponta mais provável para a menos:
 
 | Versão | O quê |
 |---|---|
+| 5.19 | Transferência de limite em meses futuros; X para desfazer cada movimentação |
 | 5.18 | Orçamento do mês aceita zero |
 | 5.17 | Movimentações do limite viram bloco recolhível com data; nome da categoria nos cards do desktop; edição de gasto volta a ter o campo Tipo |
 | 5.16 | Deletar categoria apaga os lançamentos e o resto que aponta para ela, em vez de dar erro |

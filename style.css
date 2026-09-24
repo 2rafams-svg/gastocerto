@@ -176,6 +176,8 @@ button{touch-action:manipulation}
 .mov-val{font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
 .mov-val.pos{color:var(--accent-text)}
 .mov-val.neg{color:var(--red)}
+.mov-x{width:26px;height:26px;flex-shrink:0;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text3);display:flex;align-items:center;justify-content:center;font-size:11px;cursor:pointer;transition:background .15s,color .15s,border-color .15s}
+.mov-x:active,.mov-x:hover{background:var(--red-soft);border-color:var(--red-soft);color:var(--red)}
 #f-loc-row .pick-name{white-space:normal;line-height:1.3}
 .pick-row.buscando .pick-ico{animation:locPulse 1.1s ease-in-out infinite}
 @keyframes locPulse{0%,100%{opacity:1}50%{opacity:.35}}

@@ -45,7 +45,7 @@ function syncThemeRow(){
   if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
-const APP_VERSION = '5.16';
+const APP_VERSION = '5.17';
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
 const VAPID_PUBLIC_KEY = 'BOGPXr8rzIa2v0x9icJfeWnSp7OEfo5wDjcRV39GFqVuctrVr5k_dfjkpHpi06obd9S5k80T9O5kadH71ITniyY';
@@ -360,7 +360,7 @@ const api={
 };
 
 let categories=[], months=[], currentMonthKey='', viewMonthKey='', expenses=[], currentTab='home', currentCatIdx=0, budgetTransfers=[], cards=[], rollovers=[], futureMonthKeys=[];
-let futureExpenses=[], recurringBase=[], projectedExpenses=[], futureOpen={}, monthIndex={}, allCards=[], loans=[];
+let futureExpenses=[], recurringBase=[], projectedExpenses=[], futureOpen={}, monthIndex={}, allCards=[], loans=[], movOpen={};
 let subscription=null, userPlan='free';
 let splitGroups=[], pendingShares=[], acceptedShares=[], sharedOutMap={}, pendingSplitInvites=[], acceptedGroupIds=new Set(), friends=[];
 let myProfile=null, profilesById={};
@@ -1602,50 +1602,8 @@ function buildSlide(cat, isNow){
 
   const transfersOut=isNow?budgetTransfers.filter(t=>t.from_cat_id===cat.id):[];
   const transfersIn=isNow?budgetTransfers.filter(t=>t.to_cat_id===cat.id):[];
-  const catLoans=loans.filter(l=>l.cat_id===cat.id&&l.month_key===viewMonthKey);
-  const loanHtml=catLoans.map(l=>{
-    const amt=parseFloat(l.amount||0), pos=amt>=0;
-    return `<div class="expense-item">
-      <div class="expense-left">
-        <div class="expense-name"><i class="fa-solid fa-hand-holding-dollar" style="font-size:10px;color:${pos?'var(--amber-text)':'var(--text2)'};margin-right:5px" aria-hidden="true"></i>${pos?'Emprestado do mês seguinte':'Devolução do empréstimo'}</div>
-        <div class="expense-date">${pos?'Sai do limite dos meses à frente':'Descontado do limite deste mês'}</div>
-      </div>
-      <div class="expense-right"><div class="expense-value" style="color:${pos?'var(--amber-text)':'var(--red)'}">${pos?'+':'-'}${brl(Math.abs(amt))}</div></div>
-    </div>`;
-  }).join('');
-  const catRolls=rollovers.filter(r=>r.cat_id===cat.id&&r.to_month===viewMonthKey);
-  const rolloverHtml=catRolls.map(r=>{
-    const amt=parseFloat(r.amount||0), pos=amt>=0;
-    return `<div class="expense-item">
-      <div class="expense-left">
-        <div class="expense-name"><i class="fa-solid fa-arrow-right-arrow-left fa-rotate-90" style="font-size:10px;color:${pos?'var(--accent-text)':'var(--red)'};margin-right:5px" aria-hidden="true"></i>${pos?'Sobra do mês anterior':'Estouro do mês anterior'}</div>
-        <div class="expense-date">Vindo de <strong>${monthLabel(r.from_month)}</strong>${r.auto?' · automático':''}</div>
-      </div>
-      <div class="expense-right"><div class="expense-value" style="color:${pos?'var(--accent-text)':'var(--red)'}">${pos?'+':'-'}${brl(Math.abs(amt))}</div></div>
-    </div>`;
-  }).join('');
-  const transferHtml=[
-    ...transfersOut.map(t=>{
-      const toName=escapeHtml(categories.find(c=>c.id===t.to_cat_id)?.name||'outra categoria');
-      return `<div class="expense-item">
-        <div class="expense-left">
-          <div class="expense-name"><i class="fa-solid fa-right-left" style="font-size:10px;color:var(--red);margin-right:5px" aria-hidden="true"></i>Limite transferido</div>
-          <div class="expense-date">Enviado para <strong>${toName}</strong></div>
-        </div>
-        <div class="expense-right"><div class="expense-value" style="color:var(--red)">-${brl(t.amount)}</div></div>
-      </div>`;
-    }),
-    ...transfersIn.map(t=>{
-      const fromName=escapeHtml(categories.find(c=>c.id===t.from_cat_id)?.name||'outra categoria');
-      return `<div class="expense-item">
-        <div class="expense-left">
-          <div class="expense-name"><i class="fa-solid fa-right-left" style="font-size:10px;color:var(--accent-text);margin-right:5px" aria-hidden="true"></i>Limite recebido</div>
-          <div class="expense-date">Vindo de <strong>${fromName}</strong></div>
-        </div>
-        <div class="expense-right"><div class="expense-value" style="color:var(--accent-text)">+${brl(t.amount)}</div></div>
-      </div>`;
-    })
-  ].join('');
+  const movs=movimentosDoMes(cat,transfersOut,transfersIn);
+  const movHtml=movBlockHtml(cat,movs);
 
   const sharedBadge=sharedWith?`<div style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--accent-text);background:var(--accent-soft);border:1px solid var(--accent-line);border-radius:100px;padding:3px 10px;margin-bottom:10px"><i class="fa-solid ${perm==='edit'?'fa-pen-to-square':'fa-eye'}" aria-hidden="true"></i> ${perm==='edit'?'Compartilhada · pode editar':'Compartilhada · somente leitura'}</div>`:'';
 
@@ -1656,6 +1614,7 @@ function buildSlide(cat, isNow){
   const heroValue=livre?brl(spent):available>=0?brl(available):brl(Math.abs(available));
 
   return `<div class="cat-slide">
+    <div class="cat-slide-name">${escapeHtml(cat.name)}${livre?'<span class="cat-slide-tag">sem teto</span>':''}</div>
     <div class="cat-hero ${status}">
       ${sharedBadge}
       <div class="hero-top">
@@ -1676,17 +1635,93 @@ function buildSlide(cat, isNow){
       ${forecast?`<div class="hero-forecast"><i class="fa-regular fa-clock" aria-hidden="true"></i> ${forecast}</div>`:''}`}
     </div>
 
+    ${movHtml}
+
     <div class="exp-head">
       <span class="section-label" style="margin:0">Lançamentos${catExps.length?` · ${catExps.length}`:''}</span>
       <button class="act-log-btn" onclick="openActivityLog('${cat.id}')" title="Histórico de atividades" aria-label="Histórico de atividades"><i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i></button>
     </div>
-    ${(catExps.length||transferHtml||rolloverHtml||loanHtml)?`<div class="exp-list">${loanHtml}${rolloverHtml}${transferHtml}${expHtml}</div>`:`<div class="exp-empty"><i class="fa-regular fa-receipt" aria-hidden="true"></i><span>Nenhum gasto ${isNow?'este mês':'neste período'}.</span></div>`}
+    ${catExps.length?`<div class="exp-list">${expHtml}</div>`:`<div class="exp-empty"><i class="fa-regular fa-receipt" aria-hidden="true"></i><span>Nenhum gasto ${isNow?'este mês':'neste período'}.</span></div>`}
 
     ${isOwned?`<div class="cat-actions">
       <button class="ghost-btn" onclick="openShareCategory('${cat.id}')"><i class="fa-solid fa-user-plus" aria-hidden="true"></i> Compartilhar</button>
       <button class="ghost-btn" onclick="shareCategory('${cat.id}')"><i class="fa-solid fa-arrow-up-from-bracket" aria-hidden="true"></i> Exportar</button>
     </div>`:''}
   </div>`;
+}
+
+function dataCurta(iso){
+  if(!iso) return null;
+  const d=new Date(iso);
+  if(isNaN(d)) return null;
+  return d.toLocaleDateString('pt-BR',{day:'2-digit',month:'short'}).replace('.','');
+}
+function movimentosDoMes(cat,transfersOut,transfersIn){
+  const out=[];
+  loans.filter(l=>l.cat_id===cat.id&&l.month_key===viewMonthKey).forEach(l=>{
+    const amt=parseFloat(l.amount||0);
+    out.push({ico:'fa-hand-holding-dollar',classe:amt>=0?'amber':'neg',
+      titulo:amt>=0?'Limite adiantado':'Devolução do adiantamento',
+      onde:amt>=0?'Sai dos meses à frente':'Referente ao adiantamento',
+      valor:amt,quando:l.created_at});
+  });
+  rollovers.filter(r=>r.cat_id===cat.id&&r.to_month===viewMonthKey).forEach(r=>{
+    const amt=parseFloat(r.amount||0);
+    out.push({ico:'fa-arrow-right-arrow-left fa-rotate-90',classe:amt>=0?'pos':'neg',
+      titulo:amt>=0?'Sobra do mês anterior':'Estouro do mês anterior',
+      onde:`${monthLabel(r.from_month)}${r.auto?' · automático':''}`,
+      valor:amt,quando:r.created_at});
+  });
+  (transfersOut||[]).forEach(t=>{
+    out.push({ico:'fa-arrow-right-from-bracket',classe:'neg',titulo:'Limite enviado',
+      onde:`Para ${categories.find(c=>c.id===t.to_cat_id)?.name||'outra categoria'}`,
+      valor:-Math.abs(parseFloat(t.amount||0)),quando:t.created_at});
+  });
+  (transfersIn||[]).forEach(t=>{
+    out.push({ico:'fa-arrow-right-to-bracket',classe:'pos',titulo:'Limite recebido',
+      onde:`De ${categories.find(c=>c.id===t.from_cat_id)?.name||'outra categoria'}`,
+      valor:Math.abs(parseFloat(t.amount||0)),quando:t.created_at});
+  });
+  return out.sort((a,b)=>String(b.quando||'').localeCompare(String(a.quando||'')));
+}
+function movAberto(catId,qtd){ return movOpen[catId]!==undefined?movOpen[catId]:qtd<=3; }
+function movBlockHtml(cat,movs){
+  if(!movs.length) return '';
+  const liquido=Math.round(movs.reduce((s,m)=>s+m.valor,0)*100)/100;
+  const aberto=movAberto(cat.id,movs.length);
+  const pos=liquido>=0;
+  return `<div class="mov-block${aberto?' open':''}" id="mov-${cat.id}">
+    <button class="mov-head" onclick="toggleMov('${cat.id}',${movs.length})">
+      <span class="mov-head-ico"><i class="fa-solid fa-sliders" aria-hidden="true"></i></span>
+      <span class="mov-head-body">
+        <span class="mov-head-title">Movimentações</span>
+        <span class="mov-head-sub">${movs.length} ${movs.length===1?'ajuste':'ajustes'} no limite deste mês</span>
+      </span>
+      <span class="mov-head-num ${pos?'pos':'neg'}">${pos?'+':'−'}${brl(Math.abs(liquido))}</span>
+      <i class="fa-solid fa-chevron-down mov-chev" aria-hidden="true"></i>
+    </button>
+    <div class="mov-list"${aberto?'':' hidden'}>${movs.map(movRowHtml).join('')}</div>
+  </div>`;
+}
+function movRowHtml(m){
+  const pos=m.valor>=0;
+  const quando=dataCurta(m.quando);
+  return `<div class="mov-row">
+    <span class="mov-ico ${m.classe}"><i class="fa-solid ${m.ico}" aria-hidden="true"></i></span>
+    <span class="mov-body">
+      <span class="mov-title">${escapeHtml(m.titulo)}</span>
+      <span class="mov-sub">${escapeHtml(m.onde)}${quando?` · ${quando}`:''}</span>
+    </span>
+    <span class="mov-val ${pos?'pos':'neg'}">${pos?'+':'−'}${brl(Math.abs(m.valor))}</span>
+  </div>`;
+}
+function toggleMov(catId,qtd){
+  vib(5);
+  const el=document.getElementById(`mov-${catId}`); if(!el) return;
+  const aberto=!movAberto(catId,qtd);
+  movOpen[catId]=aberto;
+  el.classList.toggle('open',aberto);
+  const lista=el.querySelector('.mov-list'); if(lista) lista.hidden=!aberto;
 }
 
 function sharePerm(catId){ const s=acceptedShares.find(x=>x.category_id===catId); return s?.permission||'view'; }
@@ -2626,7 +2661,8 @@ function openEditExpense(expId){
   const cartaoTravado=alheio||(!!cartaoConhecido&&!cardIsMine(cartaoConhecido));
   openModal(`<div class="modal-title">Editar Gasto</div>
     <div class="form-group"><label class="form-label">Categoria</label>
-      <select class="form-input" id="f-catId">${categories.filter(c=>c.user_id===currentUser.id||sharePerm(c.id)==='edit').map(c=>`<option value="${c.id}"${c.id===e.cat_id?' selected':''}>${escapeHtml(c.name)}</option>`).join('')}</select></div>
+      <select class="form-input" id="f-catId" onchange="onExpenseCatChange()">${categories.filter(c=>c.user_id===currentUser.id||sharePerm(c.id)==='edit').map(c=>`<option value="${c.id}"${c.id===e.cat_id?' selected':''}>${escapeHtml(c.name)}</option>`).join('')}</select></div>
+    ${subcatFieldHtml(e.subcat||'')}
     <div class="form-group"><label class="form-label">Descrição</label>
       <div class="ac-wrap">
         <input class="form-input" id="f-name" value="${escapeHtml(e.name)}" autocomplete="off" oninput="acFilter(this.value)" onfocus="acFilter(this.value)" onblur="acBlur()"/>

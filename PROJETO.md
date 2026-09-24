@@ -4,7 +4,7 @@ Referência única do projeto: o que ele é, como está montado, o que está no 
 abandonado, as regras que toda alteração precisa seguir, e o passo a passo para migrar
 tudo para outra conta.
 
-Versão do app na data deste documento: **5.16** · Última atualização: **22/09/2026**
+Versão do app na data deste documento: **5.17** · Última atualização: **22/09/2026**
 
 ---
 
@@ -529,6 +529,27 @@ quebrava em três linhas e dobrava a altura da linha do gasto. O endereço intei
 > pessoal, uma chamada por lançamento, está folgado. Se um dia der `429`, a reserva
 > assume sozinha.
 
+### 5.5 O bloco de movimentações (v5.17)
+
+Adiantamento, rollover e transferência de limite **não são gastos**, mas até a v5.16
+usavam `.expense-item`, com o mesmo peso visual e empilhados por cima dos lançamentos de
+verdade. Uma categoria com dez transferências no mês empurrava a primeira compra para
+fora da tela — e nenhuma delas mostrava quando tinha acontecido.
+
+Agora saem da `.exp-list` e viram um bloco próprio, **acima** de Lançamentos: hero → o que
+mexeu no limite → o que você gastou.
+
+- `movimentosDoMes()` junta as três origens num formato só (`ico`, `classe`, `titulo`,
+  `onde`, `valor`, `quando`) e ordena por `created_at` **decrescente**. As três tabelas já
+  tinham a coluna; ninguém estava usando.
+- O cabeçalho mostra a **soma líquida** — o efeito real no teto do mês — e quantos ajustes
+  foram.
+- Recolhido por padrão a partir de **4 movimentações**; com até três fica aberto, porque
+  esconder duas linhas é pior que mostrá-las. `movOpen[catId]` guarda o que o usuário
+  escolheu e vence o padrão.
+- Linha compacta: pastilha colorida de 26px, título em peso normal (não negrito, que é do
+  gasto), origem e data no subtítulo.
+
 ### Plataforma
 - PWA instalável, funciona offline com os dados em cache.
 - Tema claro e escuro, sincronizado entre aparelhos.
@@ -539,8 +560,12 @@ quebrava em três linhas e dobrava a altura da linha do gasto. O endereço intei
   abre o formulário preenchido, para atalhos do iOS. Ver [seção 7](#7-lançamento-rápido-ios).
 - **View de desktop** acima de 900px: largura até 1180px e as categorias numa faixa
   horizontal com setas ‹ › nas laterais, uma categoria por passo. A faixa de chips fica
-  escondida (as setas fazem o papel dela) e o arraste do celular é desligado — quem manda
-  ali são as setas. Ver [seção 9.7](#97-o-que-quebra-só-no-desktop).
+  escondida, e por isso **cada card leva o nome da categoria no topo** — sem ele não dá
+  para saber de quem é cada coluna. O arraste do celular é desligado; quem manda ali são
+  as setas. Ver [seção 9.7](#97-o-que-quebra-só-no-desktop).
+- **Movimentações do limite** — adiantamento, rollover e transferência saem da lista de
+  gastos e viram um bloco próprio, recolhível, com data. Ver
+  [seção 5.5](#55-o-bloco-de-movimentações-v517).
 
 ---
 
@@ -1038,6 +1063,7 @@ Nesta ordem, que é da ponta mais provável para a menos:
 
 | Versão | O quê |
 |---|---|
+| 5.17 | Movimentações do limite viram bloco recolhível com data; nome da categoria nos cards do desktop; edição de gasto volta a ter o campo Tipo |
 | 5.16 | Deletar categoria apaga os lançamentos e o resto que aponta para ela, em vez de dar erro |
 | 5.15 | Localização vira endereço aproximado, pedido automaticamente ao abrir o lançamento |
 | 5.14 | Adiantar limite do mês seguinte, tipos dentro da categoria, localização do lançamento e lançamento rápido só com o valor |

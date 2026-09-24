@@ -355,7 +355,8 @@ const api={
   getMyProfile:()=>sbFetch(`profiles?id=eq.${currentUser.id}&limit=1`).then(r=>r?.[0]||null),
   checkUsername:(u)=>sbFetch(`profiles?username=ilike.${encodeURIComponent(u)}&id=neq.${currentUser.id}&select=id&limit=1`).then(r=>r?.[0]||null),
   insertProfile:(username)=>sbFetch('profiles',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=representation'},body:JSON.stringify({id:currentUser.id,username:username.toLowerCase(),email:currentUser.email})}),
-  getProfilesByIds:(ids)=>ids.length?sbFetch(`profiles?id=in.(${ids.join(',')})&select=id,username`):Promise.resolve([]),
+  getProfilesByIds:(ids)=>ids.length?sbFetch(`profiles?id=in.(${ids.join(',')})&select=id,username,avatar_url`).catch(()=>sbFetch(`profiles?id=in.(${ids.join(',')})&select=id,username`)):Promise.resolve([]),
+  updateMyProfile:(d)=>sbFetch(`profiles?id=eq.${currentUser.id}`,{method:'PATCH',headers:{Prefer:'return=representation'},body:JSON.stringify(d)}),
   getAdminGrant:()=>sbFetch(`admin_grants?email=ilike.${encodeURIComponent(currentUser.email)}&limit=1`),
   insertAdminGrant:(email,plan)=>sbFetch('admin_grants',{method:'POST',body:JSON.stringify({email:email.toLowerCase(),plan,granted_by:currentUser.id})}),
   deleteAdminGrant:(id)=>sbFetch(`admin_grants?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
@@ -904,7 +905,7 @@ let expenseNames=[], acResults=[], histMini=[];
 function saveCache(){
   try{
     const leves=expenses.map(e=>e.image_url?{...e,image_url:null,_img:1}:e);
-    localStorage.setItem(`${CACHE_PREFIX}:${currentUser.id}`, JSON.stringify({categories,months,expenses:leves,currentMonthKey,expenseNames,histMini,ts:Date.now()}));
+    localStorage.setItem(`${CACHE_PREFIX}:${currentUser.id}`, JSON.stringify({categories,months,expenses:leves,currentMonthKey,expenseNames,histMini,avatar:imgSegura(myProfile&&myProfile.avatar_url),ts:Date.now()}));
   }catch{}
 }
 function montarHistorico(rows){
@@ -952,11 +953,16 @@ function openAccountModal(){
   const isLight=document.documentElement.getAttribute('data-theme')==='light';
   openModal(`<div class="modal-title">Sua conta</div>
     <div style="display:flex;align-items:center;gap:12px;padding:14px;background:var(--surface2);border-radius:14px;margin-bottom:16px">
-      <div style="width:44px;height:44px;border-radius:50%;background:var(--accent-soft);border:1px solid var(--accent-line);display:flex;align-items:center;justify-content:center;color:var(--accent-text);font-weight:700;font-size:18px;flex-shrink:0">${escapeHtml((myProfile?.username||email||'?').charAt(0).toUpperCase())}</div>
+      <button type="button" class="me-avatar" onclick="document.getElementById('f-avatar').click()" aria-label="${avatarDe(currentUser.id)?'Trocar foto de perfil':'Adicionar foto de perfil'}">
+        ${fotoOuLetra(currentUser.id,(myProfile?.username||currentUser?.email||'?').charAt(0).toUpperCase())}
+        <span class="me-avatar-cam"><i class="fa-solid fa-camera" aria-hidden="true"></i></span>
+      </button>
+      <input type="file" id="f-avatar" accept="image/*" hidden onchange="salvarAvatar(this)"/>
       <div style="min-width:0;flex:1">
         ${uname?`<div style="font-weight:700;font-size:15px">${uname}</div>`:`<div style="font-weight:700;font-size:14px;color:var(--accent-text);cursor:pointer" onclick="openSetUsername()"><i class="fa-solid fa-at" aria-hidden="true"></i> Definir nome de usuário</div>`}
         <div style="font-size:12px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${email}</div>
         <div style="font-size:11px;color:var(--accent-text);font-weight:600;margin-top:2px">${isPro()?'Plano Pro':'Plano Gratuito'}</div>
+        ${avatarDe(currentUser.id)?'<button type="button" class="me-avatar-rm" onclick="removerAvatar()">Remover foto</button>':'<button type="button" class="me-avatar-rm add" onclick="document.getElementById(\'f-avatar\').click()"><i class="fa-solid fa-camera" aria-hidden="true"></i> Adicionar foto</button>'}
       </div>
     </div>
     <div class="theme-row">
@@ -1083,6 +1089,7 @@ function loadCache(){
     expenses=c.currentMonthKey===hoje?(c.expenses||[]):[];
     expenseNames=c.expenseNames||[];
     histMini=c.histMini||[];
+    if(c.avatar) myProfile={...(myProfile||{}),avatar_url:c.avatar};
     currentMonthKey=hoje; viewMonthKey=hoje;
     return true;
   }catch{ return false; }
@@ -1109,7 +1116,7 @@ async function init(){
     if(prof) myProfile=prof;
     acceptedShares=accShares||[];
     sharedOutMap=Object.fromEntries((myShares||[]).filter(s=>s.shared_with_user_id).map(s=>[s.shared_with_user_id,s.shared_with_email]));
-    const relatedIds=[...new Set([...(myShares||[]).map(s=>s.shared_with_user_id),...(accShares||[]).map(s=>s.shared_by_user_id)].filter(id=>id&&id!==currentUser.id))];
+    const relatedIds=[...new Set([...(myShares||[]).map(s=>s.shared_with_user_id),...(accShares||[]).map(s=>s.shared_by_user_id),...(friends||[]).map(f=>f.friend_user_id)].filter(id=>id&&id!==currentUser.id))];
     api.getProfilesByIds(relatedIds).then(rows=>{(rows||[]).forEach(p=>{profilesById[p.id]=p;});render();}).catch(()=>{});
     const [splitInvites, splitMemberships] = await Promise.all([api.getPendingSplitInvites().catch(()=>[]), api.getAcceptedSplitMemberships().catch(()=>[])]);
     pendingSplitInvites=splitInvites||[];
@@ -1270,6 +1277,74 @@ async function removeShare(shareId,catId){
 
 function friendLabel(f){ return f.username?('@'+f.username):f.email; }
 function friendInitial(f){ return String(f.username||f.email||'?').charAt(0).toUpperCase(); }
+const DATA_IMG_OK=/^data:image\/(jpeg|png|webp|gif);base64,[A-Za-z0-9+\/=]+$/;
+function imgSegura(url){ return (typeof url==='string'&&DATA_IMG_OK.test(url))?url:null; }
+function avatarDe(uid){
+  if(!uid) return null;
+  if(currentUser&&uid===currentUser.id) return imgSegura(myProfile&&myProfile.avatar_url);
+  return imgSegura(profilesById[uid]&&profilesById[uid].avatar_url);
+}
+function fotoOuLetra(uid,letra){
+  const url=avatarDe(uid);
+  return url?`<img class="av-img" src="${url}" alt="" loading="lazy"/>`:escapeHtml(letra||'?');
+}
+function carregarPerfis(ids){
+  const faltam=[...new Set((ids||[]).filter(id=>id&&id!==currentUser.id&&!profilesById[id]))];
+  if(!faltam.length) return;
+  api.getProfilesByIds(faltam).then(rows=>{ (rows||[]).forEach(p=>{ profilesById[p.id]=p; }); render(); }).catch(()=>{});
+}
+function syncAccountBtn(){
+  const b=document.getElementById('account-btn'); if(!b) return;
+  const url=avatarDe(currentUser&&currentUser.id)||'';
+  if(b.dataset.av===url) return;
+  b.dataset.av=url;
+  b.classList.toggle('has-photo',!!url);
+  b.innerHTML=url?`<img class="av-img" src="${url}" alt=""/>`:'<i class="fa-regular fa-user" aria-hidden="true"></i>';
+}
+function fotoQuadrada(file,lado=256,qualidade=0.82){
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onerror=()=>reject(new Error('Falha ao ler o arquivo'));
+    reader.onload=()=>{
+      const img=new Image();
+      img.onerror=()=>reject(new Error('Imagem inválida'));
+      img.onload=()=>{
+        const m=Math.min(img.width,img.height);
+        const cv=document.createElement('canvas');
+        cv.width=lado; cv.height=lado;
+        cv.getContext('2d').drawImage(img,(img.width-m)/2,(img.height-m)/2,m,m,0,0,lado,lado);
+        resolve(cv.toDataURL('image/jpeg',qualidade));
+      };
+      img.src=reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+async function salvarAvatar(input){
+  const file=input&&input.files&&input.files[0]; if(!file) return;
+  if(file.type&&!/^image\//.test(file.type)){ showToast('Escolha uma imagem.','error'); input.value=''; return; }
+  showToast('Enviando foto…');
+  try{
+    const url=await fotoQuadrada(file);
+    const r=await api.updateMyProfile({avatar_url:url});
+    if(!r||!r.length){ showToast('Não achei seu perfil para salvar a foto. Defina um @usuário primeiro.','error'); return; }
+    myProfile={...(myProfile||{}),avatar_url:url};
+    saveCache(); vib(12); syncAccountBtn(); openAccountModal();
+    showToast('Foto atualizada!','success');
+  }catch(err){
+    const msg=String(err&&err.message||'');
+    showToast(/avatar_url/i.test(msg)?'Rode o SQL: ALTER TABLE profiles ADD COLUMN avatar_url text':`Não consegui salvar a foto: ${msg.slice(0,80)}`,'error');
+  }finally{ input.value=''; }
+}
+async function removerAvatar(){
+  if(!await confirmar('Volta a aparecer a inicial do seu nome.',{titulo:'Remover foto de perfil?',botao:'Remover',perigo:true,icone:'fa-image'})) return;
+  try{
+    await api.updateMyProfile({avatar_url:null});
+    myProfile={...(myProfile||{}),avatar_url:null};
+    saveCache(); syncAccountBtn(); openAccountModal();
+    showToast('Foto removida.','success');
+  }catch{ showToast('Erro ao remover a foto.','error'); }
+}
 function friendNote(){
   return `<p class="modal-note" style="margin-top:-4px">Não encontrou quem procura? Adicione a pessoa na aba <b>Amigos</b> (no menu inferior) e ela aparecerá aqui para você selecionar.</p>`;
 }
@@ -1303,7 +1378,7 @@ function shareFriendRowsHtml(){
 }
 async function openFriends(){
   openModal(`<div class="modal-title">Amigos</div><div class="loading"><div class="spinner"></div></div>`);
-  try{ friends=await api.getFriends()||[]; }catch{}
+  try{ friends=await api.getFriends()||[]; carregarPerfis(friends.map(f=>f.friend_user_id)); }catch{}
   renderFriendsModal();
 }
 function friendsListHtml(){
@@ -1314,7 +1389,7 @@ function friendsListHtml(){
     <div class="friend-swipe" data-id="${f.id}">
       <div class="friend-swipe-del"><i class="fa-solid fa-trash" aria-hidden="true"></i><span>Excluir</span></div>
       <div class="friend-card${un?' has-unread':''}" role="button" tabindex="0">
-        <div class="friend-avatar">${escapeHtml(friendInitial(f))}</div>
+        <div class="friend-avatar">${fotoOuLetra(f.friend_user_id,friendInitial(f))}</div>
         <div class="friend-card-main">
           <div class="friend-card-name">${escapeHtml(friendLabel(f))}</div>
           <div class="friend-card-sub">${un?`${un} ${un===1?'nova mensagem':'novas mensagens'}`:(f.username?escapeHtml(f.email):'Toque para abrir o chat de gastos')}</div>
@@ -1408,6 +1483,7 @@ async function saveFriend(){
     await api.addFriend(email,username,fid);
     if(fid) api.ensureReverseFriend(fid,currentUser.email,myProfile?.username).catch(()=>{});
     friends=await api.getFriends()||[];
+    carregarPerfis(friends.map(f=>f.friend_user_id));
     friendsViewRefresh();
     showToast('Amigo adicionado!','success');
   }catch(e){ showToast('Erro ao adicionar. Verifique se a tabela friends e a função friend_lookup existem.','error'); reset(); }
@@ -1496,6 +1572,7 @@ function openChat(friendId,label){
   ov.id='dm-chat'; ov.className='dm-overlay';
   ov.innerHTML=`<div class="dm-header">
       <button class="dm-back" onclick="closeChat()" aria-label="Voltar"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i></button>
+      <div class="dm-avatar">${fotoOuLetra(friendId,String(label||'?').replace(/^@/,'').charAt(0).toUpperCase())}</div>
       <div class="dm-head-info"><div class="dm-head-name">${safe}</div><div class="dm-head-bal" id="dm-bal">…</div></div>
     </div>
     <div class="dm-body" id="dm-body"><div class="loading"><div class="spinner"></div></div></div>
@@ -1705,6 +1782,7 @@ async function loadPendingShares(){
 }
 
 function render(){
+  syncAccountBtn();
   document.getElementById('current-month-label').textContent=monthLabel(viewMonthKey);
   document.querySelector('.month-pill')?.classList.toggle('off-month',!!currentMonthKey&&viewMonthKey!==currentMonthKey);
   const isNow=viewMonthKey===currentMonthKey;
@@ -3095,6 +3173,7 @@ function previewReceipt(input){
   reader.readAsDataURL(file);
 }
 function receiptPickerHtml(existingUrl=''){
+  existingUrl=imgSegura(existingUrl)||'';
   const thumb=existingUrl?`<img class="receipt-preview-img" id="receipt-preview-img" src="${existingUrl}" alt="Comprovante"/>`:`<img class="receipt-preview-img" id="receipt-preview-img" style="display:none" alt=""/>`;
   return `<div class="form-group"><label class="form-label">Comprovante <span style="color:var(--text3)">(opcional)</span></label>
   <div class="receipt-pick" onclick="document.getElementById('f-receipt').click()">
@@ -3142,6 +3221,7 @@ async function viewReceipt(id,isSplit){
     if(!item.image_url){ showToast('Sem conexão para abrir o comprovante.','error'); return; }
   }
   if(!item.image_url) return;
+  if(!imgSegura(item.image_url)){ showToast('Esse comprovante não é uma imagem válida.','error'); return; }
   document.getElementById('receipt-viewer')?.remove();
   const canEdit=canEditReceipt(item,isSplit);
   const actions=canEdit?`
@@ -4544,7 +4624,7 @@ const TUTORIAL_STEPS = [
   },
   {
     title: 'Sua conta',
-    body: 'No ícone de perfil ficam seu @usuário, tema claro ou escuro, notificações, seus cartões e o atalho de lançamento para o iPhone.',
+    body: 'No ícone de perfil ficam sua foto, seu @usuário, tema claro ou escuro, notificações, seus cartões e o atalho de lançamento para o iPhone.',
     target: ()=>document.getElementById('account-btn'),
     action: ()=>tutGo('home'),
   },

@@ -1,5 +1,5 @@
-const CACHE = 'gastopensado-v6.0';
-const SHELL = ['./', './index.html', './offline.html', './style.css?v=6.0', './app.js?v=6.0', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
+const CACHE = 'gastopensado-v6.0.1';
+const SHELL = ['./', './index.html', './offline.html', './style.css?v=6.0.1', './app.js?v=6.0.1', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));

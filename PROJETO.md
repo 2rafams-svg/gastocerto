@@ -267,8 +267,15 @@ Histórico por categoria. `category_id`, `actor_user_id`, `actor_email`, `action
 ### 3.2 Contas e planos
 
 #### `profiles`
-`id` (igual a `auth.users.id`), `username` (único, minúsculo), `email`. É o `@usuário` pelo
-qual as pessoas se encontram.
+`id` (igual a `auth.users.id`), `username` (único, minúsculo), `email`, `avatar_url`. É o
+`@usuário` pelo qual as pessoas se encontram.
+
+`avatar_url` é a **foto de perfil**: um JPEG de 256×256, recortado no centro, guardado como
+data URI (~15–30 KB). Aparece no botão de conta, na tela Sua conta, na lista de amigos e
+no topo do chat. **Toda imagem que vem do banco passa por `imgSegura()`** antes de ir para
+um `src`: só aceita `data:image/(jpeg|png|webp|gif);base64,...`. Sem isso, um `avatar_url`
+com aspas quebraria o atributo e rodaria script na tela de quem é amigo daquela pessoa. A
+mesma trava vale para os comprovantes.
 
 #### `subscriptions`
 `subscription_status` (`trialing` · `active` · outro), `billing_cycle`
@@ -394,6 +401,9 @@ colunas existem, é ele a fonte da verdade.
 | `openCatOptions(catId)` | O menu ⋯ do card |
 | `openExpenseDetail(expId)` | Ficha de só leitura (gasto de categoria compartilhada ou previsto) |
 | `toggleDiscreto()` | Liga e desliga o modo discreto |
+| `imgSegura(url)` | Devolve a URL só se for data URI de imagem; senão `null`. Obrigatório antes de qualquer `src` vindo do banco |
+| `fotoOuLetra(uid, letra)` | Foto de perfil da pessoa, ou a inicial |
+| `salvarAvatar(input)` · `removerAvatar()` | Sobe e remove a foto de perfil |
 
 ---
 

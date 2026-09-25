@@ -45,7 +45,7 @@ function syncThemeRow(){
   if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
-const APP_VERSION = '6.1';
+const APP_VERSION = '6.1.1';
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
 const VAPID_PUBLIC_KEY = 'BOGPXr8rzIa2v0x9icJfeWnSp7OEfo5wDjcRV39GFqVuctrVr5k_dfjkpHpi06obd9S5k80T9O5kadH71ITniyY';
@@ -547,7 +547,8 @@ function moneyKey(el){ el.value=el.value.replace(/[^0-9.,]/g,''); }
 function monthOverride(cat, monthKey){
   const mb=cat&&cat.month_budgets?cat.month_budgets[monthKey]:null;
   if(mb!=null&&!isNaN(parseFloat(mb))) return parseFloat(mb);
-  const m=months.find(x=>x.key===monthKey);
+  if(!cat||!currentUser||cat.user_id!==currentUser.id) return null;
+  const m=months.find(x=>x.key===monthKey&&(!x.user_id||x.user_id===currentUser.id));
   const legado=m&&m.budgets?m.budgets[cat.id]:null;
   return (legado!=null&&!isNaN(parseFloat(legado)))?parseFloat(legado):null;
 }

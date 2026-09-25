@@ -4,7 +4,7 @@ Referência única do projeto: o que ele é, como está montado, o que está no 
 abandonado, as regras que toda alteração precisa seguir, e o passo a passo para migrar
 tudo para outra conta.
 
-Versão do app na data deste documento: **6.1** · Última atualização: **24/09/2026**
+Versão do app na data deste documento: **6.1.1** · Última atualização: **25/09/2026**
 
 > Até a v5.19 o app se chamava **GastoCerto**. A v6 trocou o nome e a identidade inteira —
 > ver [seção 1.1](#11-identidade-v6).
@@ -334,6 +334,11 @@ levado e a transferência só apareciam para o dono:
 
 - `budget_rollovers` — `br_own` (tudo do dono) + `br_shared_read` (leitura do convidado)
 - `budget_transfers` — `bt_own` + `bt_shared_read`
+- `budget_loans` — `bl_shared_read` (desde a v6.1.1; antes o adiantamento só existia para o
+  dono e o limite da categoria compartilhada ficava diferente para cada um)
+
+As três políticas de leitura aceitam o convidado por `shared_with_user_id` **ou** por
+`shared_with_email`, igual à `cards_shared_read`.
 
 O SQL completo está em `cleanup-planejamento.sql`, seção 2.
 
@@ -891,6 +896,21 @@ Ajuste e transferência gravados em `months.budgets` não apareciam para o convi
 a linha de `months` é por usuário. Por isso o valor do mês mora em
 `categories.month_budgets`. **Nunca voltar a gravar em `months.budgets`.**
 
+A mesma regra vale para tudo que entra no limite: **o que muda o limite de uma categoria
+compartilhada precisa ser legível pelos dois lados**. Na v6.1.1 apareceram dois furos:
+
+- **Adiantamento.** `budget_loans` não tinha política de leitura para o convidado. O dono
+  via o teto com o adiantamento; o convidado, sem — e no mês da devolução, o contrário.
+- **`months.budgets` legado.** `baseBudget()` ainda caía no legado quando o mês não tinha
+  `month_budgets`, e procurava na linha de `months` **de quem está logado**. O convidado
+  achava o valor antigo *dele* para a categoria do outro. Agora o legado só vale para
+  categoria própria, e o SQL da v6.1.1 copiou o legado do dono para `month_budgets` (só
+  os meses que faltavam), para os dois lados convergirem.
+
+Para conferir, o disponível de uma categoria no mês é sempre: `month_budgets[mês]` (ou
+`budget`) + soma de `budget_rollovers.amount` com `to_month = mês` + soma de
+`budget_loans.amount` do mês − soma de `expenses.value` do mês.
+
 ### 9.5 Colisão de classe CSS
 
 `.plan-card` já existia no paywall e colidiu com cards novos de mesmo nome. Antes de criar
@@ -1282,6 +1302,7 @@ Nesta ordem, que é da ponta mais provável para a menos:
 
 | Versão | O quê |
 |---|---|
+| 6.1.1 | Categoria compartilhada com o mesmo limite para os dois: adiantamento visível ao convidado e `months.budgets` legado ignorado para categoria de outra pessoa |
 | **6.1** | **Sistema web.** Cabeçalho do celular que não corta a logo. Acima de 1100px: sidebar, Painel com KPIs e gráficos, organizar e ocultar categorias só no web, análise completa de cada categoria (passado, futuro, ritmo, por tipo, tabela com busca), Relatórios com período, busca, sete agrupamentos, tabela ordenável com detalhe e CSV. Botões de lançar no cabeçalho do web. FAB que saía da tela abaixo de 1180px |
 | **6.0** | **GastoPensado.** Nome, logo, ícones, paleta (marca violeta separada do verde de dinheiro) e tipografia novos. Card com "por dia" e ritmo, menu ⋯, lista por dia com linha tocável, formulário único de gasto com chips e "seus de sempre", ícone por categoria, diálogos próprios, modo discreto, milhar no `brl()`, cache e Histórico sem comprovante |
 | 5.19 | Transferência de limite em meses futuros; X para desfazer cada movimentação |

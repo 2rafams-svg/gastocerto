@@ -4,7 +4,7 @@ Referência única do projeto: o que ele é, como está montado, o que está no 
 abandonado, as regras que toda alteração precisa seguir, e o passo a passo para migrar
 tudo para outra conta.
 
-Versão do app na data deste documento: **6.1.1** · Última atualização: **25/09/2026**
+Versão do app na data deste documento: **6.2** · Última atualização: **25/09/2026**
 
 > Até a v5.19 o app se chamava **GastoCerto**. A v6 trocou o nome e a identidade inteira —
 > ver [seção 1.1](#11-identidade-v6).
@@ -266,6 +266,21 @@ apagar o grupo inteiro. Ver [seção 5.3](#53-adiantar-limite-do-mês-seguinte-v
 Pedaço de limite movido entre categorias dentro do mês. `user_id`, `month_key`,
 `from_cat_id`, `to_cat_id`, `amount`, `created_at`.
 
+#### `budget_reliefs` (v6.2)
+O **alívio**: cashback, reembolso, bônus — dinheiro que volta e aumenta o limite da
+categoria no mês. `id` (text, `uid()` do cliente), `user_id`, `relief_group`, `source`
+(a fonte, texto solto: "Cashback", "Pontos Livelo"), `name` (descrição opcional),
+`cat_id`, `month_key`, `amount` (> 0), `date`, `created_at`.
+
+Um alívio dividido em N categorias é **um grupo de N linhas** com o mesmo
+`relief_group`, cada uma com o seu pedaço — a soma fecha exatamente no valor lançado,
+em centavos. Desfazer pode apagar o grupo inteiro ou só a linha de uma categoria.
+
+RLS: `brf_read` (quem lançou, o dono da categoria e quem recebeu a categoria),
+`brf_insert` (só em categoria própria ou compartilhada com permissão de edição),
+`brf_delete` (quem lançou ou o dono da categoria). Sem política de `update`: alívio não
+se edita, se desfaz e lança de novo.
+
 #### `push_subscriptions`
 Uma linha **por aparelho**: `user_id`, `endpoint` (único), `p256dh`, `auth`, `user_agent`,
 `created_at`. A mesma pessoa no iPhone e no desktop tem duas linhas. RLS `ps_own`
@@ -421,6 +436,12 @@ colunas existem, é ele a fonte da verdade.
 | `openCatOptions(catId)` | O menu ⋯ do card |
 | `openExpenseDetail(expId)` | Ficha de só leitura (gasto de categoria compartilhada ou previsto) |
 | `toggleDiscreto()` | Liga e desliga o modo discreto |
+| `valoresProntos()` | Tira o `gp-carregando` do `<html>` — os valores deixam de ficar embaçados. Chamada no fim do `init()`, no erro e por um temporizador de 12 s |
+| `openAlivio(catId)` | Formulário de alívio. Também abre pela aba *Alívio* no topo do formulário de gasto |
+| `reliefAmount(catId, mês)` | Soma dos alívios da categoria no mês. Entra em `effBudget`, `tetoDe`, `futureMonthData` e `monthBalance` |
+| `dividirIgual()` · `reescalar()` · `alvDefinir()` | A divisão do alívio, sempre em centavos inteiros: igual com o resto nos primeiros; proporcional quando o valor muda depois de ajustado |
+| `fontesAlivio()` · `fonteIcone(nome)` | Fontes fixas + as cadastradas (`user_metadata.alivio_fontes`); o ícone sai do nome |
+| `desfazerAlivio(id)` | Pergunta se desfaz o grupo todo ou só a categoria |
 | `imgSegura(url)` | Devolve a URL só se for data URI de imagem; senão `null`. Obrigatório antes de qualquer `src` vindo do banco |
 | `fotoOuLetra(uid, letra)` | Foto de perfil da pessoa, ou a inicial |
 | `salvarAvatar(input)` · `removerAvatar()` | Sobe e remove a foto de perfil |
@@ -478,6 +499,40 @@ antigo "OK apaga as futuras, Cancelar apaga só esta".
 
 **Modo discreto**: embaça todo valor em dinheiro (classe `money` e mais uma lista de
 seletores do Histórico e de Próximos meses). Liga pelo olho do card ou em Sua conta.
+
+### 5.0.2 Lançar alívio (v6.2)
+
+Um segundo tipo de lançamento, ao lado do gasto: **o alívio**, para cashback,
+reembolso, bônus, estorno e o que mais devolver dinheiro.
+
+- Abre pela aba **Gasto | Alívio** no topo do formulário de gasto novo, pelo menu ⋯ da
+  categoria e, no web, pelo botão *Lançar alívio* do cabeçalho.
+- **De onde veio**: Cashback, Reembolso, Bônus e Estorno são fixos. *Nova fonte*
+  cadastra outra; *Editar* remove as cadastradas. Elas ficam em
+  `user_metadata.alivio_fontes`, então seguem a pessoa entre aparelhos. Remover uma fonte
+  não mexe nos alívios já lançados.
+- **Vai para**: uma categoria recebe 100%. Com mais de uma, o valor é **dividido igual,
+  em centavos exatos** (R$ 100 em três dá 33,34 · 33,33 · 33,33), e cada linha aceita
+  R$ ou %. Com duas categorias, mexer numa completa a outra sozinho. Com três ou mais,
+  o rodapé diz quanto falta ou passou, e a varinha de cada linha põe ali a diferença.
+  **O botão só libera quando fecha 100%** e nenhuma categoria ficou com zero.
+- **Onde aparece**: aumenta o limite do mês (o teto padrão não muda), entra no bloco
+  Movimentações com o ícone da fonte e um X para desfazer, conta na sobra que o rollover
+  leva, e nos Relatórios vira o KPI *Alívios* (com o gasto líquido) e um painel por fonte.
+- Categoria sem teto não recebe alívio: não tem limite para aumentar.
+
+**Por que limite e não gasto negativo:** o gasto continua sendo o que saiu de verdade —
+o Histórico e os Relatórios não misturam compra com cashback. E o alívio segue o mesmo
+caminho do adiantamento e do rollover, que já sabem aparecer para os dois lados de uma
+categoria compartilhada.
+
+### 5.0.3 Valores embaçados até carregar (v6.2)
+
+O app desenha primeiro o que está no cache e depois o que vem do servidor. Entre um e
+outro o número trocava na frente da pessoa. Agora o `<html>` nasce com a classe
+`gp-carregando` (posta já na primeira linha do `app.js`) e **todo valor em dinheiro
+fica embaçado e pulsando**, pelos mesmos seletores do modo discreto, até `valoresProntos()`.
+Sem conexão, os valores do cache aparecem assim que o `init()` desiste.
 
 ### 5.0.1 O sistema web (v6.1)
 
@@ -909,12 +964,22 @@ compartilhada precisa ser legível pelos dois lados**. Na v6.1.1 apareceram dois
 
 Para conferir, o disponível de uma categoria no mês é sempre: `month_budgets[mês]` (ou
 `budget`) + soma de `budget_rollovers.amount` com `to_month = mês` + soma de
-`budget_loans.amount` do mês − soma de `expenses.value` do mês.
+`budget_loans.amount` do mês + soma de `budget_reliefs.amount` do mês − soma de
+`expenses.value` do mês.
 
 ### 9.5 Colisão de classe CSS
 
 `.plan-card` já existia no paywall e colidiu com cards novos de mesmo nome. Antes de criar
 classe, conferir se o nome já existe em `style.css`.
+
+**O mesmo vale para função JS, e é pior.** O `app.js` é um script só, sem módulos: duas
+`function renderSplit` no arquivo e **a última vence em silêncio**, sem erro de sintaxe.
+Na v6.2 a divisão do alívio nasceu como `renderSplit()` e foi engolida pela tela Divisão,
+que tem uma `renderSplit(el)` mais abaixo. Antes de criar função, conferir:
+
+```bash
+grep -nE "function nome|(const|let) nome" app.js
+```
 
 ### 9.6 O cartão do outro numa categoria compartilhada
 
@@ -1302,6 +1367,7 @@ Nesta ordem, que é da ponta mais provável para a menos:
 
 | Versão | O quê |
 |---|---|
+| **6.2** | **Lançar alívio**: cashback, reembolso, bônus e fontes próprias, dividido em uma ou várias categorias com fechamento em 100%, entrando no limite, nas Movimentações e nos Relatórios. Valores embaçados até o servidor responder, sem trocar número na frente da pessoa |
 | 6.1.1 | Categoria compartilhada com o mesmo limite para os dois: adiantamento visível ao convidado e `months.budgets` legado ignorado para categoria de outra pessoa |
 | **6.1** | **Sistema web.** Cabeçalho do celular que não corta a logo. Acima de 1100px: sidebar, Painel com KPIs e gráficos, organizar e ocultar categorias só no web, análise completa de cada categoria (passado, futuro, ritmo, por tipo, tabela com busca), Relatórios com período, busca, sete agrupamentos, tabela ordenável com detalhe e CSV. Botões de lançar no cabeçalho do web. FAB que saía da tela abaixo de 1180px |
 | **6.0** | **GastoPensado.** Nome, logo, ícones, paleta (marca violeta separada do verde de dinheiro) e tipografia novos. Card com "por dia" e ritmo, menu ⋯, lista por dia com linha tocável, formulário único de gasto com chips e "seus de sempre", ícone por categoria, diálogos próprios, modo discreto, milhar no `brl()`, cache e Histórico sem comprovante |

@@ -45,7 +45,7 @@ function syncThemeRow(){
   if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
-const APP_VERSION = '6.2';
+const APP_VERSION = '6.2.1';
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
 const VAPID_PUBLIC_KEY = 'BOGPXr8rzIa2v0x9icJfeWnSp7OEfo5wDjcRV39GFqVuctrVr5k_dfjkpHpi06obd9S5k80T9O5kadH71ITniyY';
@@ -807,9 +807,27 @@ function limparLocal(){
   document.getElementById('f-place').value='';
   vib(5); syncLocRow();
 }
+function localAuto(){ try{ return localStorage.getItem('gp-local-auto')!=='0'; }catch{ return true; } }
+function toggleLocalAuto(){
+  const v=!localAuto();
+  try{ localStorage.setItem('gp-local-auto',v?'1':'0'); }catch{}
+  vib(8);
+  const sw=document.getElementById('local-switch'); if(sw) sw.checked=v;
+  showToast(v?'O app busca o local sozinho ao lançar.':'O local só é buscado quando você tocar em "Buscar minha localização".');
+}
+let localNegado=false, ultimoLocal=null;
+async function podePedirLocal(){
+  if(!navigator.geolocation||!localAuto()||localNegado) return false;
+  if(ultimoLocal&&Date.now()-ultimoLocal.t<300000) return true;
+  try{
+    const st=await navigator.permissions.query({name:'geolocation'});
+    if(st.state==='denied'){ localNegado=true; return false; }
+  }catch{}
+  return true;
+}
 async function autoLocal(){
-  if(!navigator.geolocation) return;
   if(document.getElementById('f-lat')?.value) return;
+  if(!await podePedirLocal()) return;
   capturarLocal();
 }
 
@@ -821,10 +839,11 @@ function mapsUrl(lat,lng){ return `https://www.google.com/maps/search/?api=1&que
 function coordsAgora(timeout=9000){
   return new Promise(resolve=>{
     if(!navigator.geolocation) return resolve(null);
+    if(ultimoLocal&&Date.now()-ultimoLocal.t<300000) return resolve({lat:ultimoLocal.lat,lng:ultimoLocal.lng});
     navigator.geolocation.getCurrentPosition(
-      p=>resolve({lat:Math.round(p.coords.latitude*1e6)/1e6,lng:Math.round(p.coords.longitude*1e6)/1e6}),
-      ()=>resolve(null),
-      {enableHighAccuracy:false,timeout,maximumAge:120000}
+      p=>{ localNegado=false; const c={lat:Math.round(p.coords.latitude*1e6)/1e6,lng:Math.round(p.coords.longitude*1e6)/1e6}; ultimoLocal={...c,t:Date.now()}; resolve(c); },
+      err=>{ if(err&&err.code===1) localNegado=true; resolve(null); },
+      {enableHighAccuracy:false,timeout,maximumAge:300000}
     );
   });
 }
@@ -978,6 +997,10 @@ function openAccountModal(){
     <div class="theme-row">
       <span class="theme-row-label"><i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}</span>
       <label class="switch"><input type="checkbox" id="theme-switch" ${isLight?'checked':''} onchange="toggleTheme();syncThemeRow()"><span class="switch-track"><span class="switch-thumb"></span></span></label>
+    </div>
+    <div class="theme-row">
+      <span class="theme-row-label"><i class="fa-solid fa-location-dot" aria-hidden="true"></i> Buscar o local sozinho</span>
+      <label class="switch"><input type="checkbox" id="local-switch" ${localAuto()?'checked':''} onchange="toggleLocalAuto()"><span class="switch-track"><span class="switch-thumb"></span></span></label>
     </div>
     <div class="theme-row">
       <span class="theme-row-label"><i class="fa-solid fa-eye-slash" aria-hidden="true"></i> Esconder valores</span>
@@ -4715,10 +4738,14 @@ function nomeAgora(){
   return `${p(d.getDate())}/${p(d.getMonth()+1)} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 let quickPos=null;
-async function quickLocal(){
+async function quickLocal(forcar){
   quickPos=null;
   const hint=document.getElementById('f-quick-local');
   if(!navigator.geolocation){ if(hint) hint.remove(); return; }
+  if(!forcar&&!await podePedirLocal()){
+    if(hint) hint.innerHTML='<button type="button" class="quick-hint-btn" onclick="quickLocal(true)"><i class="fa-solid fa-location-dot" aria-hidden="true"></i> Adicionar onde foi</button>';
+    return;
+  }
   if(hint) hint.innerHTML='<i class="fa-solid fa-location-dot" aria-hidden="true"></i> Procurando onde você está…';
   const c=await coordsAgora();
   if(!c){ const h=document.getElementById('f-quick-local'); if(h) h.innerHTML='<i class="fa-solid fa-location-dot" aria-hidden="true"></i> Sem localização — o gasto salva do mesmo jeito.'; return; }

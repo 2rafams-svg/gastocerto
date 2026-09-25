@@ -1294,3 +1294,4 @@ details summary::-webkit-details-marker{display:none}
 .al-link{display:inline-flex;align-items:center;gap:6px;padding:7px 10px;border-radius:10px;border:0;background:transparent;color:var(--accent-text);font:700 12.5px var(--font-body);cursor:pointer}
 .al-link:hover{background:var(--accent-soft)}
 @media (max-width:479px){.al-row{flex-wrap:wrap}.al-row-cat{flex:1 1 100%}.al-in-v{flex:1}.al-in-v input{width:100%}}
+.quick-hint-btn{display:inline-flex;align-items:center;gap:6px;padding:0;border:0;background:none;color:var(--accent-text);font-family:var(--font-body);font-weight:600;font-size:inherit;cursor:pointer}

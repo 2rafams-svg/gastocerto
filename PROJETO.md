@@ -4,7 +4,7 @@ Referência única do projeto: o que ele é, como está montado, o que está no 
 abandonado, as regras que toda alteração precisa seguir, e o passo a passo para migrar
 tudo para outra conta.
 
-Versão do app na data deste documento: **6.2** · Última atualização: **25/09/2026**
+Versão do app na data deste documento: **6.2.1** · Última atualização: **25/09/2026**
 
 > Até a v5.19 o app se chamava **GastoCerto**. A v6 trocou o nome e a identidade inteira —
 > ver [seção 1.1](#11-identidade-v6).
@@ -390,6 +390,7 @@ app.js
 | `gp-discreto` | Modo discreto ligado (`1`). Aplicado já na primeira linha do `app.js`, antes do render, para não piscar valor |
 | `gp-web-layout` | `{ordem:[ids], ocultas:[ids]}` — ordem e categorias escondidas **só no Painel web**. Não toca em `categories.position`, então o celular continua igual |
 | `gp-bi` | Período, agrupamento, categoria e ordenação dos Relatórios. Busca e grupo aberto não são guardados |
+| `gp-local-auto` | `0` desliga a busca automática do local. Ausente ou `1`, o app busca ao abrir o lançamento. Fica **por aparelho**, porque a permissão de GPS também é |
 
 O tema e o "tutorial já visto" também vão para o `user_metadata` do Supabase, para
 acompanhar o usuário entre aparelhos.
@@ -754,6 +755,21 @@ quebrava em três linhas e dobrava a altura da linha do gasto. O endereço intei
 > Nominatim é gratuito mas tem política de uso (~1 requisição por segundo). Para um app
 > pessoal, uma chamada por lançamento, está folgado. Se um dia der `429`, a reserva
 > assume sozinha.
+
+**A permissão não é do app (v6.2.1).** Quem guarda "permitir localização" é o sistema.
+No iPhone, app de site instalado na tela de início costuma perguntar de novo a cada
+abertura, e o app não tem como gravar essa resposta. O que o app faz para pedir menos:
+
+- **Recusou, não pergunta de novo** na mesma abertura (`localNegado`, pelo erro de código
+  1 ou pelo `navigator.permissions` dizendo `denied`).
+- **Reaproveita o local por 5 minutos** (`ultimoLocal`): lançar três gastos seguidos pede
+  o GPS uma vez só.
+- Chave **Buscar o local sozinho** em Sua conta (`gp-local-auto`). Desligada, o formulário
+  não pede nada ao abrir; o local só é buscado ao tocar em *Buscar minha localização*, ou
+  em *Adicionar onde foi* no lançamento rápido.
+
+Para o iPhone parar de perguntar, a saída é do lado dele: **Ajustes → Apps → Safari →
+Localização → Permitir** (em iOS mais antigo, Ajustes → Safari → Localização).
 
 ### 5.5 O bloco de movimentações (v5.17)
 
@@ -1367,6 +1383,7 @@ Nesta ordem, que é da ponta mais provável para a menos:
 
 | Versão | O quê |
 |---|---|
+| 6.2.1 | Localização pede menos: não repete depois de recusada, reaproveita o local por 5 minutos e ganhou chave em Sua conta para só buscar quando tocar |
 | **6.2** | **Lançar alívio**: cashback, reembolso, bônus e fontes próprias, dividido em uma ou várias categorias com fechamento em 100%, entrando no limite, nas Movimentações e nos Relatórios. Valores embaçados até o servidor responder, sem trocar número na frente da pessoa |
 | 6.1.1 | Categoria compartilhada com o mesmo limite para os dois: adiantamento visível ao convidado e `months.budgets` legado ignorado para categoria de outra pessoa |
 | **6.1** | **Sistema web.** Cabeçalho do celular que não corta a logo. Acima de 1100px: sidebar, Painel com KPIs e gráficos, organizar e ocultar categorias só no web, análise completa de cada categoria (passado, futuro, ritmo, por tipo, tabela com busca), Relatórios com período, busca, sete agrupamentos, tabela ordenável com detalhe e CSV. Botões de lançar no cabeçalho do web. FAB que saía da tela abaixo de 1180px |

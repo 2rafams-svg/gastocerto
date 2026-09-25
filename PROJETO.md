@@ -4,7 +4,7 @@ Referência única do projeto: o que ele é, como está montado, o que está no 
 abandonado, as regras que toda alteração precisa seguir, e o passo a passo para migrar
 tudo para outra conta.
 
-Versão do app na data deste documento: **6.2.1** · Última atualização: **25/09/2026**
+Versão do app na data deste documento: **6.3** · Última atualização: **25/09/2026**
 
 > Até a v5.19 o app se chamava **GastoCerto**. A v6 trocou o nome e a identidade inteira —
 > ver [seção 1.1](#11-identidade-v6).
@@ -390,6 +390,7 @@ app.js
 | `gp-discreto` | Modo discreto ligado (`1`). Aplicado já na primeira linha do `app.js`, antes do render, para não piscar valor |
 | `gp-web-layout` | `{ordem:[ids], ocultas:[ids]}` — ordem e categorias escondidas **só no Painel web**. Não toca em `categories.position`, então o celular continua igual |
 | `gp-bi` | Período, agrupamento, categoria e ordenação dos Relatórios. Busca e grupo aberto não são guardados |
+| `gp-mapa` | Período e categoria do Mapa. O mês navegado não é guardado |
 | `gp-local-auto` | `0` desliga a busca automática do local. Ausente ou `1`, o app busca ao abrir o lançamento. Fica **por aparelho**, porque a permissão de GPS também é |
 
 O tema e o "tutorial já visto" também vão para o `user_metadata` do Supabase, para
@@ -443,6 +444,10 @@ colunas existem, é ele a fonte da verdade.
 | `dividirIgual()` · `reescalar()` · `alvDefinir()` | A divisão do alívio, sempre em centavos inteiros: igual com o resto nos primeiros; proporcional quando o valor muda depois de ajustado |
 | `fontesAlivio()` · `fonteIcone(nome)` | Fontes fixas + as cadastradas (`user_metadata.alivio_fontes`); o ícone sai do nome |
 | `desfazerAlivio(id)` | Pergunta se desfaz o grupo todo ou só a categoria |
+| `renderMapa(el)` · `atualizarMapa(enquadrar)` | A aba Mapa. Re-render com o mapa já montado só troca os pins, sem perder zoom |
+| `carregarLeaflet()` | Carrega o Leaflet do cdnjs **só quando o mapa abre**, com SRI |
+| `lugaresDe(lista)` | Junta lançamentos no mesmo ponto (4 casas decimais, ~11 m) num pin só |
+| `desmontarMapa()` | Destrói a instância do Leaflet. `render()` chama ao sair da aba |
 | `imgSegura(url)` | Devolve a URL só se for data URI de imagem; senão `null`. Obrigatório antes de qualquer `src` vindo do banco |
 | `fotoOuLetra(uid, letra)` | Foto de perfil da pessoa, ou a inicial |
 | `salvarAvatar(input)` · `removerAvatar()` | Sobe e remove a foto de perfil |
@@ -534,6 +539,37 @@ outro o número trocava na frente da pessoa. Agora o `<html>` nasce com a classe
 `gp-carregando` (posta já na primeira linha do `app.js`) e **todo valor em dinheiro
 fica embaçado e pulsando**, pelos mesmos seletores do modo discreto, até `valoresProntos()`.
 Sem conexão, os valores do cache aparecem assim que o `init()` desiste.
+
+### 5.0.4 Mapa dos gastos (v6.3)
+
+Todo lançamento com local vira um pin. Abre pela aba **Mapa** na sidebar do web, pelo
+botão *Mapa* no Histórico do celular e por *Ver no mapa* no menu ⋯ da categoria (já
+filtrado nela).
+
+- **Período**: *Mês* (com setas para navegar, sem passar do mês atual), *60*, *90* e
+  *120 dias* — contados pela **data da compra**, até hoje — e *Tudo*. Mais o filtro por
+  categoria. Parcela futura não entra nos filtros por dias.
+- **Um pin por lugar**: lançamentos a menos de ~11 m viram um pin só, com o número de
+  lançamentos. A cor e o ícone são da categoria que mais gastou ali.
+- O **nome do lugar** é o nome de lançamento que mais se repete ali (se for pelo menos
+  metade — *Atacadão*); senão, a rua. Nomes de lançamento rápido (`24/09 12:10`) não contam.
+- **Tocar no pin** aproxima e abre a folha do lugar: total, endereço e a lista dos
+  lançamentos. Tocar num lançamento abre o detalhe; se você pode editar, *Editar gasto*
+  leva ao mês dele e abre a edição. Tem também *Abrir no Google Maps*.
+- **Onde você mais gasta**: ranking dos lugares, ao lado do mapa no web e embaixo no
+  celular.
+- O resumo diz quantos lançamentos do período **ficaram de fora por não terem local**.
+
+**Peças e armadilhas:**
+
+| | |
+|---|---|
+| Biblioteca | Leaflet 1.9.4 do cdnjs, carregado sob demanda, com `integrity` (os SHA-256 batem com os oficiais do leafletjs.com) |
+| Tiles | `tile.openstreetmap.org`, sem chave. A CARTO passou a exigir chave e mostra "API KEY REQUIRED" por cima do mapa |
+| Tema escuro | Não existe tile escuro grátis sem chave: o tema escuro aplica `filter:invert(1) hue-rotate(180deg)…` no `.leaflet-tile-pane`. Só nos tiles, não nos pins |
+| `#content *{max-width:100%}` | A trava contra rolagem lateral **esmaga o Leaflet** (pins com 0 px de largura, tiles quebrados). `#content .mapa-box *{max-width:none}` libera só dentro do mapa |
+| Empilhamento | O Leaflet usa `z-index` até 1000. `.mapa-box{isolation:isolate}` prende isso dentro da caixa, senão o zoom aparecia por cima das folhas do app |
+| Service worker | Ignora outra origem, então tiles e Leaflet não entram no cache |
 
 ### 5.0.1 O sistema web (v6.1)
 
@@ -1383,6 +1419,7 @@ Nesta ordem, que é da ponta mais provável para a menos:
 
 | Versão | O quê |
 |---|---|
+| **6.3** | **Mapa dos gastos**: pin por lugar com a cor da categoria, filtros de mês, 60, 90, 120 dias e tudo, por categoria, folha do lugar com os lançamentos, detalhe e edição, e ranking de onde você mais gasta |
 | 6.2.1 | Localização pede menos: não repete depois de recusada, reaproveita o local por 5 minutos e ganhou chave em Sua conta para só buscar quando tocar |
 | **6.2** | **Lançar alívio**: cashback, reembolso, bônus e fontes próprias, dividido em uma ou várias categorias com fechamento em 100%, entrando no limite, nas Movimentações e nos Relatórios. Valores embaçados até o servidor responder, sem trocar número na frente da pessoa |
 | 6.1.1 | Categoria compartilhada com o mesmo limite para os dois: adiantamento visível ao convidado e `months.budgets` legado ignorado para categoria de outra pessoa |

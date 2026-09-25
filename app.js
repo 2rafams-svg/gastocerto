@@ -34,6 +34,7 @@ function toggleTheme(){
   const next=isLight?'dark':'light';
   document.documentElement.setAttribute('data-theme',next);
   localStorage.setItem('gc-theme',next);
+  if(currentTab==='mapa') trocarTilesMapa();
   if(session) api.updateUserMeta({theme:next}).catch(()=>{});
   vib(6);
 }
@@ -45,7 +46,7 @@ function syncThemeRow(){
   if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
-const APP_VERSION = '6.2.1';
+const APP_VERSION = '6.3';
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
 const VAPID_PUBLIC_KEY = 'BOGPXr8rzIa2v0x9icJfeWnSp7OEfo5wDjcRV39GFqVuctrVr5k_dfjkpHpi06obd9S5k80T9O5kadH71ITniyY';
@@ -284,7 +285,7 @@ const api={
   insertMonth:(d)=>sbFetch('months',{method:'POST',body:JSON.stringify({...d,user_id:currentUser.id})}),
   closeMonth:(key)=>sbFetch(`months?key=eq.${key}`,{method:'PATCH',body:JSON.stringify({closed:true})}),
   getExpenses:(mk)=>sbFetch(`expenses?month_key=eq.${mk}&order=date.desc`),
-  getAllExpenses:()=>sbFetch('expenses?select=id,user_id,cat_id,month_key,name,value,date,recurring,installment_no,installment_total,card_id,subcat,place&order=date.desc'),
+  getAllExpenses:()=>sbFetch('expenses?select=id,user_id,cat_id,month_key,name,value,date,recurring,installment_no,installment_total,card_id,subcat,place,lat,lng&order=date.desc'),
   getExpenseImage:(id)=>sbFetch(`expenses?id=eq.${id}&select=image_url`).then(r=>r?.[0]?.image_url||null),
   getExpensesFrom:(mk)=>sbFetch(`expenses?month_key=gte.${mk}&select=id,user_id,cat_id,month_key,name,value,date,recurring,installment_no,installment_total,installment_group,card_id,subcat&order=month_key.asc`),
   getMonthTotals:()=>sbFetch('expenses?select=month_key,value&order=month_key.asc'),
@@ -1836,17 +1837,19 @@ function render(){
   const el=document.getElementById('content');
   const web=telaWeb();
   document.documentElement.classList.toggle('gp-web',web);
+  if(currentTab!=='mapa') desmontarMapa();
   if(currentTab==='home'&&webDetalhe) renderCatDetalhe(el,webDetalhe);
   else if(currentTab==='home') (web?renderPainel:renderHome)(el);
   else if(currentTab==='categorias') renderCategorias(el);
   else if(currentTab==='historico') renderHistorico(el);
   else if(currentTab==='relatorios') renderRelatorios(el);
+  else if(currentTab==='mapa') renderMapa(el);
   else if(currentTab==='amigos') renderFriendsPage(el);
   else renderSplit(el);
   const pt=document.getElementById('page-title');
   if(pt){
     const det=currentTab==='home'&&webDetalhe?categories.find(c=>c.id===webDetalhe):null;
-    pt.textContent=det?det.name:({home:'Painel',categorias:'Categorias',historico:'Histórico',relatorios:'Relatórios',amigos:'Amigos',divisao:'Divisão'}[currentTab]||'');
+    pt.textContent=det?det.name:({home:'Painel',categorias:'Categorias',historico:'Histórico',relatorios:'Relatórios',mapa:'Mapa dos gastos',amigos:'Amigos',divisao:'Divisão'}[currentTab]||'');
   }
   fitViewport();
 }
@@ -2060,6 +2063,7 @@ function openCatOptions(catId){
   if(isNow&&dono&&!livre) op.push(['fa-hand-holding-dollar','Adiantar do mês seguinte','Puxar limite dos meses à frente',`openLoanMonth('${catId}')`]);
   if(dono) op.push(['fa-pen','Editar categoria','Nome, ícone, teto e tipos',`openEditCategory('${catId}')`]);
   if(dono) op.push(['fa-user-plus','Compartilhar','Dar acesso a um amigo',`openShareCategory('${catId}')`]);
+  op.push(['fa-map-location-dot','Ver no mapa','Onde os gastos desta categoria aconteceram',`verCatNoMapa('${catId}')`]);
   op.push(['fa-arrow-up-from-bracket','Exportar imagem','Resumo pronto para mandar',`shareCategory('${catId}')`]);
   op.push(['fa-clock-rotate-left','Histórico de atividades','Quem lançou, editou ou apagou',`openActivityLog('${catId}')`]);
   vib(5);
@@ -3034,6 +3038,221 @@ async function desfazerAlivio(id){
     showToast('Alívio desfeito.','success');
   }catch{ showToast('Erro ao desfazer o alívio.','error'); }
 }
+const LEAFLET_CSS='https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css';
+const LEAFLET_JS='https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js';
+let leafletPromessa=null, mapaInst=null, mapaCamada=null, mapaPins=null, mapaTema='', mapaLugares=[];
+let mapaF=(()=>{ const pad={periodo:'90',cat:'',mes:''}; try{ return {...pad,...JSON.parse(localStorage.getItem('gp-mapa')||'{}'),mes:''}; }catch{ return pad; } })();
+function salvarMapaF(){ try{ localStorage.setItem('gp-mapa',JSON.stringify({periodo:mapaF.periodo,cat:mapaF.cat})); }catch{} }
+function carregarLeaflet(){
+  if(window.L&&window.L.map) return Promise.resolve(window.L);
+  if(leafletPromessa) return leafletPromessa;
+  leafletPromessa=new Promise((ok,falha)=>{
+    if(!document.querySelector(`link[href="${LEAFLET_CSS}"]`)){
+      const css=document.createElement('link'); css.rel='stylesheet'; css.href=LEAFLET_CSS; css.integrity='sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY='; css.crossOrigin='anonymous';
+      document.head.appendChild(css);
+    }
+    const js=document.createElement('script'); js.src=LEAFLET_JS; js.integrity='sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo='; js.crossOrigin='anonymous'; js.async=true;
+    js.onload=()=>window.L&&window.L.map?ok(window.L):falha(new Error('leaflet'));
+    js.onerror=()=>{ leafletPromessa=null; js.remove(); falha(new Error('leaflet')); };
+    document.head.appendChild(js);
+  });
+  return leafletPromessa;
+}
+function tilesMapa(){ return 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'; }
+function trocarTilesMapa(){
+  if(!mapaInst||!window.L) return;
+  const url=tilesMapa(); if(url===mapaTema) return;
+  if(mapaCamada) mapaCamada.remove();
+  mapaCamada=window.L.tileLayer(url,{maxZoom:19,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>'}).addTo(mapaInst);
+  mapaTema=url;
+}
+function desmontarMapa(){ if(mapaInst){ mapaInst.remove(); } mapaInst=null; mapaCamada=null; mapaPins=null; mapaTema=''; }
+function temLocal(e){
+  const la=parseFloat(e&&e.lat), ln=parseFloat(e&&e.lng);
+  return isFinite(la)&&isFinite(ln)&&Math.abs(la)<=90&&Math.abs(ln)<=180&&!(la===0&&ln===0);
+}
+function mapaMes(){ return mapaF.mes||viewMonthKey||currentMonthKey; }
+function mapaFiltrados(){
+  const hoje=todayLocal();
+  let lista=gastosTodos().filter(e=>!e.previsto&&(!mapaF.cat||e.cat_id===mapaF.cat));
+  if(mapaF.periodo==='mes') lista=lista.filter(e=>e.month_key===mapaMes());
+  else{
+    lista=lista.filter(e=>!e.date||e.date<=hoje);
+    if(mapaF.periodo!=='tudo'){ const d=new Date(); d.setDate(d.getDate()-(parseInt(mapaF.periodo,10)||90)+1); const ini=isoDe(d); lista=lista.filter(e=>e.date&&e.date>=ini); }
+  }
+  return {lista,com:lista.filter(temLocal)};
+}
+function lugaresDe(com){
+  const g={};
+  com.forEach(e=>{
+    const la=parseFloat(e.lat), ln=parseFloat(e.lng);
+    const k=`${la.toFixed(4)},${ln.toFixed(4)}`;
+    const x=(g[k]=g[k]||{k,lat:0,lng:0,itens:[],total:0});
+    x.itens.push(e); x.total+=parseFloat(e.value)||0; x.lat+=la; x.lng+=ln;
+  });
+  return Object.values(g).map(x=>{
+    const n=x.itens.length;
+    x.lat/=n; x.lng/=n;
+    const conta=(arr)=>{ const m={}; arr.forEach(v=>{ if(v) m[v]=(m[v]||0)+1; }); return Object.entries(m).sort((a,b)=>b[1]-a[1])[0]||null; };
+    const lugar=conta(x.itens.map(e=>e.place));
+    x.place=lugar?lugar[0]:null;
+    const nome=conta(x.itens.map(e=>String(e.name||'').trim()).filter(v=>v&&!NOME_RAPIDO.test(v)));
+    const rua=x.place?x.place.split(',')[0].trim():null;
+    x.titulo=nome&&nome[1]*2>=n?nome[0]:(rua||'Local sem endereço');
+    x.sub=x.titulo===rua?x.place.split(',').slice(1).join(',').trim():(x.place||'');
+    const porCat={}; x.itens.forEach(e=>{ porCat[e.cat_id]=(porCat[e.cat_id]||0)+(parseFloat(e.value)||0); });
+    const top=Object.entries(porCat).sort((a,b)=>b[1]-a[1])[0];
+    x.cat=top?categories.find(c=>c.id===top[0])||null:null;
+    x.itens.sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+    return x;
+  }).sort((a,b)=>b.total-a.total);
+}
+function pinMapa(L,x){
+  const t=x.cat?catTone(x.cat):1, ic=x.cat?catIcon(x.cat):'fa-location-dot', n=x.itens.length;
+  return L.divIcon({className:'mp-pin-wrap',html:`<span class="mp-pin tone-${t}"><i class="fa-solid ${ic}" aria-hidden="true"></i>${n>1?`<b>${n>99?'99+':n}</b>`:''}</span>`,iconSize:[36,44],iconAnchor:[18,43]});
+}
+function dataCurtaBR(d){ const t=String(d||''); return t.length>=10?`${t.slice(8,10)}/${t.slice(5,7)}/${t.slice(2,4)}`:'—'; }
+function renderMapa(el){
+  if(el.querySelector('#mapa-shell')){ atualizarMapa(false); return; }
+  desmontarMapa();
+  const per=[['mes','Mês'],['60','60 dias'],['90','90 dias'],['120','120 dias'],['tudo','Tudo']];
+  el.innerHTML=`<div class="wrap-web mapa-page" id="mapa-shell">
+    <button type="button" class="wd-back bi-back" onclick="switchTab('historico')"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> Histórico</button>
+    <div class="bi-bar mapa-bar">
+      <div class="seg" id="mapa-per">${per.map(([v,l])=>`<button type="button" data-v="${v}" class="${mapaF.periodo===v?'on':''}" onclick="mapaPer('${v}')">${l}</button>`).join('')}</div>
+      <div class="mapa-mes" id="mapa-mes"${mapaF.periodo==='mes'?'':' hidden'}>
+        <button type="button" class="mm-arr" onclick="mapaMesPasso(-1)" aria-label="Mês anterior"><i class="fa-solid fa-chevron-left" aria-hidden="true"></i></button>
+        <span id="mapa-mes-lbl"></span>
+        <button type="button" class="mm-arr" id="mapa-mes-prox" onclick="mapaMesPasso(1)" aria-label="Próximo mês"><i class="fa-solid fa-chevron-right" aria-hidden="true"></i></button>
+      </div>
+      <select class="form-input bi-sel" id="mapa-cat" onchange="mapaCat(this.value)" aria-label="Categoria">
+        <option value="">Todas as categorias</option>
+        ${categories.map(c=>`<option value="${c.id}"${mapaF.cat===c.id?' selected':''}>${escapeHtml(c.name)}</option>`).join('')}
+      </select>
+    </div>
+    <div class="mapa-resumo" id="mapa-resumo"></div>
+    <div class="mapa-grid">
+      <div class="mapa-box"><div id="mapa"><div class="loading"><div class="spinner"></div>Carregando o mapa…</div></div><div class="mapa-vazio" id="mapa-vazio" hidden></div></div>
+      <section class="wpanel mapa-lista" id="mapa-lista"><div class="wp-head"><div class="wp-title">Onde você mais gasta</div><div class="wp-sub" id="mapa-lista-sub"></div></div><div id="mapa-lugares"></div></section>
+    </div>
+  </div>`;
+  atualizarMapa(false);
+  Promise.all([carregarLeaflet(),garantirTodos()]).then(([L])=>{
+    if(currentTab!=='mapa'||!document.getElementById('mapa-shell')) return;
+    montarMapa(L);
+  }).catch(()=>{
+    const m=document.getElementById('mapa');
+    if(m) m.innerHTML='<div class="wempty mapa-erro"><i class="fa-solid fa-wifi" aria-hidden="true"></i> Não consegui carregar o mapa. Confira a conexão e abra de novo.</div>';
+  });
+}
+function montarMapa(L){
+  const box=document.getElementById('mapa'); if(!box) return;
+  desmontarMapa();
+  box.innerHTML='';
+  ajustarAlturaMapa();
+  mapaInst=L.map(box,{zoomControl:true,worldCopyJump:true,tap:true});
+  mapaInst.attributionControl.setPrefix('<a href="https://leafletjs.com" target="_blank" rel="noopener">Leaflet</a>');
+  trocarTilesMapa();
+  mapaPins=L.layerGroup().addTo(mapaInst);
+  atualizarMapa(true);
+}
+function ajustarAlturaMapa(){
+  const box=document.getElementById('mapa'); if(!box) return;
+  const lista=document.getElementById('mapa-lista');
+  let h;
+  if(telaWeb()){
+    const topo=box.getBoundingClientRect().top;
+    const fundo=document.getElementById('content').getBoundingClientRect().bottom;
+    h=Math.max(420,Math.round(fundo-topo-28));
+    if(lista) lista.style.maxHeight=`${h}px`;
+  }else{
+    h=Math.max(300,Math.min(560,Math.round(window.innerHeight*0.55)));
+    if(lista) lista.style.maxHeight='';
+  }
+  box.style.height=`${h}px`;
+  if(mapaInst) mapaInst.invalidateSize();
+}
+window.addEventListener('resize',()=>{ if(currentTab==='mapa'){ clearTimeout(ajustarAlturaMapa._t); ajustarAlturaMapa._t=setTimeout(ajustarAlturaMapa,120); } });
+function atualizarMapa(enquadrar){
+  const {lista,com}=mapaFiltrados();
+  mapaLugares=lugaresDe(com);
+  const total=somaDe(com), sem=lista.length-com.length;
+  const res=document.getElementById('mapa-resumo');
+  if(res) res.innerHTML=com.length
+    ?`<span><b>${com.length}</b> ${com.length===1?'lançamento':'lançamentos'} em <b>${mapaLugares.length}</b> ${mapaLugares.length===1?'lugar':'lugares'} · <b class="money">${brl(total)}</b></span>${sem?`<span class="mr-sem"><i class="fa-regular fa-eye-slash" aria-hidden="true"></i> ${sem} sem local não aparece${sem>1?'m':''}</span>`:''}`
+    :`<span class="mr-sem">${lista.length?`${lista.length} ${lista.length===1?'lançamento':'lançamentos'} no período, nenhum com local.`:'Nenhum lançamento no período.'}</span>`;
+  const sel=document.getElementById('mapa-cat'); if(sel&&sel.value!==mapaF.cat) sel.value=mapaF.cat;
+  marcarSeg('mapa-per',mapaF.periodo);
+  const mm=document.getElementById('mapa-mes'); if(mm) mm.hidden=mapaF.periodo!=='mes';
+  const lbl=document.getElementById('mapa-mes-lbl'); if(lbl) lbl.textContent=monthLabel(mapaMes());
+  const prox=document.getElementById('mapa-mes-prox'); if(prox) prox.disabled=mapaMes()>=currentMonthKey;
+  const sub=document.getElementById('mapa-lista-sub'); if(sub) sub.textContent=mapaLugares.length?'toque para ver no mapa':'';
+  const box=document.getElementById('mapa-lugares');
+  if(box) box.innerHTML=mapaLugares.length?mapaLugares.slice(0,40).map((x,i)=>`<button type="button" class="mp-lugar" onclick="abrirLugar(${i})">
+      <span class="mp-rank">${i+1}</span>${x.cat?catBadge(x.cat):'<span class="cat-ico"><i class="fa-solid fa-location-dot" aria-hidden="true"></i></span>'}
+      <span class="mp-l-mid"><span class="mp-l-t">${escapeHtml(x.titulo)}</span><span class="mp-l-s">${x.itens.length} ${x.itens.length===1?'lançamento':'lançamentos'}${x.sub?` · ${escapeHtml(x.sub)}`:''}</span></span>
+      <span class="mp-l-v money">${brl(x.total)}</span>
+    </button>`).join('')+(mapaLugares.length>40?`<div class="drill-mais">+ ${mapaLugares.length-40} lugares no mapa</div>`:'')
+    :'<div class="wempty">Quando você lança um gasto com local, ele aparece aqui.</div>';
+  const vazio=document.getElementById('mapa-vazio');
+  if(vazio){ vazio.hidden=!!mapaLugares.length||!mapaInst; vazio.innerHTML='<i class="fa-solid fa-map-pin" aria-hidden="true"></i><span>Nenhum lançamento com local nesse período.</span>'; }
+  if(!mapaInst||!mapaPins||!window.L) return;
+  const L=window.L;
+  trocarTilesMapa();
+  mapaPins.clearLayers();
+  mapaLugares.forEach((x,i)=>{
+    const m=L.marker([x.lat,x.lng],{icon:pinMapa(L,x),title:x.titulo,riseOnHover:true,keyboard:true});
+    m.on('click',()=>abrirLugar(i));
+    m.addTo(mapaPins); x.marker=m;
+  });
+  if(enquadrar){
+    if(mapaLugares.length===1) mapaInst.setView([mapaLugares[0].lat,mapaLugares[0].lng],16);
+    else if(mapaLugares.length) mapaInst.fitBounds(L.latLngBounds(mapaLugares.map(x=>[x.lat,x.lng])),{padding:[48,48],maxZoom:16});
+    else mapaInst.setView([-15.8,-47.9],4);
+  }
+}
+function mapaPer(v){ mapaF.periodo=v; if(v!=='mes') mapaF.mes=''; salvarMapaF(); vib(5); marcarSeg('mapa-per',v); const mm=document.getElementById('mapa-mes'); if(mm) mm.hidden=v!=='mes'; atualizarMapa(true); }
+function mapaMesPasso(d){
+  const alvo=d<0?prevMonthKey(mapaMes()):nextMonthKey(mapaMes());
+  if(d>0&&alvo>currentMonthKey) return;
+  mapaF.mes=alvo; vib(5); atualizarMapa(true);
+}
+function mapaCat(v){ mapaF.cat=v; salvarMapaF(); atualizarMapa(true); }
+function verCatNoMapa(catId){ mapaF.cat=catId; salvarMapaF(); switchTab('mapa'); }
+function abrirLugar(i){
+  const x=mapaLugares[i]; if(!x) return;
+  vib(5);
+  if(mapaInst) mapaInst.flyTo([x.lat,x.lng],Math.max(mapaInst.getZoom(),15),{duration:.5});
+  openSheet(`<div class="xd-head">${x.cat?catBadge(x.cat,'lg'):''}<div class="xd-txt"><div class="xd-name">${escapeHtml(x.titulo)}</div><div class="xd-val money">${brl(x.total)}</div></div></div>
+    <div class="mp-sub">${x.itens.length} ${x.itens.length===1?'lançamento':'lançamentos'} aqui${x.sub?` · ${escapeHtml(x.sub)}`:''}</div>
+    <div class="mp-lista">${x.itens.slice(0,80).map(e=>{ const c=categories.find(k=>k.id===e.cat_id); return `<button type="button" class="mp-item" onclick="detalheMapa('${escapeHtml(String(e.id))}')"><span class="mp-d">${dataCurtaBR(e.date)}</span><span class="mp-n">${escapeHtml(e.name||'')}<em>${c?escapeHtml(c.name):''}${e.subcat?` · ${escapeHtml(e.subcat)}`:''}</em></span><span class="money">${brl(e.value)}</span></button>`; }).join('')}</div>
+    <a class="btn-secondary mp-maps" href="${mapsUrl(x.lat,x.lng)}" target="_blank" rel="noopener"><i class="fa-solid fa-diamond-turn-right" aria-hidden="true"></i> Abrir no Google Maps</a>`);
+}
+function detalheMapa(id){
+  const e=gastosTodos().find(x=>String(x.id)===String(id)); if(!e) return;
+  const cat=categories.find(c=>c.id===e.cat_id);
+  const linhas=[['Categoria',`${cat?escapeHtml(cat.name):'—'}${e.subcat?` · ${escapeHtml(e.subcat)}`:''}`]];
+  const dt=new Date(e.date+'T12:00').toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'});
+  linhas.push(['Data',dt.charAt(0).toUpperCase()+dt.slice(1)]);
+  if(e.month_key&&e.month_key!==String(e.date).slice(0,7)) linhas.push(['Conta em',monthLabel(e.month_key)]);
+  if(e.installment_total>1) linhas.push(['Parcela',`${e.installment_no} de ${e.installment_total}`]);
+  if(e.recurring) linhas.push(['Repetição','Todo mês']);
+  if(e.card_id&&cardLabel(e.card_id)) linhas.push(['Cartão',escapeHtml(cardLabel(e.card_id))]);
+  if(e.place) linhas.push(['Onde',escapeHtml(e.place)]);
+  if(e.user_id&&e.user_id!==currentUser.id) linhas.push(['Lançado por',escapeHtml(userTag(e.user_id)||'outra pessoa')]);
+  const pode=e.user_id===currentUser.id||sharePerm(e.cat_id)==='edit'||(cat&&cat.user_id===currentUser.id&&!e.user_id);
+  vib(5);
+  openSheet(`<div class="xd-head">${cat?catBadge(cat,'lg'):''}<div class="xd-txt"><div class="xd-name">${escapeHtml(e.name||'')}</div><div class="xd-val money">${brl(e.value)}</div></div></div>
+    <div class="cinfo" style="margin-top:0">${linhas.map(([k,v])=>`<div class="cinfo-row"><span>${k}</span><strong>${v}</strong></div>`).join('')}</div>
+    ${pode?`<button class="btn-primary" onclick="editarDoMapa('${escapeHtml(String(e.id))}','${escapeHtml(String(e.month_key))}')"><i class="fa-solid fa-pen" aria-hidden="true"></i> Editar gasto</button>`:''}
+    <button class="btn-secondary" onclick="closeSheet()">Fechar</button>`);
+}
+async function editarDoMapa(id,mk){
+  closeSheet();
+  if(mk&&mk!==viewMonthKey) await goToMonth(mk);
+  if(!expenses.some(x=>x.id===id)){ showToast('Não achei esse gasto. Ele pode ter sido apagado.','error'); return; }
+  openEditExpense(id);
+}
 function telaLarga(){ return window.matchMedia('(min-width:700px)').matches; }
 function slideCats(dir){
   const c=document.getElementById('cat-carousel'); if(!c) return;
@@ -3246,6 +3465,7 @@ async function renderHistoricoAsync(el){
     <button class="summary-btn" onclick="openConsolidado()">Ver consolidado do mês <i class="fa-solid fa-chevron-right" style="font-size:10px" aria-hidden="true"></i></button>
     <button class="summary-btn" onclick="openFuturo()">Saldo dos próximos meses <i class="fa-solid fa-chevron-right" style="font-size:10px" aria-hidden="true"></i></button>
     <button class="summary-btn accent" onclick="switchTab('relatorios')"><i class="fa-solid fa-chart-pie" aria-hidden="true"></i> Relatórios: busca, agrupamentos e gráficos <i class="fa-solid fa-chevron-right" style="font-size:10px" aria-hidden="true"></i></button>
+    <button class="summary-btn accent" onclick="switchTab('mapa')"><i class="fa-solid fa-map-location-dot" aria-hidden="true"></i> Mapa: onde cada gasto aconteceu <i class="fa-solid fa-chevron-right" style="font-size:10px" aria-hidden="true"></i></button>
   </div>`;
 
   const vKey=viewMonthKey;
@@ -4819,7 +5039,7 @@ function onFab(){
 async function switchTab(tab){
   vib(5);
   currentTab=tab; currentCatIdx=0; webDetalhe=null; webOrganizar=false;
-  document.querySelectorAll('.nav-item').forEach(t=>t.classList.toggle('active',t.dataset.tab===tab||(tab==='relatorios'&&!telaWeb()&&t.dataset.tab==='historico')));
+  document.querySelectorAll('.nav-item').forEach(t=>t.classList.toggle('active',t.dataset.tab===tab||((tab==='relatorios'||tab==='mapa')&&!telaWeb()&&t.dataset.tab==='historico')));
   if(!months.find(m=>m.key===viewMonthKey)&&viewMonthKey<currentMonthKey) viewMonthKey=currentMonthKey;
   syncProjected();
   expenses=await api.getExpenses(viewMonthKey);

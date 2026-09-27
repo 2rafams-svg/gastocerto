@@ -4,7 +4,7 @@ Referência única do projeto: o que ele é, como está montado, o que está no 
 abandonado, as regras que toda alteração precisa seguir, e o passo a passo para migrar
 tudo para outra conta.
 
-Versão do app na data deste documento: **6.3** · Última atualização: **25/09/2026**
+Versão do app na data deste documento: **6.3.1** · Última atualização: **25/09/2026**
 
 > Até a v5.19 o app se chamava **GastoCerto**. A v6 trocou o nome e a identidade inteira —
 > ver [seção 1.1](#11-identidade-v6).
@@ -665,11 +665,26 @@ card de resumo do **Histórico**. É recurso Pro, como o resto do histórico.
 | Gastos recorrentes | **Projetados, não existem no banco.** `autoCreateRecurring()` só materializa o mês corrente |
 | Orçamento | `baseBudget(cat, mês)` — respeita `month_budgets` do mês |
 
-A projeção de recorrente é a única parte sintética. `projectedFor(mês)` repete cada
-recorrente do mês corrente (`recurringBase`) nos meses seguintes, **pulando** os que já têm
-linha real com mesma categoria e mesmo nome, para não contar duas vezes. Esses itens
-carregam `previsto:true`, aparecem com a etiqueta *previsto* e **não têm botão de editar
-nem de excluir** — não existem para apagar.
+A projeção de recorrente é a única parte sintética. Desde a v6.3.1 ela segue a **série**
+(mesma categoria + mesmo nome, sem diferenciar acento e maiúscula), não só o mês corrente:
+para cada mês futuro, `projectedFor(mês)` pega a **última linha real da série antes
+daquele mês**, do mês corrente em diante (`recurringBase` guarda todas essas linhas), e
+projeta se essa última for recorrente. Isso cobre os três casos:
+
+| Caso | O que acontece |
+|---|---|
+| Recorrente lançado no mês corrente | Projetado em todos os meses seguintes |
+| Recorrente lançado **num mês futuro** (aluguel que começa em novembro) | Linha real naquele mês e projetado dali para frente. Até a v6.3 ficava só no primeiro mês |
+| A série parou (a linha real de um mês foi editada para não repetir) | Projetado até ali, some depois |
+
+Mês que já tem linha real da série é **pulado**, para não contar duas vezes. Os itens
+projetados carregam `previsto:true`, aparecem com a etiqueta *previsto* e **não têm botão
+de editar nem de excluir** — não existem para apagar.
+
+**Projetado não abre mês na navegação.** `navMonths()` usa `monthIndex`, que só conta
+linhas reais: um mês futuro que só tem recorrente projetado fica fora das setas até
+ganhar um lançamento real ou até virar o mês corrente. O saldo em *Próximos meses*
+continua contando o recorrente em todos os meses.
 
 Categoria **sem teto** fica fora do saldo (ela não tem orçamento) e aparece numa linha à
 parte, igual ao resto do app.
@@ -1420,6 +1435,7 @@ Nesta ordem, que é da ponta mais provável para a menos:
 | Versão | O quê |
 |---|---|
 | **6.3** | **Mapa dos gastos**: pin por lugar com a cor da categoria, filtros de mês, 60, 90, 120 dias e tudo, por categoria, folha do lugar com os lançamentos, detalhe e edição, e ranking de onde você mais gasta |
+| 6.3.1 | Recorrente lançado num mês futuro passa a ser projetado nos meses seguintes; a projeção segue a série e para quando ela para |
 | 6.2.1 | Localização pede menos: não repete depois de recusada, reaproveita o local por 5 minutos e ganhou chave em Sua conta para só buscar quando tocar |
 | **6.2** | **Lançar alívio**: cashback, reembolso, bônus e fontes próprias, dividido em uma ou várias categorias com fechamento em 100%, entrando no limite, nas Movimentações e nos Relatórios. Valores embaçados até o servidor responder, sem trocar número na frente da pessoa |
 | 6.1.1 | Categoria compartilhada com o mesmo limite para os dois: adiantamento visível ao convidado e `months.budgets` legado ignorado para categoria de outra pessoa |

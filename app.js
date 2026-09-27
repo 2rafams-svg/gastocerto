@@ -46,7 +46,7 @@ function syncThemeRow(){
   if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
-const APP_VERSION = '6.3';
+const APP_VERSION = '6.3.1';
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
 const VAPID_PUBLIC_KEY = 'BOGPXr8rzIa2v0x9icJfeWnSp7OEfo5wDjcRV39GFqVuctrVr5k_dfjkpHpi06obd9S5k80T9O5kadH71ITniyY';
@@ -4721,7 +4721,7 @@ async function refreshFutureMonths(){
   try{
     const rows=await api.getExpensesFrom(currentMonthKey)||[];
     futureExpenses=rows.filter(e=>e.month_key>currentMonthKey);
-    recurringBase=rows.filter(e=>e.month_key===currentMonthKey&&e.recurring);
+    recurringBase=rows.filter(e=>e.month_key>=currentMonthKey);
     const by={};
     futureExpenses.forEach(e=>{ const k=e.month_key; (by[k]=by[k]||{key:k,total:0,count:0}); by[k].total+=parseFloat(e.value||0); by[k].count++; });
     futureMonthKeys=Object.values(by).sort((a,b)=>a.key.localeCompare(b.key));
@@ -4823,9 +4823,18 @@ function openMonthGrid(){
 const FUTURE_HORIZON=12;
 function projectedFor(monthKey){
   if(!monthKey||!currentMonthKey||monthKey<=currentMonthKey) return [];
-  const reais=futureExpenses.filter(e=>e.month_key===monthKey);
-  return recurringBase
-    .filter(r=>!reais.some(e=>e.cat_id===r.cat_id&&e.name===r.name))
+  const serie=e=>`${e.cat_id}|${normNome(e.name)}`;
+  const antes=recurringBase.filter(e=>e.month_key<monthKey);
+  const comRecorrente=new Set(antes.filter(e=>e.recurring).map(serie));
+  const ultimo={};
+  antes.forEach(e=>{
+    const k=serie(e); if(!comRecorrente.has(k)) return;
+    const u=ultimo[k];
+    if(!u||e.month_key>u.month_key||(e.month_key===u.month_key&&e.recurring&&!u.recurring)) ultimo[k]=e;
+  });
+  const reais=new Set(futureExpenses.filter(e=>e.month_key===monthKey).map(serie));
+  return Object.values(ultimo)
+    .filter(r=>r.recurring&&!reais.has(serie(r)))
     .map(r=>({...r,id:`prev-${r.id}-${monthKey}`,month_key:monthKey,date:`${monthKey}-01`,previsto:true}));
 }
 function syncProjected(){ projectedExpenses=projectedFor(viewMonthKey); }

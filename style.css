@@ -1361,3 +1361,9 @@ details summary::-webkit-details-marker{display:none}
 .lock-banner i{color:var(--accent-text)}
 .lock-btns{display:inline-flex;gap:8px;margin-left:auto}
 .rs-intro strong{color:var(--text)}
+.trava-aviso{display:flex;gap:9px;align-items:flex-start;margin-top:10px;padding:10px 12px;border-radius:12px;background:var(--amber-soft);color:var(--text2);font-size:12.5px;line-height:1.45}
+.trava-aviso[hidden]{display:none}
+.trava-aviso i{margin-top:2px;color:var(--amber-text)}
+.trava-aviso strong{color:var(--text)}
+.hero-trava i{color:var(--amber-text)}
+.hero-trava-btn{border:0;background:none;padding:0;color:var(--accent-text);font-family:var(--font-body);font-weight:700;font-size:inherit;text-decoration:underline;cursor:pointer}

@@ -46,7 +46,7 @@ function syncThemeRow(){
   if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
-const APP_VERSION = '6.4';
+const APP_VERSION = '6.5';
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
 const VAPID_PUBLIC_KEY = 'BOGPXr8rzIa2v0x9icJfeWnSp7OEfo5wDjcRV39GFqVuctrVr5k_dfjkpHpi06obd9S5k80T9O5kadH71ITniyY';
@@ -162,7 +162,7 @@ function userTag(uid){
 async function logout(){
   const token=session?.access_token;
   if(token) fetch(`${SUPABASE_URL}/auth/v1/logout`,{method:'POST',headers:{apikey:SUPABASE_KEY,Authorization:`Bearer ${token}`}}).catch(()=>{});
-  persistSession(null); categories=[]; months=[]; expenses=[]; expenseNames=[]; acceptedShares=[]; sharedOutMap={}; pendingSplitInvites=[]; acceptedGroupIds=new Set(); friends=[]; budgetTransfers=[]; cards=[]; allCards=[]; rollovers=[]; futureMonthKeys=[]; loans=[]; reliefs=[];
+  persistSession(null); categories=[]; months=[]; expenses=[]; expenseNames=[]; acceptedShares=[]; sharedOutMap={}; pendingSplitInvites=[]; acceptedGroupIds=new Set(); friends=[]; budgetTransfers=[]; cards=[]; allCards=[]; rollovers=[]; futureMonthKeys=[]; loans=[]; reliefs=[]; locks=[];
   stopUnreadPoll(); unreadDm={}; updateAmigosBadge();
   document.documentElement.classList.remove('gc-has-session');
   document.getElementById('app').style.display='none';
@@ -273,6 +273,9 @@ const api={
   getExpensesOfCat:(catId)=>sbFetch(`expenses?cat_id=eq.${catId}&select=id,user_id,value`),
   deleteExpensesOfCat:(catId)=>sbFetch(`expenses?cat_id=eq.${catId}&select=id`,{method:'DELETE'}),
   deleteTransfersOfCat:(catId)=>sbFetch(`budget_transfers?or=(from_cat_id.eq.${catId},to_cat_id.eq.${catId})&user_id=eq.${currentUser.id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
+  getLocks:()=>sbFetch('budget_locks?select=cat_id,month_key,user_id,created_at'),
+  insertLocks:(rows)=>sbFetch('budget_locks',{method:'POST',headers:{Prefer:'resolution=ignore-duplicates,return=minimal'},body:JSON.stringify(rows.map(r=>({...r,user_id:currentUser.id})))}),
+  deleteLocks:(mk,ids)=>sbFetch(`budget_locks?month_key=eq.${mk}&cat_id=in.(${ids.map(i=>`"${encodeURIComponent(i)}"`).join(',')})`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
   getReliefs:()=>sbFetch('budget_reliefs?order=created_at.desc'),
   insertReliefs:(rows)=>sbFetch('budget_reliefs',{method:'POST',body:JSON.stringify(rows.map(r=>({...r,user_id:currentUser.id})))}),
   deleteRelief:(id)=>sbFetch(`budget_reliefs?id=eq.${id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
@@ -374,7 +377,7 @@ const api={
 };
 
 let categories=[], months=[], currentMonthKey='', viewMonthKey='', expenses=[], currentTab='home', currentCatIdx=0, budgetTransfers=[], cards=[], rollovers=[], futureMonthKeys=[];
-let futureExpenses=[], recurringBase=[], projectedExpenses=[], futureOpen={}, monthIndex={}, allCards=[], loans=[], reliefs=[], movOpen={};
+let futureExpenses=[], recurringBase=[], projectedExpenses=[], futureOpen={}, monthIndex={}, allCards=[], loans=[], reliefs=[], locks=[], movOpen={};
 let subscription=null, userPlan='free';
 let splitGroups=[], pendingShares=[], acceptedShares=[], sharedOutMap={}, pendingSplitInvites=[], acceptedGroupIds=new Set(), friends=[];
 let myProfile=null, profilesById={};
@@ -648,7 +651,12 @@ function marcarChip(boxId,id){
 }
 function pickCatForm(id){
   const h=document.getElementById('f-catId'); if(!h) return;
-  h.value=id; vib(5); marcarChip('f-cat-chips',id); onExpenseCatChange();
+  h.value=id; vib(5); marcarChip('f-cat-chips',id); onExpenseCatChange(); syncTravaForm();
+}
+function syncTravaForm(){
+  const box=document.getElementById('f-trava'); if(!box) return;
+  const html=avisoTravaHtml(document.getElementById('f-catId')?.value,viewMonthKey);
+  box.hidden=!html; box.innerHTML=html;
 }
 function syncAtalhos(){
   const box=document.getElementById('f-atalhos'), grp=document.getElementById('f-atalhos-group');
@@ -722,6 +730,7 @@ function expenseFormHtml(e,catPadrao){
     <div class="form-group">
       <label class="form-label">Categoria</label>
       <div class="pick-chips" id="f-cat-chips">${catChipsHtml(catSel,'pickCatForm')}</div>
+      ${e?'':'<div class="trava-aviso" id="f-trava" hidden></div>'}
     </div>
     ${subcatFieldHtml(e?e.subcat||'':'')}
     ${e?'':`<div class="form-group" id="f-atalhos-group" hidden>
@@ -759,7 +768,7 @@ function expenseFormHtml(e,catPadrao){
 }
 function posAbrirForm(e){
   if(e&&(e.installment_total||e.card_id)){ syncCardRow(); syncInstSummary(); updateValueFieldLabel(); }
-  syncSubcatField(); syncLocRow(); syncAtalhos(); syncDataChips(); syncMaisResumo();
+  syncSubcatField(); syncLocRow(); syncAtalhos(); syncDataChips(); syncMaisResumo(); syncTravaForm();
   marcarChip('f-cat-chips',document.getElementById('f-catId')?.value);
 }
 
@@ -1180,6 +1189,7 @@ async function init(){
     await loadCards();
     loans=await api.getLoans().catch(()=>[]);
     reliefs=await api.getReliefs().catch(()=>[]);
+    locks=await api.getLocks().catch(()=>[])||[];
     refreshFutureMonths();
     refreshMonthIndex();
     applyAutoRollover();
@@ -1247,6 +1257,7 @@ async function autoCreateRecurring(){
     if(!recurringPrev.length&&!installmentPrev.length) return;
     let created=false;
     for(const exp of recurringPrev){
+      if(catTrancada(exp.cat_id,currentMonthKey)) continue;
       const already=curExps.some(e=>e.recurring&&e.cat_id===exp.cat_id&&e.name===exp.name);
       if(already) continue;
       await api.insertExpense({id:uid(),cat_id:exp.cat_id,month_key:currentMonthKey,name:exp.name,value:exp.value,date:`${currentMonthKey}-01`,recurring:true});
@@ -2012,7 +2023,8 @@ function buildSlide(cat, isNow){
   const heroValue=livre?brl(spent):brl(Math.abs(available));
   const editaResta=isOwned&&!livre&&mesEditavel()&&!cat.no_limit;
   const oculto=discreto();
-  const rit=(isNow&&!livre)?ritmoDoMes(spent,available):null;
+  const trava=travaDe(cat.id,viewMonthKey);
+  const rit=(isNow&&!livre&&!trava)?ritmoDoMes(spent,available):null;
 
   const shared=!isOwned?`<div class="hero-shared"><i class="fa-solid ${perm==='edit'?'fa-pen-to-square':'fa-eye'}" aria-hidden="true"></i> ${perm==='edit'?'Compartilhada · pode editar':'Compartilhada · só leitura'}</div>`:'';
 
@@ -2037,6 +2049,7 @@ function buildSlide(cat, isNow){
     <div class="cat-slide-name">${catBadge(cat)}<span class="csn-txt">${escapeHtml(cat.name)}</span>${livre?'<span class="cat-slide-tag">sem teto</span>':''}</div>
     <div class="cat-hero ${status}">
       ${shared}
+      ${trava&&!mesTrancado(viewMonthKey)?`<div class="hero-shared hero-trava"><i class="fa-solid fa-lock" aria-hidden="true"></i> Encerrada em ${monthLabel(viewMonthKey)} por ${escapeHtml(quemTrancou(trava))}${canEdit?` · <button type="button" class="hero-trava-btn" onclick="reabrirCatMes('${cat.id}','${viewMonthKey}')">Reabrir</button>`:''}</div>`:''}
       <div class="hero-top">
         <div class="hero-label">${heroLabel}${livre?'<span class="hero-free-tag">sem teto</span>':''}</div>
         <div class="hero-tools">
@@ -3007,7 +3020,7 @@ async function salvarAlivio(){
   const data=mk===currentMonthKey?todayLocal():`${mk}-01`;
   const grupo=uid()+uid();
   const nome=(document.getElementById('al-nome')?.value||'').trim().slice(0,80)||null;
-  const rows=alv.cats.map(id=>({id:uid()+uid(),relief_group:grupo,source:alv.fonte,name:nome,cat_id:id,month_key:mk,amount:alv.cents[id]/100,date:data}));
+  const rows=alv.cats.map(id=>{ const mc=mesLivreDaCat(id,mk); return {id:uid()+uid(),relief_group:grupo,source:alv.fonte,name:nome,cat_id:id,month_key:mc,amount:alv.cents[id]/100,date:mc===mk?data:`${mc}-01`}; });
   const total=alv.total/100, fonte=alv.fonte;
   try{
     await api.insertReliefs(rows);
@@ -4191,6 +4204,12 @@ async function saveExpense(expId){
     if(targetMonthKey!==monthKeyOf(new Date(date+'T12:00'))) targetDate=`${targetMonthKey}-01`;
     skippedToNextMonth=targetMonthKey!==viewMonthKey;
   }
+  let pulouTrava=false;
+  if(!expId&&catTrancada(catId,targetMonthKey)){
+    targetMonthKey=mesLivreDaCat(catId,targetMonthKey);
+    if(repeatMode==='installment') targetDate=`${targetMonthKey}-01`;
+    pulouTrava=true;
+  }
   const btn=document.getElementById('btn-save-exp'); btn.disabled=true; btn.textContent='Salvando...';
   try{
     let image_url=null, trocouFoto=false;
@@ -4228,7 +4247,9 @@ async function saveExpense(expId){
     refreshMonthIndex();
     saveCache();
     vib(15);
-    _closeModal(); render(); showToast(skippedToNextMonth?`Salvo! ${installment_total>1?'A 1ª parcela cai':'A cobrança cai'} em ${monthLabel(targetMonthKey)}.`:'Salvo!','success');
+    _closeModal(); render();
+    const catNome=categories.find(c=>c.id===catId)?.name||'A categoria';
+    showToast(pulouTrava?`Salvo em ${monthLabel(targetMonthKey)}: ${catNome} está encerrada em ${monthLabel(viewMonthKey)}.`:skippedToNextMonth?`Salvo! ${installment_total>1?'A 1ª parcela cai':'A cobrança cai'} em ${monthLabel(targetMonthKey)}.`:'Salvo!','success');
   }catch(err){
     const msg=String(err?.message||'');
     if(/image_url/i.test(msg)){
@@ -4241,6 +4262,10 @@ async function saveExpense(expId){
       showToast('Rode o SQL: ALTER TABLE expenses ADD COLUMN subcat text','error');
     }else if(/\blat\b|\blng\b|\bplace\b/i.test(msg)){
       showToast('Rode o SQL: ALTER TABLE expenses ADD COLUMN lat numeric, ADD COLUMN lng numeric, ADD COLUMN place text','error');
+    }else if(/mes_encerrado/i.test(msg)){
+      locks=await api.getLocks().catch(()=>locks)||locks;
+      showToast('Essa categoria acabou de ser encerrada neste mês. Toque em salvar de novo: o gasto vai para o mês seguinte.','error');
+      syncTravaForm();
     }else if(/not present in table|foreign key|violates/i.test(msg)){
       showToast('Não consegui abrir o mês de destino. Tente de novo.','error');
     }else{
@@ -4689,6 +4714,25 @@ async function confirmDeleteCategory(catId){
   }
 }
 
+function travaDe(catId,mk){ return locks.find(l=>l.cat_id===catId&&l.month_key===mk)||null; }
+function catTrancada(catId,mk){ return !!travaDe(catId,mk); }
+function mesLivreDaCat(catId,mk){ let k=mk; for(let i=0;i<24&&catTrancada(catId,k);i++) k=nextMonthKey(k); return k; }
+function quemTrancou(l){ return !l?'':l.user_id===currentUser.id?'você':(userTag(l.user_id)||'quem divide com você'); }
+function avisoTravaHtml(catId,mk){
+  const l=travaDe(catId,mk); if(!l) return '';
+  const cat=categories.find(c=>c.id===catId);
+  return `<i class="fa-solid fa-lock" aria-hidden="true"></i><span><strong>${cat?escapeHtml(cat.name):'Esta categoria'}</strong> foi encerrada em ${monthLabel(mk)} por ${escapeHtml(quemTrancou(l))}. O lançamento vai para <strong>${monthLabel(mesLivreDaCat(catId,mk))}</strong>.</span>`;
+}
+async function reabrirCatMes(catId,mk){
+  const cat=categories.find(c=>c.id===catId); if(!cat) return;
+  const ok=await confirmar(`${cat.name} volta a aceitar lançamentos em ${monthLabel(mk)}, para você e para quem divide a categoria.`,{titulo:`Reabrir ${cat.name}?`,botao:'Reabrir',icone:'fa-lock-open'});
+  if(!ok) return;
+  try{
+    await api.deleteLocks(mk,[catId]);
+    locks=locks.filter(l=>!(l.cat_id===catId&&l.month_key===mk));
+    vib(12); render(); showToast(`${cat.name} reaberta em ${monthLabel(mk)}.`,'success');
+  }catch{ showToast('Não consegui reabrir a categoria.','error'); }
+}
 function mesDoUsuario(mk){ return months.find(m=>m.key===mk&&(!m.user_id||!currentUser||m.user_id===currentUser.id))||null; }
 function mesCalendario(){ return monthKeyOf(new Date()); }
 function mesTrancado(mk){ if(!mk||mk<mesCalendario()) return false; const m=mesDoUsuario(mk); return !!(m&&m.closed); }
@@ -4699,6 +4743,7 @@ async function entrarNoMes(mk){
   expenses=await api.getExpenses(mk);
   rollovers=await api.getRollovers(mk).catch(()=>[]);
   budgetTransfers=await api.getBudgetTransfers(mk).catch(()=>[]);
+  locks=await api.getLocks().catch(()=>locks)||[];
   await refreshFutureMonths();
   refreshMonthIndex();
   saveCache(); render();
@@ -4707,15 +4752,19 @@ async function entrarNoMes(mk){
 }
 async function openEncerrarMes(){
   const mk=currentMonthKey, prox=nextMonthKey(mk);
-  const ok=await confirmar(`A partir de agora, todo lançamento novo vai para ${monthLabel(prox)}, mesmo com data de ${monthLabel(mk).split(' ')[0].toLowerCase()}.\n\nAs categorias que levam a sobra ou o estouro já fecham a conta agora. Dá para reabrir enquanto ${monthLabel(mk).split(' ')[0].toLowerCase()} não acabar.`,{titulo:`Encerrar ${monthLabel(mk)}?`,botao:`Encerrar e abrir ${monthLabel(prox).split(' ')[0]}`,icone:'fa-lock'});
+  const ok=await confirmar(`A partir de agora, todo lançamento novo vai para ${monthLabel(prox)}, mesmo com data de ${monthLabel(mk).split(' ')[0].toLowerCase()}.\n\nVale também para quem divide categoria com você: nas compartilhadas, ninguém lança mais em ${monthLabel(mk).split(' ')[0].toLowerCase()}.\n\nAs categorias que levam a sobra ou o estouro já fecham a conta agora. Dá para reabrir enquanto ${monthLabel(mk).split(' ')[0].toLowerCase()} não acabar.`,{titulo:`Encerrar ${monthLabel(mk)}?`,botao:`Encerrar e abrir ${monthLabel(prox).split(' ')[0]}`,icone:'fa-lock'});
   if(!ok) return;
   try{
     await api.closeMonth(mk);
     const m=mesDoUsuario(mk); if(m) m.closed=true;
+    let semTabela=false;
+    const alvo=catsLancaveis().map(c=>({cat_id:c.id,month_key:mk}));
+    if(alvo.length){ try{ await api.insertLocks(alvo); }catch(err){ semTabela=/budget_locks|schema cache|does not exist/i.test(String(err?.message||'')); } }
     _closeModal();
     await entrarNoMes(primeiroMesAberto());
     vib(20);
-    showToast(`${monthLabel(mk)} encerrado. Lançamentos novos vão para ${monthLabel(currentMonthKey)}.`,'success');
+    if(semTabela) showToast(`${monthLabel(mk)} encerrado só para você — falta criar a tabela budget_locks para valer para quem divide as categorias.`,'error');
+    else showToast(`${monthLabel(mk)} encerrado. Lançamentos novos vão para ${monthLabel(currentMonthKey)}.`,'success');
   }catch{ showToast('Não consegui encerrar o mês. Tente de novo.','error'); }
 }
 async function reabrirMes(mk){
@@ -4726,6 +4775,8 @@ async function reabrirMes(mk){
     await api.reopenMonth(mk);
     const m=mesDoUsuario(mk); if(m) m.closed=false;
     await api.deleteAutoRolloversFrom(mk).catch(()=>{});
+    const ids=catsLancaveis().map(c=>c.id);
+    if(ids.length) await api.deleteLocks(mk,ids).catch(()=>{});
     _closeModal();
     await entrarNoMes(primeiroMesAberto());
     vib(15);
@@ -5024,6 +5075,7 @@ function openQuickValue(){
   openSheet(`<div class="modal-title">Lançamento rápido</div>
     <input type="hidden" id="f-quick-cat" value="${cat.id}"/>
     <div class="pick-chips" id="f-quick-chips" style="margin-bottom:12px">${catChipsHtml(cat.id,'pickCatQuick')}</div>
+    <div class="trava-aviso" id="f-quick-trava"${avisoTravaHtml(cat.id,viewMonthKey)?'':' hidden'}>${avisoTravaHtml(cat.id,viewMonthKey)}</div>
     <div class="quick-val-wrap">
       <span class="quick-val-cur">R$</span>
       <input class="quick-val" id="f-quick-valor" type="text" inputmode="decimal" placeholder="0,00" autocomplete="off"
@@ -5041,6 +5093,7 @@ function openQuickValue(){
 function pickCatQuick(id){
   const h=document.getElementById('f-quick-cat'); if(!h) return;
   h.value=id; vib(5); marcarChip('f-quick-chips',id);
+  const t=document.getElementById('f-quick-trava'); if(t){ const html=avisoTravaHtml(id,viewMonthKey); t.hidden=!html; t.innerHTML=html; }
 }
 async function saveQuickValue(catId){
   catId=document.getElementById('f-quick-cat')?.value||catId;
@@ -5053,13 +5106,14 @@ async function saveQuickValue(catId){
   const nome=nomeAgora();
   try{
     const pos=quickPos;
-    await ensureMonthsExist(viewMonthKey,viewMonthKey);
-    await api.insertExpense({id:uid(),cat_id:catId,month_key:viewMonthKey,name:nome,value:valor,date:hoje,recurring:false,lat:pos?pos.lat:null,lng:pos?pos.lng:null,place:pos&&pos.place?pos.place:null});
+    const mkQ=mesLivreDaCat(catId,viewMonthKey);
+    await ensureMonthsExist(mkQ,mkQ);
+    await api.insertExpense({id:uid(),cat_id:catId,month_key:mkQ,name:nome,value:valor,date:hoje,recurring:false,lat:pos?pos.lat:null,lng:pos?pos.lng:null,place:pos&&pos.place?pos.place:null});
     logActivity(catId,'create',nome,valor);
     expenses=await api.getExpenses(viewMonthKey);
     refreshMonthIndex(); saveCache(); vib(15);
     closeSheet(); render();
-    showToast(pos&&pos.place?`${brl(valor)} · ${pos.place}`:`${brl(valor)} lançado.`,'success');
+    showToast(mkQ!==viewMonthKey?`${brl(valor)} lançado em ${monthLabel(mkQ)} — a categoria está encerrada em ${monthLabel(viewMonthKey)}.`:pos&&pos.place?`${brl(valor)} · ${pos.place}`:`${brl(valor)} lançado.`,'success');
   }catch(err){
     const msg=String(err?.message||'');
     showToast(/\blat\b|\blng\b|\bplace\b/i.test(msg)?'Rode o SQL: ALTER TABLE expenses ADD COLUMN lat numeric, ADD COLUMN lng numeric, ADD COLUMN place text':`Erro ao salvar: ${msg.slice(0,80)}`,'error');

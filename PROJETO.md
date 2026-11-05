@@ -4,7 +4,7 @@ Referência única do projeto: o que ele é, como está montado, o que está no 
 abandonado, as regras que toda alteração precisa seguir, e o passo a passo para migrar
 tudo para outra conta.
 
-Versão do app na data deste documento: **6.4** · Última atualização: **05/11/2026**
+Versão do app na data deste documento: **6.5** · Última atualização: **05/11/2026**
 
 > Até a v5.19 o app se chamava **GastoCerto**. A v6 trocou o nome e a identidade inteira —
 > ver [seção 1.1](#11-identidade-v6).
@@ -265,6 +265,17 @@ apagar o grupo inteiro. Ver [seção 5.3](#53-adiantar-limite-do-mês-seguinte-v
 #### `budget_transfers`
 Pedaço de limite movido entre categorias dentro do mês. `user_id`, `month_key`,
 `from_cat_id`, `to_cat_id`, `amount`, `created_at`.
+
+#### `budget_locks` (v6.5)
+A **trava de uma categoria num mês**: `cat_id`, `month_key` (os dois formam a chave
+primária), `user_id` (quem encerrou), `created_at`. Existe porque `months.closed` é **por
+pessoa** e não chega a quem divide a categoria.
+
+RLS: `bk_read` (quem travou, o dono da categoria e quem a recebeu), `bk_insert` e
+`bk_delete` (categoria própria ou compartilhada com permissão de edição). O gatilho
+`tg_bloqueia_mes_encerrado` (`before insert on expenses`, função `security definer`)
+recusa lançamento em categoria travada naquele mês com a mensagem `mes_encerrado` — é a
+garantia para quem ainda estiver com o app antigo aberto.
 
 #### `budget_reliefs` (v6.2)
 O **alívio**: cashback, reembolso, bônus — dinheiro que volta e aumenta o limite da
@@ -546,7 +557,16 @@ Sem conexão, os valores do cache aparecem assim que o `init()` desiste.
 calendário virar — para quem fecha a conta quando a fatura fecha.
 
 - Grava `months.closed=true` **na linha da própria pessoa** (`closeMonth` filtra por
-  `user_id`). Numa categoria compartilhada, o outro lado continua com o mês aberto.
+  `user_id`) e, desde a v6.5, uma linha em `budget_locks` para **cada categoria em que
+  ela lança** (`catsLancaveis()`: as próprias e as compartilhadas com edição).
+- **Compartilhada encerrada vale para os dois.** Quem divide continua com o próprio mês
+  aberto, mas a categoria travada não aceita mais lançamento naquele mês: o card mostra
+  *Encerrada em Nov por @fulano · Reabrir*, some o *por dia*, o formulário e o raio
+  avisam, e o gasto cai no primeiro mês livre da categoria (`mesLivreDaCat`). Vale para
+  gasto, lançamento rápido, alívio e recorrente automático. As categorias só da pessoa
+  seguem no mês dela.
+- Quem pode editar a categoria pode reabrir só ela (`reabrirCatMes`). Reabrir o mês
+  inteiro apaga as travas daquele mês em todas as categorias em que a pessoa lança.
 - `currentMonthKey` passa a ser `primeiroMesAberto()`: o primeiro mês, a partir do mês do
   calendário, que não está trancado. **Tudo que é "mês atual" segue esse valor**: o
   lançamento novo cai nele (com a data de verdade, como a parcela de cartão já fazia), o
@@ -1474,6 +1494,7 @@ Nesta ordem, que é da ponta mais provável para a menos:
 | Versão | O quê |
 |---|---|
 | **6.3** | **Mapa dos gastos**: pin por lugar com a cor da categoria, filtros de mês, 60, 90, 120 dias e tudo, por categoria, folha do lugar com os lançamentos, detalhe e edição, e ranking de onde você mais gasta |
+| 6.5 | Encerrar o mês vale para quem divide: travas por categoria em `budget_locks`, lançamento em compartilhada encerrada cai no mês seguinte para os dois, gatilho no banco como garantia |
 | **6.4** | Encerrar o mês antes da virada (lançamentos vão para o seguinte, reabrir desfaz), ajustar quanto resta digitando o disponível ou o teto, e o "levar saldo" que travava depois de desfazer |
 | 6.3.1 | Recorrente lançado num mês futuro passa a ser projetado nos meses seguintes; a projeção segue a série e para quando ela para |
 | 6.2.1 | Localização pede menos: não repete depois de recusada, reaproveita o local por 5 minutos e ganhou chave em Sua conta para só buscar quando tocar |

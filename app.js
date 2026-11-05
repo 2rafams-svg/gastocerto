@@ -46,7 +46,7 @@ function syncThemeRow(){
   if(label){label.innerHTML=`<i class="fa-solid ${isLight?'fa-sun':'fa-moon'}" id="theme-icon" aria-hidden="true"></i> Tema ${isLight?'claro':'escuro'}`;}
 }
 
-const APP_VERSION = '6.3.1';
+const APP_VERSION = '6.4';
 const SUPABASE_URL = 'https://asnuusgwtsjpwuaakfuc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_Z46thUwaqpXRR8i2PxZWzQ_oG2eJ3yK';
 const VAPID_PUBLIC_KEY = 'BOGPXr8rzIa2v0x9icJfeWnSp7OEfo5wDjcRV39GFqVuctrVr5k_dfjkpHpi06obd9S5k80T9O5kadH71ITniyY';
@@ -283,7 +283,10 @@ const api={
   deleteSharesOfCat:(catId)=>sbFetch(`category_shares?category_id=eq.${catId}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
   getMonths:()=>sbFetch('months?order=key.desc'),
   insertMonth:(d)=>sbFetch('months',{method:'POST',body:JSON.stringify({...d,user_id:currentUser.id})}),
-  closeMonth:(key)=>sbFetch(`months?key=eq.${key}`,{method:'PATCH',body:JSON.stringify({closed:true})}),
+  closeMonth:(key)=>sbFetch(`months?key=eq.${key}&user_id=eq.${currentUser.id}`,{method:'PATCH',body:JSON.stringify({closed:true})}),
+  reopenMonth:(key)=>sbFetch(`months?key=eq.${key}&user_id=eq.${currentUser.id}`,{method:'PATCH',body:JSON.stringify({closed:false})}),
+  deleteAutoRolloversFrom:(mk)=>sbFetch(`budget_rollovers?from_month=eq.${mk}&auto=eq.true&user_id=eq.${currentUser.id}`,{method:'DELETE',headers:{Prefer:'return=minimal'}}),
+  setRolloverAmount:(id,amount)=>sbFetch(`budget_rollovers?id=eq.${id}`,{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify({amount,auto:false})}),
   getExpenses:(mk)=>sbFetch(`expenses?month_key=eq.${mk}&order=date.desc`),
   getAllExpenses:()=>sbFetch('expenses?select=id,user_id,cat_id,month_key,name,value,date,recurring,installment_no,installment_total,card_id,subcat,place,lat,lng&order=date.desc'),
   getExpenseImage:(id)=>sbFetch(`expenses?id=eq.${id}&select=image_url`).then(r=>r?.[0]?.image_url||null),
@@ -549,6 +552,7 @@ function parseNum(s){
   return parseFloat(s);
 }
 function moneyKey(el){ el.value=el.value.replace(/[^0-9.,]/g,''); }
+function moneyKeySinal(el){ el.value=el.value.replace(/−/g,'-').replace(/[^0-9.,-]/g,'').replace(/(?!^)-/g,''); }
 
 function monthOverride(cat, monthKey){
   const mb=cat&&cat.month_budgets?cat.month_budgets[monthKey]:null;
@@ -1118,7 +1122,8 @@ function loadCache(){
     if(!raw) return false;
     const c=JSON.parse(raw);
     if(!c.categories||!c.months) return false;
-    const hoje=monthKeyOf(new Date());
+    const calendario=monthKeyOf(new Date());
+    const hoje=c.currentMonthKey&&c.currentMonthKey>=calendario?c.currentMonthKey:calendario;
     categories=c.categories; months=c.months;
     expenses=c.currentMonthKey===hoje?(c.expenses||[]):[];
     expenseNames=c.expenseNames||[];
@@ -1163,11 +1168,12 @@ async function init(){
     updatePlanBadge(isAdminPro,trialDays);
     const now=monthKeyOf(new Date());
     if(!months.find(m=>m.key===now)){ await api.insertMonth({key:now,closed:false}); months=await api.getMonths(); }
-    currentMonthKey=now;
+    currentMonthKey=primeiroMesAberto();
+    if(!mesDoUsuario(currentMonthKey)){ await api.insertMonth({key:currentMonthKey,closed:false}).catch(()=>{}); months=await api.getMonths(); }
     const prevKey=prevMonthKey(now);
-    const prevMon=months.find(m=>m.key===prevKey);
+    const prevMon=mesDoUsuario(prevKey);
     if(prevMon&&!prevMon.closed) api.closeMonth(prevKey).then(()=>{if(prevMon)prevMon.closed=true;}).catch(()=>{});
-    viewMonthKey=now;
+    viewMonthKey=currentMonthKey;
     expenses=await api.getExpenses(viewMonthKey);
     budgetTransfers=await api.getBudgetTransfers(viewMonthKey).catch(()=>[]);
     rollovers=await api.getRollovers(viewMonthKey).catch(()=>[]);
@@ -1881,7 +1887,7 @@ function renderHome(el){
   const trialBannerHtml=days>0&&days<=3?`<div style="padding:8px 20px 0"><div class="trial-banner" style="margin:0"><span>Seu acesso completo termina em <strong>${days} ${days===1?'dia':'dias'}</strong>.</span><button onclick="openPaywall('Continue com seus relatórios')">Ver Pro</button></div></div>`:'';
 
   const isPast=viewMonthKey<currentMonthKey;
-  const rolloverBannerHtml=isPast?`<div style="padding:8px 20px 0"><div class="trial-banner" style="margin:0;border-color:var(--accent-line);background:var(--accent-soft)"><span>Mês encerrado. Levar as sobras e estouros para <strong>${monthLabel(nextMonthKey(viewMonthKey))}</strong>?</span><button onclick="openRolloverMonth()">Levar</button></div></div>`:'';
+  const rolloverBannerHtml=mesTrancado(viewMonthKey)?`<div style="padding:8px 20px 0"><div class="trial-banner lock-banner" style="margin:0"><span><i class="fa-solid fa-lock" aria-hidden="true"></i> <strong>${monthLabel(viewMonthKey)}</strong> está encerrado. Lançamentos novos vão para ${monthLabel(currentMonthKey)}.</span><span class="lock-btns"><button onclick="openRolloverMonth()">Levar saldos</button><button onclick="reabrirMes('${viewMonthKey}')">Reabrir</button></span></div></div>`:isPast?`<div style="padding:8px 20px 0"><div class="trial-banner" style="margin:0;border-color:var(--accent-line);background:var(--accent-soft)"><span>Mês encerrado. Levar as sobras e estouros para <strong>${monthLabel(nextMonthKey(viewMonthKey))}</strong>?</span><button onclick="openRolloverMonth()">Levar</button></div></div>`:'';
 
   const slidesHtml = categories.map((cat,i)=>buildSlide(cat,isNow)).join('');
 
@@ -1915,21 +1921,28 @@ function rotuloDia(iso){
   const t=new Date(iso+'T12:00').toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'short'}).replace(/\./g,'');
   return t.charAt(0).toUpperCase()+t.slice(1);
 }
-function ritmoDoMes(spent,available){
-  const hoje=new Date(), dom=hoje.getDate(), total=diasNoMes(viewMonthKey);
-  const restam=Math.max(1,total-dom+1);
+function ritmoDoMes(spent,available,mk=viewMonthKey){
+  const DIA=86400000;
+  const agora=new Date(), hoje=new Date(agora.getFullYear(),agora.getMonth(),agora.getDate(),12);
+  const [y,m]=String(mk).split('-').map(Number);
+  const ini=new Date(y,m-1,1,12), fim=new Date(y,m,0,12);
+  let comeco=ini;
+  if(hoje<ini){
+    const datas=expenses.filter(e=>!e.previsto&&e.month_key===mk&&e.date).map(e=>e.date).sort();
+    comeco=datas.length?new Date(datas[0]+'T12:00'):hoje;
+    if(comeco>hoje) comeco=hoje;
+  }
+  const restam=Math.max(1,Math.round((fim-hoje)/DIA)+1);
+  const passados=Math.max(1,Math.round((hoje-comeco)/DIA)+1);
   const porDia=available>0?available/restam:0;
   let ritmo;
   if(available<0) ritmo={cls:'over',val:'Estourou',sub:`${brl(Math.abs(available))} acima do teto`};
   else if(spent<=0) ritmo={cls:'ok',val:'Tudo livre',sub:'nenhum gasto ainda'};
   else{
-    const media=spent/dom;
-    const acaba=dom+Math.floor(available/media);
-    if(acaba>=total) ritmo={cls:'ok',val:'Cabe no mês',sub:`média de ${brl(media)}/dia`};
-    else{
-      const d=new Date(hoje.getFullYear(),hoje.getMonth(),acaba);
-      ritmo={cls:'warn',val:`Acaba dia ${d.getDate()}`,sub:`média de ${brl(media)}/dia`};
-    }
+    const media=spent/passados;
+    const d=new Date(hoje.getTime()+Math.floor(available/media)*DIA);
+    if(d>=fim) ritmo={cls:'ok',val:'Cabe no mês',sub:`média de ${brl(media)}/dia`};
+    else ritmo={cls:'warn',val:d.getMonth()===fim.getMonth()?`Acaba dia ${d.getDate()}`:`Acaba ${d.getDate()}/${String(d.getMonth()+1).padStart(2,'0')}`,sub:`média de ${brl(media)}/dia`};
   }
   return {porDia,restam,ritmo};
 }
@@ -1997,6 +2010,7 @@ function buildSlide(cat, isNow){
   const pctLabel=budget>0?Math.round((spent/budget)*100):0;
   const heroLabel=livre?(isFuture?'Comprometido no mês':'Gasto no mês'):available>=0?(isFuture?'Deve sobrar':'Disponível'):(isFuture?'Vai estourar':'Acima do teto');
   const heroValue=livre?brl(spent):brl(Math.abs(available));
+  const editaResta=isOwned&&!livre&&mesEditavel()&&!cat.no_limit;
   const oculto=discreto();
   const rit=(isNow&&!livre)?ritmoDoMes(spent,available):null;
 
@@ -2030,7 +2044,7 @@ function buildSlide(cat, isNow){
           <button class="hero-tool" onclick="openCatOptions('${cat.id}')" aria-label="Opções da categoria" title="Opções da categoria"><i class="fa-solid fa-ellipsis" aria-hidden="true"></i></button>
         </div>
       </div>
-      <div class="hero-amount ${livre||available>=0?'pos':'neg'} money">${!livre&&available<0?'−':''}${heroValue}</div>
+      ${editaResta?`<div class="hero-amount-row"><div class="hero-amount ${available>=0?'pos':'neg'} money hero-amount-click" role="button" tabindex="0" onclick="openEditarResta('${cat.id}')" title="Ajustar quanto resta">${available<0?'−':''}${heroValue}</div><button type="button" class="hero-edit" onclick="openEditarResta('${cat.id}')" aria-label="Ajustar quanto resta em ${monthLabel(viewMonthKey)}"><i class="fa-solid fa-pen" aria-hidden="true"></i></button></div>`:`<div class="hero-amount ${livre||available>=0?'pos':'neg'} money">${!livre&&available<0?'−':''}${heroValue}</div>`}
       ${livre?`<div class="hero-sub" style="margin-top:12px"><span>${catExps.length} ${catExps.length===1?'lançamento':'lançamentos'}</span><span>sem orçamento definido</span></div>`
         :`<div class="hero-bar"><span style="width:${pct}%"></span></div>
       <div class="hero-sub">
@@ -2057,7 +2071,7 @@ function openCatOptions(catId){
   const outras=categories.filter(c=>c.user_id===currentUser.id&&!semTeto(c)).length>1;
   const op=[];
   op.push(['fa-chart-line','Análise completa','Gráficos, passado, futuro e todos os lançamentos',`abrirCatWeb('${catId}')`]);
-  if(isNow&&dono&&!livre) op.push(['fa-sliders','Ajustar orçamento do mês',`Muda o teto só de ${monthLabel(viewMonthKey)}`,`openMonthOverride('${catId}')`]);
+  if(mesEditavel()&&dono&&!livre) op.push(['fa-pen-to-square','Ajustar quanto resta',`Define o disponível ou o teto só de ${monthLabel(viewMonthKey)}`,`openEditarResta('${catId}')`]);
   if(mesEditavel()&&dono&&!livre&&outras) op.push(['fa-right-left','Transferir limite','Mover orçamento entre categorias',`openTransferBudget('${catId}')`]);
   if(mesEditavel()&&!livre&&(dono||sharePerm(catId)==='edit')) op.push(['fa-hand-holding-heart','Lançar alívio','Cashback, reembolso ou bônus que volta para o limite',`openAlivio('${catId}')`]);
   if(isNow&&dono&&!livre) op.push(['fa-hand-holding-dollar','Adiantar do mês seguinte','Puxar limite dos meses à frente',`openLoanMonth('${catId}')`]);
@@ -2221,13 +2235,6 @@ function toggleMov(catId,qtd){
 }
 
 function sharePerm(catId){ const s=acceptedShares.find(x=>x.category_id===catId); return s?.permission||'view'; }
-
-function closeMonthBtnHtml(){
-  return `<button class="close-month-btn" onclick="openCloseMonth()">
-    <i class="fa-solid fa-circle-check" aria-hidden="true"></i>
-    Fechar Mês e Abrir Próximo
-  </button>`;
-}
 
 function goToSlide(i){
   if(i<0||i>=categories.length) return;
@@ -2551,7 +2558,7 @@ function renderCatDetalhe(el,catId){
       </div>
     </div>
     <div class="kpis">
-      ${livre?kpiHtml('fa-receipt','Gasto no mês',brl(spent),`${doMes.length} lançamentos`):kpiHtml('fa-scale-balanced',disp>=0?'Disponível':'Acima do teto',(disp<0?'−':'')+brl(Math.abs(disp)),`gasto ${brl(spent)} de ${brl(teto)}`,disp>=0?'pos':'neg')}
+      ${livre?kpiHtml('fa-receipt','Gasto no mês',brl(spent),`${doMes.length} lançamentos`):kpiHtml('fa-scale-balanced',disp>=0?'Disponível':'Acima do teto',(disp<0?'−':'')+brl(Math.abs(disp)),`gasto ${brl(spent)} de ${brl(teto)}`,disp>=0?'pos':'neg',cat.user_id===currentUser.id&&mesEditavel()?`openEditarResta('${catId}')`:'')}
       ${rit?kpiHtml('fa-calendar-day','Por dia',disp>0?brl(rit.porDia):'Sem folga',disp>0?`pelos próximos ${rit.restam} dias`:'o teto já foi',disp>0?'':'neg'):kpiHtml('fa-list','Lançamentos',String(doMes.length),monthLabel(viewMonthKey))}
       ${rit?kpiHtml('fa-gauge-high','No ritmo atual',rit.ritmo.val,rit.ritmo.sub,rit.ritmo.cls==='ok'?'pos':rit.ritmo.cls==='over'?'neg':'warn'):kpiHtml('fa-hashtag','Ticket médio',doMes.length?brl(spent/doMes.length):'—','por lançamento')}
       ${kpiHtml('fa-arrow-right-arrow-left',`vs ${mesCurto(ant)}`,delta==null?'—':`${delta>0?'+':''}${Math.round(delta)}%`,gAnt>0?`${mesCurto(ant)}: ${brl(gAnt)}`:'sem gasto no mês anterior',delta==null?'':delta>0?'neg':'pos')}
@@ -3947,6 +3954,7 @@ function closeSheet(){ document.getElementById('gc-sheet')?.remove(); }
 })();
 
 function openAddExpense(catId){
+  if(redirecionaMesTrancado(()=>openAddExpense(catId))) return;
   if(!isPro()){
     const today=todayLocal();
     const used=expenses.filter(e=>!e.previsto&&e.date===today).length;
@@ -4681,34 +4689,55 @@ async function confirmDeleteCategory(catId){
   }
 }
 
-function openCloseMonth(){
-  const next=nextMonthKey(currentMonthKey);
-  openModal(`<div class="modal-title">Fechar Mês</div>
-    <p style="font-size:13px;color:var(--text2);margin-bottom:16px">Ajuste os orçamentos para <strong style="color:var(--text)">${monthLabel(next)}</strong>:</p>
-    ${categories.map(cat=>`<div class="month-adj-item">
-      <div class="month-adj-name">${cat.name}</div>
-      <div class="month-adj-row"><span style="font-size:12px;color:var(--text3);white-space:nowrap">Orçamento (R$)</span>
-        <input class="form-input" id="adj-${cat.id}" type="text" inputmode="decimal" value="${cat.budget}" oninput="moneyKey(this)"/></div>
-    </div>`).join('')}
-    <button class="btn-primary" id="btn-close-month" onclick="confirmCloseMonth('${next}')" style="margin-top:8px">Fechar e Abrir ${monthLabel(next)}</button>
-    <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
+function mesDoUsuario(mk){ return months.find(m=>m.key===mk&&(!m.user_id||!currentUser||m.user_id===currentUser.id))||null; }
+function mesCalendario(){ return monthKeyOf(new Date()); }
+function mesTrancado(mk){ if(!mk||mk<mesCalendario()) return false; const m=mesDoUsuario(mk); return !!(m&&m.closed); }
+function primeiroMesAberto(){ let k=mesCalendario(); for(let i=0;i<24&&mesTrancado(k);i++) k=nextMonthKey(k); return k; }
+async function entrarNoMes(mk){
+  await ensureMonthsExist(mk,mk);
+  currentMonthKey=mk; viewMonthKey=mk; currentCatIdx=0;
+  expenses=await api.getExpenses(mk);
+  rollovers=await api.getRollovers(mk).catch(()=>[]);
+  budgetTransfers=await api.getBudgetTransfers(mk).catch(()=>[]);
+  await refreshFutureMonths();
+  refreshMonthIndex();
+  saveCache(); render();
+  await applyAutoRollover();
+  autoCreateRecurring();
 }
-
-async function confirmCloseMonth(nextKey){
-  const btn=document.getElementById('btn-close-month'); btn.disabled=true; btn.textContent='Processando...';
+async function openEncerrarMes(){
+  const mk=currentMonthKey, prox=nextMonthKey(mk);
+  const ok=await confirmar(`A partir de agora, todo lançamento novo vai para ${monthLabel(prox)}, mesmo com data de ${monthLabel(mk).split(' ')[0].toLowerCase()}.\n\nAs categorias que levam a sobra ou o estouro já fecham a conta agora. Dá para reabrir enquanto ${monthLabel(mk).split(' ')[0].toLowerCase()} não acabar.`,{titulo:`Encerrar ${monthLabel(mk)}?`,botao:`Encerrar e abrir ${monthLabel(prox).split(' ')[0]}`,icone:'fa-lock'});
+  if(!ok) return;
   try{
-    for(const cat of categories){ const inp=document.getElementById(`adj-${cat.id}`); if(inp){const v=parseNum(inp.value);if(!isNaN(v)&&v>0) await api.updateCategory(cat.id,{budget:v});} }
-    await api.closeMonth(currentMonthKey);
-    if(!months.find(m=>m.key===nextKey)) await api.insertMonth({key:nextKey,closed:false});
-    categories=await api.getCategories(); months=await api.getMonths();
-    currentMonthKey=nextKey; viewMonthKey=nextKey; currentCatIdx=0;
-    expenses=await api.getExpenses(viewMonthKey);
-    saveCache();
+    await api.closeMonth(mk);
+    const m=mesDoUsuario(mk); if(m) m.closed=true;
+    _closeModal();
+    await entrarNoMes(primeiroMesAberto());
     vib(20);
-    _closeModal(); render(); showToast(`${monthLabel(nextKey)} aberto!`,'success');
-  }catch{ showToast('Erro ao fechar mês.','error'); btn.disabled=false; btn.textContent='Tentar novamente'; }
+    showToast(`${monthLabel(mk)} encerrado. Lançamentos novos vão para ${monthLabel(currentMonthKey)}.`,'success');
+  }catch{ showToast('Não consegui encerrar o mês. Tente de novo.','error'); }
 }
-
+async function reabrirMes(mk){
+  if(!mesTrancado(mk)) return;
+  const ok=await confirmar(`Lançamentos novos voltam a cair em ${monthLabel(mk)}.\n\nSobras e estouros levados automaticamente de ${monthLabel(mk)} são desfeitos, para serem recalculados quando você encerrar de novo. Os lançamentos já feitos em ${monthLabel(nextMonthKey(mk))} continuam lá.`,{titulo:`Reabrir ${monthLabel(mk)}?`,botao:'Reabrir',icone:'fa-lock-open'});
+  if(!ok) return;
+  try{
+    await api.reopenMonth(mk);
+    const m=mesDoUsuario(mk); if(m) m.closed=false;
+    await api.deleteAutoRolloversFrom(mk).catch(()=>{});
+    _closeModal();
+    await entrarNoMes(primeiroMesAberto());
+    vib(15);
+    showToast(`${monthLabel(mk)} reaberto.`,'success');
+  }catch{ showToast('Não consegui reabrir o mês.','error'); }
+}
+function redirecionaMesTrancado(depois){
+  if(!mesTrancado(viewMonthKey)) return false;
+  showToast(`${monthLabel(viewMonthKey)} está encerrado — lançando em ${monthLabel(currentMonthKey)}.`);
+  goToMonth(currentMonthKey).then(depois);
+  return true;
+}
 async function ensureMonthsExist(fromKey,toKey){
   let k=fromKey;
   const wanted=[];
@@ -4753,8 +4782,9 @@ function neighborMonth(key,dir){
 }
 function monthExtra(key){
   const m=monthIndex[key];
-  if(!m||!m.count) return 'sem lançamento';
-  return `${brl(m.total)} · ${m.count} ${m.count===1?'lançamento':'lançamentos'}`;
+  const trava=mesTrancado(key)?' · encerrado':'';
+  if(!m||!m.count) return 'sem lançamento'+trava;
+  return `${brl(m.total)} · ${m.count} ${m.count===1?'lançamento':'lançamentos'}${trava}`;
 }
 function stepRowHtml(key,dir){
   const rotulo=dir>0?'Próximo':'Anterior';
@@ -4933,6 +4963,7 @@ function openMonthPicker(){
   const html=`<div class="modal-title">Mês</div>
     <div class="ms" id="ms-host">${monthStepperHtml()}</div>
     <button class="ms-pick" onclick="openMonthGrid()"><i class="fa-solid fa-table-cells" aria-hidden="true"></i> Escolher outro mês</button>
+    ${mesTrancado(viewMonthKey)?`<button class="ms-lock" onclick="reabrirMes('${viewMonthKey}')"><i class="fa-solid fa-lock-open" aria-hidden="true"></i><span>Reabrir ${monthLabel(viewMonthKey)}<em>lançamentos novos voltam a cair nele</em></span></button>`:viewMonthKey===currentMonthKey?`<button class="ms-lock" onclick="openEncerrarMes()"><i class="fa-solid fa-lock" aria-hidden="true"></i><span>Encerrar ${monthLabel(currentMonthKey)}<em>lançamentos novos vão para ${monthLabel(nextMonthKey(currentMonthKey))}</em></span></button>`:''}
     <button class="mp-future" onclick="openFuturo()"><i class="fa-solid fa-arrow-trend-up" aria-hidden="true"></i> Ver o saldo dos próximos meses</button>
     <button class="btn-secondary" style="margin-top:10px" onclick="_closeModal()">Fechar</button>`;
   if(document.getElementById('modal-overlay').classList.contains('open')) document.getElementById('modal-content').innerHTML=html;
@@ -4986,6 +5017,7 @@ async function quickLocal(forcar){
   if(h2) h2.innerHTML=`<i class="fa-solid fa-location-dot" aria-hidden="true"></i> ${c.place?escapeHtml(c.place):'Localização capturada'}`;
 }
 function openQuickValue(){
+  if(redirecionaMesTrancado(()=>openQuickValue())) return;
   const cat=catAlvoRapido();
   if(!cat){ showToast(categories.length?'Esta categoria é somente leitura.':'Crie uma categoria primeiro.','error'); return; }
   vib(8);
@@ -5137,45 +5169,75 @@ async function openConsolidado(){
   document.getElementById('modal-content').innerHTML=html;
 }
 
-function openMonthOverride(catId){
+function extrasDoMes(cat,mk){ return Math.round((rolloverAmount(cat.id,mk)+loanAmount(cat.id,mk)+reliefAmount(cat.id,mk))*100)/100; }
+function gastoNoMesVisto(catId){ return [...expenses.filter(e=>e.cat_id===catId),...projectedExpenses.filter(e=>e.cat_id===catId)].reduce((s,e)=>s+(parseFloat(e.value)||0),0); }
+function openEditarResta(catId){
   const cat=categories.find(c=>c.id===catId); if(!cat) return;
   if(semTeto(cat)){ showToast('Esta categoria é sem teto — não tem orçamento para ajustar.','error'); return; }
-  const eff=baseBudget(cat,currentMonthKey);
-  const ov=hasOverride(cat,currentMonthKey);
-  openModal(`<div class="modal-title">Ajustar orçamento · ${escapeHtml(cat.name)}</div>
-    <p class="modal-note">Teve um mês fora da rotina (festas, viagem, uma compra grande)? Defina um orçamento só para <strong>${monthLabel(currentMonthKey)}</strong>. O valor padrão dos outros meses <strong>não muda</strong>.</p>
-    <div class="info-rows">
-      <div class="info-row"><span><i class="fa-regular fa-bookmark" aria-hidden="true"></i> Orçamento padrão</span><strong>${brl(cat.budget)}/mês</strong></div>
-      <div class="info-row"><span><i class="fa-regular fa-calendar" aria-hidden="true"></i> Ajuste vale só para</span><strong>${monthLabel(currentMonthKey)}</strong></div>
+  if(cat.user_id!==currentUser.id){ showToast('Só quem criou a categoria muda o orçamento.','error'); return; }
+  if(!mesEditavel()){ showToast('Mês passado não muda de orçamento.','error'); return; }
+  const mk=viewMonthKey;
+  const gasto=Math.round(gastoNoMesVisto(catId)*100)/100;
+  const extras=extrasDoMes(cat,mk);
+  const teto=baseBudget(cat,mk);
+  const resta=Math.round((teto+extras-gasto)*100)/100;
+  const ov=hasOverride(cat,mk);
+  const fmt=v=>(v<0?'-':'')+Math.abs(v).toFixed(2).replace('.',',');
+  vib(5);
+  openModal(`<div class="xf-title">Quanto resta em ${monthLabel(mk)}</div>
+    <p class="al-intro rs-intro">${escapeHtml(cat.name)} · ajuste só deste mês. O padrão de <strong>${brl(cat.budget)}/mês</strong> não muda.</p>
+    <label class="amt-box rs-amt" for="rs-resta">
+      <span class="amt-cur">R$</span>
+      <input class="amt-input" id="rs-resta" type="text" inputmode="decimal" autocomplete="off" value="${fmt(resta)}" oninput="moneyKeySinal(this);rsDe('resta')" onfocus="this.select()"/>
+    </label>
+    <div class="amt-lbl">Quanto você quer que reste · qualquer valor, até zero</div>
+    <div class="rs-conta">
+      <div class="rs-l"><span>Gasto ${mk>currentMonthKey?'comprometido':'até agora'}</span><b class="money">${brl(gasto)}</b></div>
+      ${Math.abs(extras)>=0.005?`<div class="rs-l"><span>Sobra levada, adiantamento e alívios</span><b class="money">${extras>0?'+':'−'}${brl(Math.abs(extras))}</b></div>`:''}
+      <div class="rs-l rs-teto"><label for="rs-teto">Teto de ${monthLabel(mk)}</label><span class="rs-in"><span>R$</span><input id="rs-teto" type="text" inputmode="decimal" autocomplete="off" value="${fmt(teto)}" oninput="moneyKey(this);rsDe('teto')" onfocus="this.select()"/></span></div>
     </div>
-    <div class="form-group"><label class="form-label">Orçamento de ${monthLabel(currentMonthKey)} (R$)</label>
-      <input class="form-input" id="f-ovbudget" type="text" inputmode="decimal" value="${eff}" oninput="moneyKey(this)"/>
-      <span class="field-hint">Só este mês passa a usar este valor. <strong>Zero</strong> vale: a categoria fica sem limite neste mês e qualquer gasto já conta como estouro. ${ov?'Dá para voltar ao padrão a qualquer momento.':''}</span></div>
-    <button class="btn-primary" id="btn-ov" onclick="saveMonthOverride('${catId}')">Salvar só para ${monthLabel(currentMonthKey)}</button>
-    ${ov?`<button class="btn-secondary" onclick="revertMonthOverride('${catId}')">Voltar ao padrão (${brl(cat.budget)}/mês)</button>`:''}
+    <div class="rs-aviso" id="rs-aviso" hidden></div>
+    <input type="hidden" id="rs-dados" data-gasto="${gasto}" data-extras="${extras}" data-padrao="${parseFloat(cat.budget)||0}"/>
+    <button class="btn-primary" id="rs-salvar" onclick="salvarResta('${catId}')">Salvar só para ${monthLabel(mk)}</button>
+    ${ov?`<button class="btn-secondary" onclick="voltarTetoPadrao('${catId}')">Voltar ao padrão (${brl(cat.budget)}/mês)</button>`:''}
     <button class="btn-secondary" onclick="_closeModal()">Cancelar</button>`);
+  const i=document.getElementById('rs-resta'); if(i) try{ i.focus({preventScroll:true}); i.select(); }catch{}
 }
-
-async function saveMonthOverride(catId){
-  const v=parseNum(document.getElementById('f-ovbudget').value);
-  if(isNaN(v)||v<0){ showToast('Informe um valor válido.','error'); return; }
-  const btn=document.getElementById('btn-ov'); btn.disabled=true; btn.textContent='Salvando...';
+function rsDe(origem){
+  const d=document.getElementById('rs-dados'); if(!d) return;
+  const gasto=parseFloat(d.dataset.gasto)||0, extras=parseFloat(d.dataset.extras)||0;
+  const ir=document.getElementById('rs-resta'), it=document.getElementById('rs-teto');
+  const fmt=v=>(v<0?'-':'')+Math.abs(v).toFixed(2).replace('.',',');
+  let teto;
+  if(origem==='resta'){ const r=parseNum(ir.value); teto=isNaN(r)?NaN:Math.round((r+gasto-extras)*100)/100; if(!isNaN(teto)) it.value=fmt(Math.max(0,teto)); }
+  else{ teto=parseNum(it.value); if(!isNaN(teto)) ir.value=fmt(Math.round((teto+extras-gasto)*100)/100); }
+  const av=document.getElementById('rs-aviso'), b=document.getElementById('rs-salvar');
+  const ruim=isNaN(teto)||teto<0;
+  if(av){ av.hidden=!ruim; av.innerHTML=isNaN(teto)?'Digite um valor.':`<i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> O teto não pode ficar negativo: o mínimo que dá para restar é <strong>${extras-gasto<0?'−':''}${brl(Math.abs(Math.round((extras-gasto)*100)/100))}</strong>.`; }
+  if(b) b.disabled=ruim;
+}
+async function salvarResta(catId){
+  const cat=categories.find(c=>c.id===catId); if(!cat) return;
+  const teto=parseNum(document.getElementById('rs-teto')?.value);
+  if(isNaN(teto)||teto<0){ showToast('O teto não pode ficar negativo.','error'); return; }
+  const mk=viewMonthKey;
+  const b=document.getElementById('rs-salvar'); b.disabled=true; b.textContent='Salvando…';
   try{
-    await setMonthBudget(catId, currentMonthKey, v);
-    saveCache(); vib(15);
-    _closeModal(); render();
-    showToast(v===0?`${monthLabel(currentMonthKey)} ficou sem orçamento nesta categoria.`:'Orçamento do mês ajustado!','success');
-  }catch(e){
-    btn.disabled=false; btn.textContent='Salvar ajuste do mês';
-    showToast('Erro — rode o SQL: ALTER TABLE categories ADD COLUMN month_budgets jsonb','error');
+    await ensureMonthsExist(mk,mk);
+    await setMonthBudget(catId,mk,Math.abs(teto-(parseFloat(cat.budget)||0))<0.005?null:Math.round(teto*100)/100);
+    saveCache(); vib(15); _closeModal(); render();
+    const resta=Math.round((teto+extrasDoMes(cat,mk)-gastoNoMesVisto(catId))*100)/100;
+    showToast(`${cat.name}: resta ${brl(resta)} em ${monthLabel(mk)}.`,'success');
+  }catch{
+    b.disabled=false; b.textContent=`Salvar só para ${monthLabel(mk)}`;
+    showToast('Erro ao salvar o ajuste.','error');
   }
 }
-
-async function revertMonthOverride(catId){
+async function voltarTetoPadrao(catId){
   try{
-    await setMonthBudget(catId, currentMonthKey, null);
-    saveCache(); vib(10);
-    _closeModal(); render(); showToast('Voltou ao orçamento padrão.','success');
+    await setMonthBudget(catId,viewMonthKey,null);
+    saveCache(); vib(10); _closeModal(); render();
+    showToast('Voltou ao orçamento padrão.','success');
   }catch{ showToast('Erro ao reverter.','error'); }
 }
 
@@ -5446,8 +5508,8 @@ async function openRolloverMonth(){
   let exps=[],rolls=[],existing=[];
   try{ [exps,rolls,existing]=await Promise.all([api.getExpenses(fromKey),api.getRollovers(fromKey).catch(()=>[]),api.getRollovers(toKey).catch(()=>[])]); }
   catch{ document.getElementById('modal-content').innerHTML=`<div class="modal-title">Saldos</div><p class="modal-note">Erro ao carregar.</p><button class="btn-secondary" onclick="_closeModal()">Fechar</button>`; return; }
-  const owned=categories.filter(c=>c.user_id===currentUser.id);
-  const rows=owned.map(c=>({cat:c,bal:monthBalance(c,fromKey,exps||[],rolls||[]),done:(existing||[]).some(r=>r.cat_id===c.id&&r.from_month===fromKey)})).filter(r=>Math.abs(r.bal)>=0.005);
+  const owned=categories.filter(c=>c.user_id===currentUser.id&&!semTeto(c));
+  const rows=owned.map(c=>({cat:c,bal:monthBalance(c,fromKey,exps||[],rolls||[]),done:(existing||[]).some(r=>r.cat_id===c.id&&r.from_month===fromKey&&Math.abs(parseFloat(r.amount||0))>=0.005)})).filter(r=>Math.abs(r.bal)>=0.005);
   if(!rows.length){
     document.getElementById('modal-content').innerHTML=`<div class="modal-title">Levar saldos para ${monthLabel(toKey)}</div>
       <p class="modal-note">Nenhuma categoria de ${monthLabel(fromKey)} tem sobra ou estouro para levar.</p>
@@ -5473,7 +5535,12 @@ async function saveRolloverMonth(fromKey,toKey){
   if(!picks.length){ showToast('Selecione ao menos uma categoria.','error'); return; }
   const btn=document.getElementById('btn-roll'); btn.disabled=true; btn.textContent='Levando...';
   try{
-    for(const p of picks) await api.insertRollover({cat_id:p.cat_id,from_month:fromKey,to_month:toKey,amount:p.amount,auto:false});
+    const existentes=await api.getRollovers(toKey).catch(()=>[])||[];
+    for(const p of picks){
+      const zerado=existentes.find(r=>r.cat_id===p.cat_id&&r.from_month===fromKey&&r.user_id===currentUser.id&&Math.abs(parseFloat(r.amount||0))<0.005);
+      if(zerado) await api.setRolloverAmount(zerado.id,p.amount);
+      else await api.insertRollover({cat_id:p.cat_id,from_month:fromKey,to_month:toKey,amount:p.amount,auto:false});
+    }
     if(toKey===viewMonthKey) rollovers=await api.getRollovers(viewMonthKey).catch(()=>rollovers);
     vib(15); saveCache(); _closeModal(); render();
     showToast(`Saldos levados para ${monthLabel(toKey)}.`,'success');

@@ -4,7 +4,7 @@ Referência única do projeto: o que ele é, como está montado, o que está no 
 abandonado, as regras que toda alteração precisa seguir, e o passo a passo para migrar
 tudo para outra conta.
 
-Versão do app na data deste documento: **6.3.1** · Última atualização: **25/09/2026**
+Versão do app na data deste documento: **6.4** · Última atualização: **05/11/2026**
 
 > Até a v5.19 o app se chamava **GastoCerto**. A v6 trocou o nome e a identidade inteira —
 > ver [seção 1.1](#11-identidade-v6).
@@ -236,7 +236,7 @@ num cartão que fecha dia 3 entra na fatura de setembro.
 |---|---|
 | `key` | `YYYY-MM` |
 | `user_id` | **Linha por usuário** — dois usuários têm linhas distintas do mesmo mês |
-| `closed` | Mês encerrado |
+| `closed` | Mês encerrado. Mês passado é fechado sozinho na virada; mês **atual ou futuro** com `closed` é um mês **trancado pela pessoa** (ver [seção 5.0.5](#505-encerrar-o-mês-e-ajustar-quanto-resta-v64)) |
 | `budgets` | jsonb, **legado**. Substituído por `categories.month_budgets` |
 
 `expenses.month_key` tem chave estrangeira para cá. **A linha do mês precisa existir antes
@@ -539,6 +539,45 @@ outro o número trocava na frente da pessoa. Agora o `<html>` nasce com a classe
 `gp-carregando` (posta já na primeira linha do `app.js`) e **todo valor em dinheiro
 fica embaçado e pulsando**, pelos mesmos seletores do modo discreto, até `valoresProntos()`.
 Sem conexão, os valores do cache aparecem assim que o `init()` desiste.
+
+### 5.0.5 Encerrar o mês e ajustar quanto resta (v6.4)
+
+**Encerrar o mês.** No seletor de mês, *Encerrar Novembro* tranca o mês atual antes do
+calendário virar — para quem fecha a conta quando a fatura fecha.
+
+- Grava `months.closed=true` **na linha da própria pessoa** (`closeMonth` filtra por
+  `user_id`). Numa categoria compartilhada, o outro lado continua com o mês aberto.
+- `currentMonthKey` passa a ser `primeiroMesAberto()`: o primeiro mês, a partir do mês do
+  calendário, que não está trancado. **Tudo que é "mês atual" segue esse valor**: o
+  lançamento novo cai nele (com a data de verdade, como a parcela de cartão já fazia), o
+  rollover automático fecha a conta do mês trancado, `autoCreateRecurring()` copia os
+  recorrentes, e o `init()` já abre nele.
+- **Trancado só vale do mês do calendário em diante** (`mesTrancado(mk)`). Mês passado
+  também tem `closed=true` — a virada fecha sozinha —, mas continua aceitando lançamento
+  retroativo como sempre.
+- Vendo um mês trancado: aviso no topo com *Levar saldos* e *Reabrir*, e o FAB e o raio
+  pulam para o mês aberto (`redirecionaMesTrancado`). Editar o que já está lá continua
+  liberado.
+- **Reabrir** (`reabrirMes`) volta o `closed` e apaga os rollovers **automáticos** que
+  saíram dele, para serem recalculados no próximo encerramento. O que foi lançado no mês
+  seguinte enquanto estava trancado fica lá.
+- `ritmoDoMes(gasto, disponível, mês)` passou a contar por data absoluta: num mês que
+  ainda não começou no calendário, *por dia* divide pelos dias de hoje até o fim dele, e o
+  ritmo conta a partir do primeiro lançamento do mês.
+
+**Ajustar quanto resta.** O lápis ao lado do *Disponível* (e o KPI no web, e *Ajustar
+quanto resta* no ⋯) abre `openEditarResta`: dois campos ligados, **quanto resta** e
+**teto do mês**. Digitar um calcula o outro — `teto = resta + gasto − (sobra levada +
+adiantamento + alívios)`. Aceita zero e negativo, desde que o teto não fique abaixo de
+zero. Grava em `month_budgets` do mês visto (atual ou futuro); se o teto volta a ser o
+padrão, o ajuste é apagado. Substituiu o antigo *Ajustar orçamento do mês*, que só
+editava o teto e só no mês atual.
+
+**Bug do "levar saldo" travado.** Desfazer um saldo levado (o X nas Movimentações) zera a
+linha em vez de apagar — é o que impede o rollover automático de recriar. Mas a tela
+*Levar saldos* tratava a linha zerada como "já levado" e **desabilitava a caixa para
+sempre**. Agora só conta como levado se o valor não for zero, e levar de novo reaproveita
+a linha zerada (`setRolloverAmount`) em vez de criar outra.
 
 ### 5.0.4 Mapa dos gastos (v6.3)
 
@@ -1435,6 +1474,7 @@ Nesta ordem, que é da ponta mais provável para a menos:
 | Versão | O quê |
 |---|---|
 | **6.3** | **Mapa dos gastos**: pin por lugar com a cor da categoria, filtros de mês, 60, 90, 120 dias e tudo, por categoria, folha do lugar com os lançamentos, detalhe e edição, e ranking de onde você mais gasta |
+| **6.4** | Encerrar o mês antes da virada (lançamentos vão para o seguinte, reabrir desfaz), ajustar quanto resta digitando o disponível ou o teto, e o "levar saldo" que travava depois de desfazer |
 | 6.3.1 | Recorrente lançado num mês futuro passa a ser projetado nos meses seguintes; a projeção segue a série e para quando ela para |
 | 6.2.1 | Localização pede menos: não repete depois de recusada, reaproveita o local por 5 minutos e ganhou chave em Sua conta para só buscar quando tocar |
 | **6.2** | **Lançar alívio**: cashback, reembolso, bônus e fontes próprias, dividido em uma ou várias categorias com fechamento em 100%, entrando no limite, nas Movimentações e nos Relatórios. Valores embaçados até o servidor responder, sem trocar número na frente da pessoa |
